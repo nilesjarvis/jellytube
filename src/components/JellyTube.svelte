@@ -56,6 +56,7 @@
 
   type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'subscriptions' | 'channel' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
+  type EffectiveTheme = 'light' | 'dark';
   type UrlRoute =
     | { view: 'home' }
     | { view: 'movies' }
@@ -91,6 +92,7 @@
   let routeHistoryIndex = Number(window.history.state?.jellytubeIndex ?? 0) || 0;
   let themeMode: ThemeMode =
     (localStorage.getItem('jellytube.theme') as ThemeMode | null) ?? session.themeMode ?? 'system';
+  let effectiveTheme: EffectiveTheme = resolveEffectiveTheme(themeMode);
 
   let recent: JellyfinItem[] = [];
   let resume: JellyfinItem[] = [];
@@ -159,9 +161,17 @@
 
   onMount(() => {
     applyTheme();
+    const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
+      if (themeMode === 'system') applyTheme();
+    };
+    colorSchemeQuery.addEventListener('change', handleSystemThemeChange);
     window.addEventListener('popstate', handlePopState);
     void initializeApp();
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      colorSchemeQuery.removeEventListener('change', handleSystemThemeChange);
+      window.removeEventListener('popstate', handlePopState);
+    };
   });
 
   async function initializeApp() {
@@ -831,21 +841,21 @@
   }
 
   function cycleTheme() {
-    themeMode = themeMode === 'system' ? 'dark' : themeMode === 'dark' ? 'light' : 'system';
+    themeMode = effectiveTheme === 'dark' ? 'light' : 'dark';
     applyTheme();
     const nextSession = { ...session, themeMode };
     session = nextSession;
     saveSession(nextSession);
   }
 
+  function resolveEffectiveTheme(mode: ThemeMode): EffectiveTheme {
+    if (mode !== 'system') return mode;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
   function applyTheme() {
-    const effective =
-      themeMode === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : themeMode;
-    document.documentElement.dataset.theme = effective;
+    effectiveTheme = resolveEffectiveTheme(themeMode);
+    document.documentElement.dataset.theme = effectiveTheme;
     localStorage.setItem('jellytube.theme', themeMode);
   }
 
@@ -950,8 +960,13 @@
     </form>
 
     <div class="topbar-actions">
-      <button class="icon-button theme-toggle" aria-label="Toggle dark mode" title={`Theme: ${themeMode}`} on:click={cycleTheme}>
-        {#if themeMode === 'dark'}
+      <button
+        class="icon-button theme-toggle"
+        aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`}
+        title={`Theme: ${themeMode}${themeMode === 'system' ? ` (${effectiveTheme})` : ''}`}
+        on:click={cycleTheme}
+      >
+        {#if effectiveTheme === 'dark'}
           <Moon size={19} />
         {:else}
           <Sun size={19} />

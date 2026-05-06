@@ -233,9 +233,7 @@ async function main() {
     context,
     `
       (() => {
-        for (let i = 0; i < 3 && document.documentElement.dataset.theme !== 'dark'; i += 1) {
-          document.querySelector('.theme-toggle').click();
-        }
+        document.querySelector('.theme-toggle').click();
         return document.documentElement.dataset.theme;
       })()
     `
