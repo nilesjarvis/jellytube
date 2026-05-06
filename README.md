@@ -2,7 +2,60 @@
 
 JellyTube is a local, frontend-only Svelte application that turns selected Jellyfin libraries into a YouTube-style browsing and watching experience. It is designed for Jellyfin servers that already host downloaded YouTube archives, movies, episodic shows, and music videos.
 
-![JellyTube Movies view](screenshots/06-movies.png)
+## Preview
+
+These screenshots live in `screenshots/` and are embedded here so users can preview JellyTube directly from the README.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/03-home-feed-light.png" alt="JellyTube home feed with video shelves">
+      <br>
+      <strong>Home feed</strong>
+    </td>
+    <td width="50%">
+      <img src="screenshots/06-movies.png" alt="JellyTube Movies view with poster shelves">
+      <br>
+      <strong>Movies</strong>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/10b-snl-show-page.png" alt="Season-aware show page in JellyTube">
+      <br>
+      <strong>Show guide</strong>
+    </td>
+    <td width="50%">
+      <img src="screenshots/10-music-videos.png" alt="JellyTube Music Videos view with mixes">
+      <br>
+      <strong>Music videos</strong>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/13b-subscriptions.png" alt="JellyTube Subscriptions directory">
+      <br>
+      <strong>Subscriptions</strong>
+    </td>
+    <td width="50%">
+      <img src="screenshots/14-search.png" alt="JellyTube search results">
+      <br>
+      <strong>Search</strong>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/15-watch.png" alt="JellyTube watch page with player and recommendations">
+      <br>
+      <strong>Watch page</strong>
+    </td>
+    <td width="50%">
+      <img src="screenshots/18-watch-mobile.png" alt="Responsive mobile JellyTube watch page">
+      <br>
+      <strong>Mobile watch</strong>
+    </td>
+  </tr>
+</table>
 
 ## What JellyTube Does
 
@@ -18,20 +71,7 @@ JellyTube is a local, frontend-only Svelte application that turns selected Jelly
 
 ## Screenshot Tour
 
-The screenshot files below are produced by the browser smoke workflow and are intended to live in the repository `screenshots/` directory.
-
-| Area | Screenshot | What to look for |
-| --- | --- | --- |
-| Movies | ![Movies route with YouTube Movies shelves](screenshots/06-movies.png) | A separate Movies destination with a featured/resume card and poster grids. |
-| Movie context | ![Movie context returning to Movies](screenshots/06b-movie-context.png) | Movie metadata routes back to the Movies surface instead of a fake channel. |
-| Show guide | ![Season-aware show page](screenshots/10b-snl-show-page.png) | Episodic shows open as season-aware guides with latest/play-season actions. |
-| Music videos | ![Music videos route](screenshots/10-music-videos.png) | Music libraries provide artist/channel mixes plus recommendations and new videos. |
-| Mix playback | ![Mix watch page with queue](screenshots/11-mix-watch-playing.png) | Mixes use an ordered queue with autoplay-next and persistent player controls. |
-| Subscriptions | ![Subscriptions directory](screenshots/13b-subscriptions.png) | Shows and channels are listed in a filterable directory without subscribe state. |
-| Search | ![Search results](screenshots/14-search.png) | Search keeps movies, episodes, music videos, and standard videos visually distinct. |
-| Watch | ![Watch page](screenshots/15-watch.png) | The player includes resume, metadata, recommendations, and queue/episode context. |
-| Browser history | ![Browser back to search](screenshots/16-browser-back-search.png) | Browser back/forward preserves search and watch task context. |
-| Mobile watch | ![Responsive mobile watch page](screenshots/18-watch-mobile.png) | The watch layout stacks cleanly on narrow screens. |
+The README preview uses a curated screenshot set from the browser smoke workflow. The same workflow can generate additional route, history, autoplay, and failure-state screenshots locally.
 
 To regenerate the screenshots, run the app and connect the smoke script to a Jellyfin test server:
 

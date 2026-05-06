@@ -4,3 +4,11 @@ dist
 .jellytube
 .DS_Store
 screenshots/*.png
+!screenshots/03-home-feed-light.png
+!screenshots/06-movies.png
+!screenshots/10b-snl-show-page.png
+!screenshots/10-music-videos.png
+!screenshots/13b-subscriptions.png
+!screenshots/14-search.png
+!screenshots/15-watch.png
+!screenshots/18-watch-mobile.png
