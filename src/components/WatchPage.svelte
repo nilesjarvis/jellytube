@@ -1045,6 +1045,14 @@
                 {:else}
                   <span>{episodeInfo(episode)?.episode ?? ''}</span>
                 {/if}
+                {#if episode.Id === item.Id}
+                  <span class="now-playing-pill">
+                    <div class="now-playing-bars">
+                      <i></i><i></i><i></i>
+                    </div>
+                    Playing
+                  </span>
+                {/if}
                 {#if formatDuration(episode.RunTimeTicks)}
                   <span class="duration">{formatDuration(episode.RunTimeTicks)}</span>
                 {/if}

@@ -1310,9 +1310,46 @@ label {
   scroll-snap-align: start;
 }
 
-.episode-tile.active .episode-thumb {
-  outline: 3px solid var(--brand);
-  outline-offset: 2px;
+.now-playing-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  backdrop-filter: blur(2px);
+  z-index: 2;
+}
+
+.now-playing-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.now-playing-bars i {
+  display: block;
+  width: 3px;
+  background: #fff;
+  border-radius: 1px;
+  animation: eq-play 1s infinite ease-in-out alternate;
+}
+
+.now-playing-bars i:nth-child(1) { height: 10px; animation-delay: 0.1s; }
+.now-playing-bars i:nth-child(2) { height: 14px; animation-delay: 0.3s; }
+.now-playing-bars i:nth-child(3) { height: 8px; animation-delay: 0.2s; }
+
+@keyframes eq-play {
+  0% { transform: scaleY(0.4); }
+  100% { transform: scaleY(1); }
 }
 
 .episode-thumb {
