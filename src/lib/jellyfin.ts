@@ -92,9 +92,11 @@ export function annotateItems(items: JellyfinItem[], source: SelectedLibrary) {
 
 const itemFields = [
   'PrimaryImageAspectRatio',
+  'BackdropImageTags',
   'Overview',
   'DateCreated',
   'PremiereDate',
+  'EndDate',
   'Genres',
   'Tags',
   'Studios',
@@ -110,7 +112,11 @@ const itemFields = [
   'UserData',
   'RunTimeTicks',
   'ProductionYear',
+  'OfficialRating',
   'CommunityRating',
+  'Status',
+  'ChildCount',
+  'RecursiveItemCount',
   'Container'
 ].join(',');
 
@@ -250,6 +256,15 @@ export class JellyfinClient {
     return this.url('/Items/' + item.Id + '/Images/Primary', {
       fillWidth: String(width),
       quality: '90',
+      api_key: this.accessToken ?? ''
+    });
+  }
+
+  getBackdropUrl(item: Pick<JellyfinItem, 'Id' | 'BackdropImageTags'>, width = 1280) {
+    if (!item.BackdropImageTags?.length) return '';
+    return this.url('/Items/' + item.Id + '/Images/Backdrop/0', {
+      fillWidth: String(width),
+      quality: '88',
       api_key: this.accessToken ?? ''
     });
   }

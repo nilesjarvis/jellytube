@@ -87,11 +87,16 @@ export type JellyfinItem = {
   Type: 'Video' | 'Episode' | string;
   DateCreated?: string;
   PremiereDate?: string;
+  EndDate?: string;
   Overview?: string;
   Container?: string;
   RunTimeTicks?: number;
   ProductionYear?: number;
+  OfficialRating?: string;
   CommunityRating?: number;
+  Status?: string;
+  ChildCount?: number;
+  RecursiveItemCount?: number;
   ParentId?: string;
   SeriesId?: string;
   SeriesName?: string;

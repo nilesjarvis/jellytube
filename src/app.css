@@ -1353,6 +1353,265 @@ label {
   white-space: nowrap;
 }
 
+.show-hero {
+  --show-backdrop: none;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: end;
+  min-height: 360px;
+  margin-bottom: 22px;
+  padding: 24px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--soft-2);
+}
+
+.show-hero::before,
+.show-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+}
+
+.show-hero::before {
+  background-image: var(--show-backdrop);
+  background-position: center;
+  background-size: cover;
+  opacity: 0.24;
+  filter: saturate(1.08);
+  transform: scale(1.02);
+}
+
+.show-hero::after {
+  z-index: -1;
+  background:
+    linear-gradient(90deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 82%, transparent) 52%, color-mix(in srgb, var(--surface) 28%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 58%, transparent) 0%, var(--surface) 100%);
+}
+
+.show-artwork {
+  width: 100%;
+  max-width: 220px;
+  overflow: hidden;
+  border-radius: 8px;
+  aspect-ratio: 2 / 3;
+  background: #202020;
+  box-shadow: 0 18px 40px var(--shadow);
+}
+
+.show-artwork img,
+.show-artwork span {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  color: #fff;
+  font-size: 3rem;
+  font-weight: 800;
+}
+
+.show-hero-copy {
+  min-width: 0;
+  display: grid;
+  align-content: end;
+  gap: 12px;
+  max-width: 940px;
+}
+
+.show-hero-copy h1 {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 3.2rem;
+  line-height: 1.02;
+}
+
+.show-meta-line,
+.show-tag-row,
+.show-progress-heading,
+.show-hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.show-meta-line {
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.96rem;
+  font-weight: 650;
+}
+
+.show-meta-line span + span::before {
+  content: "•";
+  margin-right: 7px;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.show-overview {
+  display: -webkit-box;
+  max-width: 840px;
+  margin: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  color: var(--text);
+  line-height: 1.48;
+}
+
+.show-tag-row {
+  gap: 8px;
+}
+
+.show-tag-row span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--soft) 82%, transparent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.show-progress-summary {
+  display: grid;
+  gap: 7px;
+  width: min(100%, 520px);
+  padding-top: 2px;
+}
+
+.show-progress-heading {
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.show-progress-heading span:last-child,
+.show-progress-summary p,
+.show-up-next-meta {
+  color: var(--muted);
+}
+
+.show-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+}
+
+.show-progress-track span {
+  width: var(--show-progress);
+  max-width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 0.22s ease;
+}
+
+.show-progress-summary p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.show-latest-line {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  max-width: 620px;
+}
+
+.show-latest-line > span,
+.show-latest-line small {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.show-latest-line strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.show-hero-actions {
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.show-hero-actions .primary-action,
+.show-up-next-action {
+  padding: 0 18px;
+}
+
+.show-up-next {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 34px;
+  padding: 16px 0 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.show-up-next-thumb {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  aspect-ratio: 16 / 9;
+  background: #202020;
+}
+
+.show-up-next-thumb img,
+.show-up-next-thumb > span:first-child {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 800;
+}
+
+.show-up-next-copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 9px;
+}
+
+.show-up-next-copy h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.show-up-next-copy p {
+  display: -webkit-box;
+  max-width: 760px;
+  margin: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.show-up-next-action {
+  width: fit-content;
+  margin-top: 4px;
+}
+
 .channel-header {
   display: flex;
   align-items: center;
@@ -1493,6 +1752,10 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .show-hero-copy h1 {
+    font-size: 2.6rem;
+  }
+
   .recommendation-rail {
     grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   }
@@ -1607,6 +1870,46 @@ label {
     align-items: start;
   }
 
+  .show-hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .show-hero::after {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface) 70%, transparent) 0%, var(--surface) 58%, var(--surface) 100%);
+  }
+
+  .show-artwork {
+    width: min(46vw, 152px);
+  }
+
+  .show-hero-copy h1 {
+    font-size: 2rem;
+  }
+
+  .show-overview {
+    -webkit-line-clamp: 4;
+  }
+
+  .show-hero-actions .primary-action,
+  .show-hero-actions .secondary-action,
+  .show-up-next-action {
+    width: 100%;
+  }
+
+  .show-up-next {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 14px 0 16px;
+  }
+
+  .show-up-next-copy h2 {
+    font-size: 1.18rem;
+  }
+
   .channel-header {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -1670,7 +1973,8 @@ label {
 
 @media (prefers-reduced-motion: reduce) {
   .player-shell,
-  .cinematic-glow {
+  .cinematic-glow,
+  .show-progress-track span {
     transition: none;
   }
 }

@@ -395,7 +395,9 @@ async function main() {
     `
       Boolean(
         location.pathname.startsWith('/channel/') &&
-        document.querySelector('.channel-header') &&
+        document.querySelector('.show-hero') &&
+        document.querySelector('.show-up-next') &&
+        document.querySelector('.show-progress-track') &&
         document.body.innerText.includes('Episodes') &&
         document.body.innerText.includes('Season') &&
         document.querySelectorAll('.show-guide .video-card').length > 1
@@ -405,6 +407,9 @@ async function main() {
     30000
   );
   await screenshot(socket, context, '10b-snl-show-page');
+  await setViewport(socket, context, 390, 900);
+  await screenshot(socket, context, '10c-snl-show-page-mobile');
+  await setViewport(socket, context, 1440, 950);
 
   await evaluate(
     socket,

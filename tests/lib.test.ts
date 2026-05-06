@@ -13,6 +13,7 @@ import {
   shouldSampleCinematicGlow
 } from '../src/lib/cinematicGlow';
 import { rankSearchResults } from '../src/lib/search';
+import { showProgressForEpisodes } from '../src/lib/showProgress';
 import type { JellyfinItem } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
@@ -408,4 +409,109 @@ test('cinematic glow bounds very dark and bright frames', () => {
 
   assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(26, 26, 26,/);
   assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(196, 196, 196,/);
+});
+
+test('show progress resumes the latest partially watched episode', () => {
+  const episodes = [
+    item({
+      Id: 's01e01',
+      Name: 'Show S01E01 - Pilot',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 1,
+      RunTimeTicks: 1000,
+      UserData: { Played: true, PlayedPercentage: 100 }
+    }),
+    item({
+      Id: 's01e02',
+      Name: 'Show S01E02 - Second',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 2,
+      RunTimeTicks: 1000,
+      UserData: {
+        PlaybackPositionTicks: 450,
+        LastPlayedDate: '2026-05-05T12:00:00.000Z'
+      }
+    }),
+    item({
+      Id: 's01e03',
+      Name: 'Show S01E03 - Third',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 3
+    })
+  ];
+
+  const progress = showProgressForEpisodes(episodes);
+  assert.equal(progress.kind, 'resume');
+  assert.equal(progress.primaryItem?.Id, 's01e02');
+  assert.equal(progress.label, 'Resume S01E02');
+  assert.equal(progress.watchedCount, 1);
+});
+
+test('show progress selects the next episode after the latest completed episode', () => {
+  const episodes = [
+    item({
+      Id: 's01e01',
+      Name: 'Show S01E01 - Pilot',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 1,
+      UserData: { Played: true }
+    }),
+    item({
+      Id: 's01e02',
+      Name: 'Show S01E02 - Second',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 2,
+      UserData: { Played: true }
+    }),
+    item({
+      Id: 's01e03',
+      Name: 'Show S01E03 - Third',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 3
+    })
+  ];
+
+  const progress = showProgressForEpisodes(episodes);
+  assert.equal(progress.kind, 'next');
+  assert.equal(progress.primaryItem?.Id, 's01e03');
+  assert.equal(progress.label, 'Next S01E03');
+  assert.equal(progress.progressPercent, 67);
+});
+
+test('show progress starts at the first episode when there is no history', () => {
+  const episodes = [
+    item({
+      Id: 's01e02',
+      Name: 'Show S01E02 - Second',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 2
+    }),
+    item({
+      Id: 's01e01',
+      Name: 'Show S01E01 - Pilot',
+      SeriesId: 'show',
+      SeriesName: 'Show',
+      ParentIndexNumber: 1,
+      IndexNumber: 1
+    })
+  ];
+
+  const progress = showProgressForEpisodes(episodes);
+  assert.equal(progress.kind, 'start');
+  assert.equal(progress.primaryItem?.Id, 's01e01');
+  assert.equal(progress.label, 'Start S01E01');
 });

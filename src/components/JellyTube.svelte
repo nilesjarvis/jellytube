@@ -10,7 +10,9 @@
     Menu,
     Moon,
     Music2,
+    Play,
     RefreshCcw,
+    RotateCcw,
     Search,
     Server,
     Sun,
@@ -26,8 +28,14 @@
     libraryKindLabel,
     libraryToSelectedSource
   } from '../lib/jellyfin';
-  import { episodeCollectionForItem, episodeInfo, sameEpisodeSeries, type EpisodeSeason } from '../lib/episodes';
-  import { compareByContentDateDesc, contentDateValue, dateValue } from '../lib/dates';
+  import {
+    episodeCode,
+    episodeCollectionForItem,
+    episodeInfo,
+    sameEpisodeSeries,
+    type EpisodeSeason
+  } from '../lib/episodes';
+  import { compareByContentDateDesc, contentDate, contentDateValue, dateValue, relativeDate } from '../lib/dates';
   import {
     channelMatches,
     channelName,
@@ -38,10 +46,12 @@
     groupByChannel,
     mergeItems,
     popularItems,
+    playbackProgress,
     rankRecommendations
   } from '../lib/recommendations';
   import { normalizeSearch, rankSearchResults, searchLoadedItems } from '../lib/search';
   import { saveSession } from '../lib/session';
+  import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
   import type {
     AppSession,
     ContentKind,
@@ -132,7 +142,26 @@
   );
   $: channelPopular = popularItems(channelLatest);
   $: channelEpisodeCollection = selectedChannel ? episodeCollectionForChannel(selectedChannel, searchPool) : null;
+  $: channelSeries = findChannelSeries(selectedChannel, channelEpisodeCollection?.seriesKey ?? '');
   $: channelDisplaySeasons = displayChannelSeasons(channelEpisodeCollection?.seasons ?? []);
+  $: channelBrowsableEpisodes = channelDisplaySeasons.flatMap((season) => season.items);
+  $: channelShowProgress = channelEpisodeCollection
+    ? showProgressForEpisodes(channelBrowsableEpisodes.length ? channelBrowsableEpisodes : channelEpisodeCollection.allItems)
+    : null;
+  $: channelFirstEpisode = channelBrowsableEpisodes[0] ?? channelEpisodeCollection?.allItems[0] ?? null;
+  $: channelLatestEpisode = latestShowEpisode(
+    channelBrowsableEpisodes,
+    channelEpisodeCollection?.allItems ?? []
+  );
+  $: channelHeroItem = channelSeries ?? channelShowProgress?.primaryItem ?? channelLatestEpisode ?? channelItems[0] ?? null;
+  $: channelHeroMeta = showHeroMeta(
+    channelSeries,
+    channelEpisodeCollection?.allItems.length ?? channelItems.length,
+    channelEpisodeCollection?.seasons.length ?? 0
+  );
+  $: channelHeroTags = showHeroTags(channelSeries);
+  $: channelHeroBackdropStyle = showBackdropStyle(channelSeries ?? channelLatestEpisode ?? channelItems[0] ?? null);
+  $: channelProgressStyle = `--show-progress: ${channelShowProgress?.progressPercent ?? 0}%;`;
   $: activeChannelSeason =
     (channelDisplaySeasons.some((season) => season.season === selectedChannelSeason)
       ? selectedChannelSeason
@@ -658,18 +687,25 @@
             sortBy: 'SortName',
             sortOrder: 'Ascending'
           })
-          .then((response) =>
-            Promise.all(
-              (response.Items ?? [])
-                .filter((series) => !exactOnly || normalizeSearch(series.Name) === normalizedTerm)
-                .map((series) => fetchSeriesEpisodes(series, source))
-            )
-          )
-          .then((groups) => mergeItems(...groups))
-          .catch(() => [])
+          .then(async (response) => {
+            const seriesItems = annotateItems(
+              (response.Items ?? []).filter((series) => !exactOnly || normalizeSearch(series.Name) === normalizedTerm),
+              source
+            );
+            const episodeGroups = await Promise.all(seriesItems.map((series) => fetchSeriesEpisodes(series, source)));
+            return {
+              series: seriesItems,
+              episodes: mergeItems(...episodeGroups)
+            };
+          })
+          .catch(() => ({ series: [], episodes: [] }))
       )
     );
-    return mergeItems(...responses);
+    const foundSeries = mergeItems(...responses.map((response) => response.series));
+    if (foundSeries.length) {
+      seriesPool = mergeItems(seriesPool, foundSeries).sort((a, b) => a.Name.localeCompare(b.Name));
+    }
+    return mergeItems(...responses.map((response) => response.episodes));
   }
 
   async function fetchSeriesEpisodes(series: JellyfinItem, source: SelectedLibrary | undefined) {
@@ -792,10 +828,113 @@
     return latestEpisode ? episodeCollectionForItem(latestEpisode, items) : null;
   }
 
+  function latestShowEpisode(browsableEpisodes: JellyfinItem[], fallbackEpisodes: JellyfinItem[]) {
+    const candidates = browsableEpisodes.length ? browsableEpisodes : fallbackEpisodes;
+    return [...candidates].sort(compareByContentDateDesc)[0] ?? null;
+  }
+
+  function findChannelSeries(channel: string, seriesKey: string) {
+    if (!channel) return null;
+    const normalizedChannel = normalizeSearch(channel);
+    return (
+      seriesPool.find((series) => seriesKey && series.Id === seriesKey) ??
+      seriesPool.find((series) => normalizeSearch(series.Name) === normalizedChannel) ??
+      null
+    );
+  }
+
+  function showHeroMeta(series: JellyfinItem | null, episodeCount: number, seasonCount: number) {
+    const parts: string[] = [];
+    const years = showYearRange(series);
+    if (years) parts.push(years);
+    if (series?.OfficialRating) parts.push(series.OfficialRating);
+    if (typeof series?.CommunityRating === 'number') parts.push(`${series.CommunityRating.toFixed(1)} rating`);
+    if (series?.Status) parts.push(series.Status);
+    if (seasonCount) parts.push(`${seasonCount} ${seasonCount === 1 ? 'season' : 'seasons'}`);
+    if (episodeCount) parts.push(`${episodeCount} ${episodeCount === 1 ? 'episode' : 'episodes'}`);
+    return parts;
+  }
+
+  function showYearRange(series: JellyfinItem | null) {
+    if (!series) return '';
+    const startYear = series.ProductionYear ?? yearFromDate(series.PremiereDate);
+    const endYear = yearFromDate(series.EndDate);
+    if (!startYear) return '';
+    if (endYear && endYear !== startYear) return `${startYear}-${endYear}`;
+    if (!endYear && series.Status?.toLowerCase() === 'continuing') return `${startYear}-present`;
+    return String(startYear);
+  }
+
+  function yearFromDate(value?: string) {
+    if (!value) return 0;
+    const year = new Date(value).getFullYear();
+    return Number.isFinite(year) ? year : 0;
+  }
+
+  function showHeroTags(series: JellyfinItem | null) {
+    if (!series) return [];
+    const tags = [...(series.Genres ?? []).slice(0, 4)];
+    const studio = series.Studios?.[0]?.Name;
+    if (studio) tags.push(studio);
+    return [...new Set(tags.filter(Boolean))].slice(0, 5);
+  }
+
+  function showBackdropStyle(item: JellyfinItem | null) {
+    const backdropUrl = item ? client.getBackdropUrl(item, 1440) : '';
+    return backdropUrl ? `--show-backdrop: url("${cssString(backdropUrl)}");` : '';
+  }
+
+  function cssString(value: string) {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '');
+  }
+
+  function showProgressStatus(progress: ShowProgress | null) {
+    if (!progress?.primaryItem) return 'Episodes';
+    if (progress.kind === 'resume') return 'Continue watching';
+    if (progress.kind === 'next') return 'Up next';
+    if (progress.kind === 'replay') return 'Ready to replay';
+    return 'Start watching';
+  }
+
+  function showProgressDescription(progress: ShowProgress | null) {
+    if (!progress) return '';
+    if (!progress.primaryItem) return 'No episodes are available yet.';
+    const watched = `${progress.watchedCount} of ${progress.totalCount} episodes watched`;
+    if (progress.kind === 'resume') {
+      const percent = Math.round(playbackProgress(progress.primaryItem));
+      return `${watched}. Continue from ${percent}% complete.`;
+    }
+    if (progress.kind === 'next') return `${watched}. The next episode is ready.`;
+    if (progress.kind === 'replay') return `${watched}. All episodes are watched.`;
+    return `${watched}. Start from the first episode.`;
+  }
+
+  function episodeMetaLine(item: JellyfinItem | null) {
+    if (!item) return '';
+    return [episodeCode(item), compactMeta(item), formatDuration(item.RunTimeTicks)].filter(Boolean).join(' • ');
+  }
+
+  function latestEpisodeLine(item: JellyfinItem | null) {
+    if (!item) return '';
+    const released = contentDate(item);
+    return [episodeCode(item), released ? relativeDate(released) : ''].filter(Boolean).join(' • ');
+  }
+
   function changeChannelSeason(event: Event) {
     const season = Number((event.currentTarget as HTMLSelectElement).value);
     if (!Number.isFinite(season)) return;
     selectedChannelSeason = season;
+  }
+
+  function playShowPrimary() {
+    const item = channelShowProgress?.primaryItem ?? channelFirstEpisode;
+    if (!item || !channelEpisodeCollection) return;
+    openItem(item, channelEpisodeCollection.allItems, selectedChannel, true);
+  }
+
+  function playShowFromBeginning() {
+    if (!channelFirstEpisode || !channelEpisodeCollection) return;
+    openItem(channelFirstEpisode, channelEpisodeCollection.allItems, selectedChannel, true);
   }
 
   function playChannelSeason() {
@@ -1272,19 +1411,75 @@
         </section>
       {/if}
     {:else if route === 'channel'}
-      <section class="channel-header">
-        <div class="channel-avatar">{selectedChannel.slice(0, 1)}</div>
-        <div class="channel-header-copy">
-          <h1>{selectedChannel}</h1>
-          <p>
-            {#if channelEpisodeCollection}
-              {channelEpisodeCollection.allItems.length} episodes · {channelEpisodeCollection.seasons.length} seasons
+      {#if channelEpisodeCollection}
+        <section class="show-hero" style={channelHeroBackdropStyle}>
+          <div class="show-artwork">
+            {#if channelHeroItem && client.getImageUrl(channelHeroItem, 420)}
+              <img src={client.getImageUrl(channelHeroItem, 420)} alt="" loading="lazy" />
             {:else}
-              {channelItems.length} videos across selected libraries
+              <span>{selectedChannel.slice(0, 1)}</span>
             {/if}
-          </p>
-        </div>
-      </section>
+          </div>
+          <div class="show-hero-copy">
+            <span class="content-pill">Show</span>
+            <h1>{selectedChannel}</h1>
+            {#if channelHeroMeta.length}
+              <div class="show-meta-line">
+                {#each channelHeroMeta as part}
+                  <span>{part}</span>
+                {/each}
+              </div>
+            {/if}
+            {#if channelSeries?.Overview}
+              <p class="show-overview">{channelSeries.Overview}</p>
+            {/if}
+            {#if channelHeroTags.length}
+              <div class="show-tag-row">
+                {#each channelHeroTags as tag}
+                  <span>{tag}</span>
+                {/each}
+              </div>
+            {/if}
+            {#if channelShowProgress}
+              <div class="show-progress-summary">
+                <div class="show-progress-heading">
+                  <span>{showProgressStatus(channelShowProgress)}</span>
+                  <span>{channelShowProgress.watchedCount} / {channelShowProgress.totalCount}</span>
+                </div>
+                <div class="show-progress-track" style={channelProgressStyle}>
+                  <span></span>
+                </div>
+                <p>{showProgressDescription(channelShowProgress)}</p>
+              </div>
+            {/if}
+            {#if channelLatestEpisode}
+              <div class="show-latest-line">
+                <span>Latest episode</span>
+                <strong>{displayTitle(channelLatestEpisode, { context: 'series', channel: selectedChannel })}</strong>
+                <small>{latestEpisodeLine(channelLatestEpisode)}</small>
+              </div>
+            {/if}
+            <div class="show-hero-actions">
+              <button class="primary-action" on:click={playShowPrimary} disabled={!channelShowProgress?.primaryItem}>
+                <Play size={18} />
+                <span>{channelShowProgress?.label ?? 'Play'}</span>
+              </button>
+              <button class="secondary-action" on:click={playShowFromBeginning} disabled={!channelFirstEpisode}>
+                <RotateCcw size={17} />
+                <span>Start over</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      {:else}
+        <section class="channel-header">
+          <div class="channel-avatar">{selectedChannel.slice(0, 1)}</div>
+          <div class="channel-header-copy">
+            <h1>{selectedChannel}</h1>
+            <p>{channelItems.length} videos across selected libraries</p>
+          </div>
+        </section>
+      {/if}
 
       {#if channelLoading}
         <div class="loading-state compact">
@@ -1293,6 +1488,36 @@
       {/if}
 
       {#if channelEpisodeCollection}
+        {#if channelShowProgress?.primaryItem}
+          <section class="show-up-next">
+            <button class="show-up-next-thumb" on:click={playShowPrimary} aria-label={channelShowProgress.label}>
+              {#if client.getImageUrl(channelShowProgress.primaryItem, 640)}
+                <img src={client.getImageUrl(channelShowProgress.primaryItem, 640)} alt="" loading="lazy" />
+              {:else}
+                <span>{channelShowProgress.primaryItem.Name.slice(0, 1)}</span>
+              {/if}
+              {#if formatDuration(channelShowProgress.primaryItem.RunTimeTicks)}
+                <span class="duration">{formatDuration(channelShowProgress.primaryItem.RunTimeTicks)}</span>
+              {/if}
+              {#if playbackProgress(channelShowProgress.primaryItem) > 0 && playbackProgress(channelShowProgress.primaryItem) < 95}
+                <span class="progress-bar" style={`width: ${playbackProgress(channelShowProgress.primaryItem)}%`}></span>
+              {/if}
+            </button>
+            <div class="show-up-next-copy">
+              <span class="content-pill">{showProgressStatus(channelShowProgress)}</span>
+              <h2>{displayTitle(channelShowProgress.primaryItem, { context: 'series', channel: selectedChannel })}</h2>
+              <div class="show-up-next-meta">{episodeMetaLine(channelShowProgress.primaryItem)}</div>
+              {#if channelShowProgress.primaryItem.Overview}
+                <p>{channelShowProgress.primaryItem.Overview}</p>
+              {/if}
+              <button class="primary-action show-up-next-action" on:click={playShowPrimary}>
+                <Play size={18} />
+                <span>{channelShowProgress.label}</span>
+              </button>
+            </div>
+          </section>
+        {/if}
+
         <section class="feed-section show-guide">
           <div class="section-heading">
             <div>
