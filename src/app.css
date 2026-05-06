@@ -1320,6 +1320,22 @@ label {
   gap: 12px;
 }
 
+.movie-recommendation-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.movie-recommendation-panel h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.movie-recommendation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 14px;
+}
+
 .queue-panel {
   display: grid;
   gap: 12px;
@@ -1405,6 +1421,14 @@ label {
 
   .recommendation-rail {
     grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  }
+
+  .movie-recommendation-panel {
+    grid-column: 1 / -1;
+  }
+
+  .movie-recommendation-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
 

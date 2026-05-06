@@ -281,9 +281,16 @@ async function main() {
   await waitFor(
     socket,
     context,
-    `Boolean(location.pathname.startsWith('/watch/') && document.querySelector('.watch-main h1') && document.querySelector('.watch-channel'))`,
+    `Boolean(
+      location.pathname.startsWith('/watch/') &&
+      document.querySelector('.watch-main h1') &&
+      document.querySelector('.watch-channel') &&
+      document.querySelector('.movie-recommendation-grid') &&
+      document.querySelectorAll('.movie-recommendation-grid .video-card.poster').length > 0
+    )`,
     'movie watch page'
   );
+  await screenshot(socket, context, '06a-movie-watch');
   await evaluate(socket, context, `document.querySelector('.watch-channel').click()`);
   await waitFor(
     socket,

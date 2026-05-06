@@ -921,7 +921,7 @@
     {/if}
   </div>
 
-  <aside class="recommendation-rail" aria-label="Recommended videos">
+  <aside class="recommendation-rail" aria-label={isMovie ? 'Recommended movies' : 'Recommended videos'}>
     {#if queue.length > 1 && !hasEpisodeShelf}
       <section class="queue-panel" aria-label="Mix playlist">
         <div class="queue-heading">
@@ -952,16 +952,33 @@
       </section>
     {/if}
 
-    {#each recommendations as recommendation (recommendation.Id)}
-      <VideoCard
-        {client}
-        item={recommendation}
-        compact
-        titleContext={!isMovie && channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
-        titleChannel={contextLabel}
-        on:select={(event) => dispatch('select', event.detail)}
-        on:channel={(event) => dispatch('channel', event.detail)}
-      />
-    {/each}
+    {#if isMovie && recommendations.length}
+      <section class="movie-recommendation-panel" aria-label="More movies">
+        <h2>More movies</h2>
+        <div class="movie-recommendation-grid">
+          {#each recommendations as recommendation (recommendation.Id)}
+            <VideoCard
+              {client}
+              item={recommendation}
+              poster
+              on:select={(event) => dispatch('select', event.detail)}
+              on:channel={() => dispatch('movies')}
+            />
+          {/each}
+        </div>
+      </section>
+    {:else}
+      {#each recommendations as recommendation (recommendation.Id)}
+        <VideoCard
+          {client}
+          item={recommendation}
+          compact
+          titleContext={channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
+          titleChannel={contextLabel}
+          on:select={(event) => dispatch('select', event.detail)}
+          on:channel={(event) => dispatch('channel', event.detail)}
+        />
+      {/each}
+    {/if}
   </aside>
 </section>
