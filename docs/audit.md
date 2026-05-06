@@ -31,7 +31,7 @@
 
 ## Realistic Next Features
 
-- Add a "Latest from subscriptions" style channel strip using selected libraries and cached series/channel groups.
+- Add a Subscriptions-style directory for quickly selecting shows and channels using selected libraries and cached series/channel groups.
 - Add "Watched" and "Unwatched" filters using `UserData.Played`, `PlayCount`, and `PlayedPercentage`.
 - Add "Resume all" and "Start over" actions on the watch page by setting seek position to Jellyfin `PlaybackPositionTicks` or zero.
 - Add an optional "shuffle mix" button for music-video mixes using only the local/cached queue.

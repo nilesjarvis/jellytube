@@ -44,6 +44,7 @@
     episodeSeason: number;
     back: void;
     channel: string;
+    movies: void;
     next: void;
   }>();
 
@@ -100,6 +101,8 @@
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
   $: hasEpisodeShelf = episodeSeasons.length > 0;
+  $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
+  $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
   $: selectedEpisodeItems =
     episodeSeasons.find((season) => season.season === selectedEpisodeSeason)?.items ??
     episodeSeasons[0]?.items ??
@@ -841,8 +844,8 @@
 
     <h1>{title}</h1>
     <div class="watch-meta">
-      <button class="watch-channel" on:click={() => dispatch('channel', channelName(detailedItem))}>
-        {channelName(detailedItem)}
+      <button class="watch-channel" on:click={() => (isMovie ? dispatch('movies') : dispatch('channel', contextLabel))}>
+        {contextLabel}
       </button>
       <span>{compactMeta(detailedItem)}</span>
       {#if formatDuration(detailedItem.RunTimeTicks)}

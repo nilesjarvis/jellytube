@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  channelDirectoryEntries,
+  filterChannelDirectory
+} from '../src/lib/channelDirectory';
 import { compareByContentDateDesc, contentDate, relativeDate } from '../src/lib/dates';
 import { episodeCollectionForItem } from '../src/lib/episodes';
 import { channelName, compactMeta, groupByChannel } from '../src/lib/recommendations';
@@ -206,6 +210,18 @@ test('channel names come from Jellyfin series and artist metadata where availabl
     ),
     'Late Night with Conan O’Brien'
   );
+  assert.equal(
+    channelName(
+      item({
+        Id: 'movie',
+        Name: 'The Movie',
+        Type: 'Movie',
+        contentKind: 'movie',
+        sourceLibraryName: 'Movies'
+      })
+    ),
+    'Movies'
+  );
 });
 
 test('mixed date sorting still falls back to DateCreated when PremiereDate is absent', () => {
@@ -224,5 +240,60 @@ test('mixed date sorting still falls back to DateCreated when PremiereDate is ab
   assert.deepEqual([withPremiere, createdOnly].sort(compareByContentDateDesc).map((entry) => entry.Id), [
     'created',
     'premiere'
+  ]);
+});
+
+test('channel directory merges Jellyfin series with loaded channel groups without subscription state', () => {
+  const saturdayNightLive = item({
+    Id: 'snl-series',
+    Name: 'Saturday Night Live',
+    Type: 'Series',
+    sourceLibraryName: 'Shows'
+  });
+  const saturdayNightLiveEpisode = item({
+    Id: 'snl-new',
+    Name: 'Cold Open',
+    Type: 'Episode',
+    SeriesName: 'Saturday Night Live',
+    SeriesId: 'snl',
+    PremiereDate: '2025-05-01T00:00:00.000Z'
+  });
+  const sabrina = item({
+    Id: 'sabrina',
+    Name: 'Sabrina Carpenter - Espresso',
+    Type: 'MusicVideo',
+    ArtistItems: [{ Name: 'Sabrina Carpenter' }],
+    sourceLibraryName: 'Music Videos',
+    PremiereDate: '2025-04-01T00:00:00.000Z'
+  });
+
+  const directory = channelDirectoryEntries([saturdayNightLiveEpisode, sabrina], [saturdayNightLive]);
+  assert.deepEqual(directory.map((entry) => [entry.name, entry.kind, entry.itemCount]), [
+    ['Saturday Night Live', 'show', 1],
+    ['Sabrina Carpenter', 'music', 1]
+  ]);
+  assert.equal(directory[0].latestItem?.Id, 'snl-new');
+});
+
+test('channel directory filter matches show and source names', () => {
+  const homeland = item({
+    Id: 'homeland-series',
+    Name: 'Homeland',
+    Type: 'Series',
+    sourceLibraryName: 'Shows'
+  });
+  const sabrina = item({
+    Id: 'sabrina',
+    Name: 'Sabrina Carpenter - Espresso',
+    Type: 'MusicVideo',
+    ArtistItems: [{ Name: 'Sabrina Carpenter' }],
+    sourceLibraryName: 'Music Videos'
+  });
+
+  const directory = channelDirectoryEntries([sabrina], [homeland]);
+
+  assert.deepEqual(filterChannelDirectory(directory, 'home').map((entry) => entry.name), ['Homeland']);
+  assert.deepEqual(filterChannelDirectory(directory, 'music videos').map((entry) => entry.name), [
+    'Sabrina Carpenter'
   ]);
 });

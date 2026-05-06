@@ -219,7 +219,13 @@ async function main() {
 
   await evaluate(socket, context, `document.querySelector('.library-continue').click()`);
 
-  await waitFor(socket, context, `document.body.innerText.includes('Recommended') && document.querySelectorAll('.video-card').length > 3`, 'home feed', 20000);
+  await waitFor(
+    socket,
+    context,
+    `document.body.innerText.includes('Recommended') && document.body.innerText.includes('Subscriptions') && document.querySelectorAll('.video-card').length > 3`,
+    'home feed',
+    20000
+  );
   await screenshot(socket, context, '03-home-feed-light');
 
   await evaluate(
@@ -254,6 +260,21 @@ async function main() {
     'movies view'
   );
   await screenshot(socket, context, '06-movies');
+  await evaluate(socket, context, `document.querySelector('.movie-grid .video-card .thumbnail-button').click()`);
+  await waitFor(
+    socket,
+    context,
+    `Boolean(location.pathname.startsWith('/watch/') && document.querySelector('.watch-main h1') && document.querySelector('.watch-channel'))`,
+    'movie watch page'
+  );
+  await evaluate(socket, context, `document.querySelector('.watch-channel').click()`);
+  await waitFor(
+    socket,
+    context,
+    `location.pathname === '/movies' && document.body.innerText.includes('YouTube Movies')`,
+    'movie context returns to movies'
+  );
+  await screenshot(socket, context, '06b-movie-context');
 
   await evaluate(
     socket,
@@ -338,6 +359,23 @@ async function main() {
     'snl next episode'
   );
   await screenshot(socket, context, '10-snl-next-episode');
+  await evaluate(socket, context, `document.querySelector('.watch-channel').click()`);
+  await waitFor(
+    socket,
+    context,
+    `
+      Boolean(
+        location.pathname.startsWith('/channel/') &&
+        document.querySelector('.channel-header') &&
+        document.body.innerText.includes('Episodes') &&
+        document.body.innerText.includes('Season') &&
+        document.querySelectorAll('.show-guide .video-card').length > 1
+      )
+    `,
+    'snl show channel page',
+    30000
+  );
+  await screenshot(socket, context, '10b-snl-show-page');
 
   await evaluate(
     socket,
@@ -563,6 +601,24 @@ async function main() {
     'channel page'
   );
   await screenshot(socket, context, '13-channel');
+
+  await evaluate(socket, context, `[...document.querySelectorAll('.sidebar button')].find((button) => button.innerText.includes('Subscriptions')).click()`);
+  await waitFor(
+    socket,
+    context,
+    `
+      Boolean(
+        location.pathname === '/subscriptions' &&
+        document.body.innerText.includes('Subscriptions') &&
+        document.body.innerText.includes('Shows') &&
+        document.body.innerText.includes('Channels') &&
+        document.querySelectorAll('.subscription-card').length > 0 &&
+        !document.body.innerText.includes('Subscribe')
+      )
+    `,
+    'show and channel directory'
+  );
+  await screenshot(socket, context, '13b-subscriptions');
 
   await evaluate(
     socket,

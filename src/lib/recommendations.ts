@@ -139,6 +139,9 @@ export function displayTitle(item: JellyfinItem) {
 }
 
 export function channelName(item: JellyfinItem) {
+  if (item.Type === 'Movie' || item.contentKind === 'movie') {
+    return item.sourceLibraryName || 'YouTube Movies';
+  }
   const parsedEpisode = episodeInfo(item);
   if (parsedEpisode) return parsedEpisode.seriesName;
   if (item.SeriesName) return item.SeriesName;

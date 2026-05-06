@@ -4,6 +4,7 @@
     Clapperboard,
     Home,
     Library,
+    ListVideo,
     Loader2,
     LogOut,
     Menu,
@@ -16,6 +17,7 @@
     UserCircle,
     UsersRound
   } from 'lucide-svelte';
+  import { channelDirectoryEntries, filterChannelDirectory } from '../lib/channelDirectory';
   import {
     annotateItems,
     contentKindForCollection,
@@ -24,12 +26,15 @@
     libraryKindLabel,
     libraryToSelectedSource
   } from '../lib/jellyfin';
-  import { episodeCollectionForItem, episodeInfo, sameEpisodeSeries } from '../lib/episodes';
+  import { episodeCollectionForItem, episodeInfo, sameEpisodeSeries, type EpisodeSeason } from '../lib/episodes';
   import { compareByContentDateDesc, contentDateValue, dateValue } from '../lib/dates';
   import {
     channelMatches,
     channelName,
+    compactMeta,
     continueWatching,
+    displayTitle,
+    formatDuration,
     groupByChannel,
     mergeItems,
     popularItems,
@@ -49,12 +54,13 @@
 
   export let session: AppSession;
 
-  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'channel' | 'libraries';
+  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'subscriptions' | 'channel' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type UrlRoute =
     | { view: 'home' }
     | { view: 'movies' }
     | { view: 'music' }
+    | { view: 'subscriptions' }
     | { view: 'libraries' }
     | { view: 'search'; query: string }
     | { view: 'channel'; channel: string }
@@ -74,8 +80,10 @@
   let selectedQueue: JellyfinItem[] = [];
   let selectedQueueName = '';
   let selectedEpisodeSeason = 0;
+  let selectedChannelSeason = 0;
   let shouldAutoplay = false;
   let selectedChannel = '';
+  let channelDirectoryQuery = '';
   let availableLibraries: SelectedLibrary[] = [];
   let librarySelectionIds: string[] = [];
   let librarySettingsLoading = false;
@@ -103,6 +111,16 @@
   let channelLoading = false;
   let activity: PlaybackActivity[] = [];
 
+  function displayChannelSeasons(seasons: EpisodeSeason[]) {
+    if (seasons.length < 10) return seasons;
+    const positiveSeasons = seasons.filter((season) => season.season > 0);
+    const maxSeason = Math.max(...positiveSeasons.map((season) => season.season));
+    const outlierThreshold = positiveSeasons.length + 20;
+    if (maxSeason <= outlierThreshold) return seasons;
+    const filtered = seasons.filter((season) => season.season <= outlierThreshold);
+    return filtered.length ? filtered : seasons;
+  }
+
   $: videoSources = session.selectedLibraries.filter((source) => source.contentKind === 'video');
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
@@ -111,9 +129,25 @@
     (a, b) => contentDateValue(b) - contentDateValue(a)
   );
   $: channelPopular = popularItems(channelLatest);
+  $: channelEpisodeCollection = selectedChannel ? episodeCollectionForChannel(selectedChannel, searchPool) : null;
+  $: channelDisplaySeasons = displayChannelSeasons(channelEpisodeCollection?.seasons ?? []);
+  $: activeChannelSeason =
+    (channelDisplaySeasons.some((season) => season.season === selectedChannelSeason)
+      ? selectedChannelSeason
+      : 0) ||
+    channelDisplaySeasons[channelDisplaySeasons.length - 1]?.season ||
+    0;
+  $: channelSeasonItems =
+    channelDisplaySeasons.find((season) => season.season === activeChannelSeason)?.items ?? [];
   $: musicMixes = groupByChannel(musicPool).filter((mix) => mix.items.length > 1).slice(0, 8);
   $: episodePool = mergeItems(videoPool, ...Object.values(seriesEpisodeCache));
   $: searchPool = mergeItems(libraryPool, ...Object.values(seriesEpisodeCache));
+  $: channelDirectoryPool = searchPool.filter((item) => item.contentKind !== 'movie' && item.Type !== 'Movie');
+  $: channelDirectory = channelDirectoryEntries(channelDirectoryPool, seriesPool);
+  $: filteredChannelDirectory = filterChannelDirectory(channelDirectory, channelDirectoryQuery);
+  $: showDirectory = filteredChannelDirectory.filter((entry) => entry.kind === 'show').slice(0, 180);
+  $: creatorDirectory = filteredChannelDirectory.filter((entry) => entry.kind !== 'show').slice(0, 180);
+  $: latestDirectoryVideos = [...channelDirectoryPool].sort(compareByContentDateDesc).slice(0, 48);
   $: episodeCollection = selectedItem ? episodeCollectionForItem(selectedItem, episodePool) : null;
   $: watchQueue = episodeCollection ? episodeCollection.allItems : selectedQueue;
   $: watchQueueTitle = episodeCollection ? episodeCollection.seriesName : selectedQueueName;
@@ -121,6 +155,7 @@
     episodeCollection && selectedEpisodeSeason
       ? selectedEpisodeSeason
       : episodeCollection?.currentSeason ?? 0;
+  $: featuredMovie = movieResume[0] ?? moviePopular[0] ?? movies[0] ?? null;
 
   onMount(() => {
     applyTheme();
@@ -293,7 +328,7 @@
       return { view: 'home' };
     }
 
-    if (nextRoute.view === 'movies' || nextRoute.view === 'music') {
+    if (nextRoute.view === 'movies' || nextRoute.view === 'music' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
       return nextRoute;
@@ -362,6 +397,7 @@
     selectedQueue = [];
     selectedQueueName = '';
     selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
     route = 'search';
@@ -413,12 +449,17 @@
         : [];
     selectedQueueName = collection ? collection.seriesName : queueName;
     selectedEpisodeSeason = episodeInfo(item)?.season ?? 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = autoplay;
     selectedChannel = '';
     route = 'watch';
   }
 
   function openChannel(channel: string) {
+    if (isMovieCollectionChannel(channel)) {
+      void navigateTo({ view: 'movies' });
+      return;
+    }
     void navigateTo({ view: 'channel', channel });
   }
 
@@ -428,6 +469,7 @@
     selectedQueue = [];
     selectedQueueName = '';
     selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = false;
     route = 'channel';
     await ensureChannelSeries(channel);
@@ -466,6 +508,7 @@
     selectedQueue = [];
     selectedQueueName = '';
     selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
     query = '';
@@ -476,7 +519,12 @@
       goHome();
       return;
     }
-    if (nextRoute === 'movies' || nextRoute === 'music' || nextRoute === 'libraries') {
+    if (
+      nextRoute === 'movies' ||
+      nextRoute === 'music' ||
+      nextRoute === 'subscriptions' ||
+      nextRoute === 'libraries'
+    ) {
       void navigateTo({ view: nextRoute });
       return;
     }
@@ -485,12 +533,13 @@
     }
   }
 
-  function showSimpleRoute(nextRoute: 'movies' | 'music') {
+  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'subscriptions') {
     route = nextRoute;
     selectedItem = null;
     selectedQueue = [];
     selectedQueueName = '';
     selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
   }
@@ -505,6 +554,7 @@
     selectedQueue = [];
     selectedQueueName = '';
     selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
     librarySettingsError = '';
@@ -725,6 +775,43 @@
     return queue.some((item) => item.Id === currentItem.Id) ? queue : [currentItem, ...queue];
   }
 
+  function episodeCollectionForChannel(channel: string, items: JellyfinItem[]) {
+    const channelEpisodes = items.filter((item) => channelMatches(item, channel) && episodeInfo(item));
+    if (!channelEpisodes.length) return null;
+    const latestEpisode = [...channelEpisodes].sort(compareByContentDateDesc)[0];
+    return latestEpisode ? episodeCollectionForItem(latestEpisode, items) : null;
+  }
+
+  function changeChannelSeason(event: Event) {
+    const season = Number((event.currentTarget as HTMLSelectElement).value);
+    if (!Number.isFinite(season)) return;
+    selectedChannelSeason = season;
+  }
+
+  function playChannelSeason() {
+    const first = channelSeasonItems[0];
+    if (!first) return;
+    openItem(first, channelSeasonItems, `${selectedChannel} Season ${activeChannelSeason}`, true);
+  }
+
+  function playLatestChannelEpisode() {
+    const latest = channelEpisodeCollection?.allItems[channelEpisodeCollection.allItems.length - 1];
+    if (!latest || !channelEpisodeCollection) return;
+    openItem(latest, channelEpisodeCollection.allItems, selectedChannel, true);
+  }
+
+  function isMovieCollectionChannel(channel: string) {
+    const normalized = normalizeSearch(channel);
+    return (
+      normalized === 'youtube movies' ||
+      movieSources.some((source) => normalizeSearch(source.name) === normalized)
+    );
+  }
+
+  function playbackActionLabel(item: JellyfinItem) {
+    return (item.UserData?.PlaybackPositionTicks ?? 0) > 0 && !item.UserData?.Played ? 'Resume' : 'Watch';
+  }
+
   function relatedFor(item: JellyfinItem | null) {
     const pool = item?.contentKind === 'movie' ? moviePool : mergeItems(videoPool, musicPool);
     const ranked = rankRecommendations(pool, activity, item);
@@ -784,6 +871,7 @@
     if (section === 'search') return { view: 'search', query: url.searchParams.get('q') ?? '' };
     if (section === 'movies') return { view: 'movies' };
     if (section === 'music') return { view: 'music' };
+    if (section === 'subscriptions') return { view: 'subscriptions' };
     if (section === 'libraries') return { view: 'libraries' };
     if (section === 'channel') return { view: 'channel', channel: parts.slice(1).join('/') || url.searchParams.get('name') || '' };
     return { view: 'home' };
@@ -807,6 +895,7 @@
     if (nextRoute.view === 'home') return '/';
     if (nextRoute.view === 'movies') return '/movies';
     if (nextRoute.view === 'music') return '/music';
+    if (nextRoute.view === 'subscriptions') return '/subscriptions';
     if (nextRoute.view === 'libraries') return '/libraries';
     if (nextRoute.view === 'search') {
       const params = new URLSearchParams({ q: nextRoute.query });
@@ -889,6 +978,10 @@
       <Music2 size={21} />
       <span>Music</span>
     </button>
+    <button class:active={route === 'subscriptions'} on:click={() => goRoute('subscriptions')}>
+      <ListVideo size={21} />
+      <span>Subscriptions</span>
+    </button>
     <button class:active={route === 'channel'} on:click={() => selectedChannel && goRoute('channel')} disabled={!selectedChannel}>
       <UsersRound size={21} />
       <span>Channel</span>
@@ -931,6 +1024,7 @@
           on:episodeSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}
           on:episodeSeason={(event) => (selectedEpisodeSeason = event.detail)}
           on:channel={(event) => openChannel(event.detail)}
+          on:movies={() => navigateTo({ view: 'movies' })}
           on:next={playNextQueued}
         />
       {/key}
@@ -966,11 +1060,31 @@
         {/if}
       </section>
     {:else if route === 'movies'}
-      <section class="feed-section hero-section">
+      <section class="feed-section movie-landing">
         <div class="section-heading">
           <h2>YouTube Movies</h2>
           <span>{movieSources.length} selected movie {movieSources.length === 1 ? 'library' : 'libraries'}</span>
         </div>
+        {#if featuredMovie}
+          <button class="movie-feature" on:click={() => openItem(featuredMovie)}>
+            <span class="movie-feature-poster">
+              {#if client.getImageUrl(featuredMovie, 420)}
+                <img src={client.getImageUrl(featuredMovie, 420)} alt="" loading="lazy" />
+              {:else}
+                <span>{featuredMovie.Name.slice(0, 1)}</span>
+              {/if}
+            </span>
+            <span class="movie-feature-copy">
+              <span class="content-pill">Movie</span>
+              <strong>{displayTitle(featuredMovie)}</strong>
+              <span>{compactMeta(featuredMovie)}{formatDuration(featuredMovie.RunTimeTicks) ? ` • ${formatDuration(featuredMovie.RunTimeTicks)}` : ''}</span>
+              {#if featuredMovie.Overview}
+                <small>{featuredMovie.Overview}</small>
+              {/if}
+              <span class="primary-action movie-feature-action">{playbackActionLabel(featuredMovie)}</span>
+            </span>
+          </button>
+        {/if}
         {#if movieResume.length}
           <h3>Continue watching</h3>
           <div class="movie-grid">
@@ -1057,12 +1171,103 @@
           {/each}
         </div>
       </section>
+    {:else if route === 'subscriptions'}
+      <section class="feed-section subscriptions-page">
+        <div class="section-heading">
+          <div>
+            <h2>Subscriptions</h2>
+            <span>{channelDirectory.length} shows and channels</span>
+          </div>
+        </div>
+
+        <div class="directory-filter">
+          <input bind:value={channelDirectoryQuery} placeholder="Filter shows and channels" aria-label="Filter shows and channels" />
+        </div>
+      </section>
+
+      {#if showDirectory.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <h2>Shows</h2>
+            <span>{showDirectory.length} shown</span>
+          </div>
+          <div class="subscription-channel-grid">
+            {#each showDirectory as entry (entry.name)}
+              <button class="subscription-card directory-card" on:click={() => openChannel(entry.name)}>
+                <span class="subscription-avatar">
+                  {#if entry.latestItem && client.getImageUrl(entry.latestItem, 220)}
+                    <img src={client.getImageUrl(entry.latestItem, 220)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{entry.name.slice(0, 1)}</span>
+                  {/if}
+                </span>
+                <span class="subscription-copy">
+                  <strong>{entry.name}</strong>
+                  <small>
+                    {entry.itemCount ? `${entry.itemCount} videos` : 'Show'}{entry.sourceLibraryName ? ` · ${entry.sourceLibraryName}` : ''}
+                  </small>
+                </span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      {#if creatorDirectory.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <h2>Channels</h2>
+            <span>{creatorDirectory.length} shown</span>
+          </div>
+          <div class="subscription-channel-grid">
+            {#each creatorDirectory as entry (entry.name)}
+              <button class="subscription-card directory-card" on:click={() => openChannel(entry.name)}>
+                <span class="subscription-avatar">
+                  {#if entry.latestItem && client.getImageUrl(entry.latestItem, 220)}
+                    <img src={client.getImageUrl(entry.latestItem, 220)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{entry.name.slice(0, 1)}</span>
+                  {/if}
+                </span>
+                <span class="subscription-copy">
+                  <strong>{entry.name}</strong>
+                  <small>{entry.itemCount} videos{entry.kind === 'music' ? ' · Music videos' : ''}</small>
+                </span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      {#if !showDirectory.length && !creatorDirectory.length}
+        <div class="empty-state compact">No shows or channels found.</div>
+      {/if}
+
+      {#if latestDirectoryVideos.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <h2>Recent uploads</h2>
+            <span>{latestDirectoryVideos.length} videos</span>
+          </div>
+          <div class="video-grid">
+            {#each latestDirectoryVideos as item (item.Id)}
+              <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            {/each}
+          </div>
+        </section>
+      {/if}
     {:else if route === 'channel'}
       <section class="channel-header">
         <div class="channel-avatar">{selectedChannel.slice(0, 1)}</div>
-        <div>
+        <div class="channel-header-copy">
           <h1>{selectedChannel}</h1>
-          <p>{channelItems.length} videos across selected libraries</p>
+          <p>
+            {#if channelEpisodeCollection}
+              {channelEpisodeCollection.allItems.length} episodes · {channelEpisodeCollection.seasons.length} seasons
+            {:else}
+              {channelItems.length} videos across selected libraries
+            {/if}
+          </p>
         </div>
       </section>
 
@@ -1072,8 +1277,36 @@
         </div>
       {/if}
 
+      {#if channelEpisodeCollection}
+        <section class="feed-section show-guide">
+          <div class="section-heading">
+            <div>
+              <h2>Episodes</h2>
+              <span>{channelEpisodeCollection.allItems.length} episodes · {channelEpisodeCollection.seasons.length} seasons</span>
+            </div>
+            <div class="section-actions">
+              <button class="text-action" on:click={playLatestChannelEpisode}>Latest episode</button>
+              <button class="text-action" on:click={playChannelSeason}>Play season</button>
+              <label class="season-picker inline">
+                <span>Season</span>
+                <select value={activeChannelSeason} on:change={changeChannelSeason}>
+                  {#each channelDisplaySeasons as season (season.season)}
+                    <option value={season.season}>{season.label}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="video-grid">
+            {#each channelSeasonItems as item (item.Id)}
+              <VideoCard {client} {item} on:select={(event) => openItem(event.detail, channelSeasonItems, `${selectedChannel} Season ${activeChannelSeason}`, true)} on:channel={(event) => openChannel(event.detail)} />
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       <section class="feed-section">
-        <h2>Latest by release date</h2>
+        <h2>{channelEpisodeCollection ? 'Latest uploads from this show' : 'Latest by release date'}</h2>
         <div class="video-grid">
           {#each channelLatest as item (item.Id)}
             <VideoCard {client} {item} poster={item.contentKind === 'movie'} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
