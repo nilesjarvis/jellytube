@@ -1,14 +1,64 @@
 # JellyTube
 
-A local Svelte frontend that turns a selected Jellyfin library into a YouTube-like browsing and watching experience.
+JellyTube is a local, frontend-only Svelte application that turns selected Jellyfin libraries into a YouTube-style browsing and watching experience. It is designed for Jellyfin servers that already host downloaded YouTube archives, movies, episodic shows, and music videos.
+
+![JellyTube Movies view](screenshots/06-movies.png)
+
+## What JellyTube Does
+
+- **YouTube-like home feed** with Continue watching, Recommended, New videos, and Replay picks shelves.
+- **Multiple Jellyfin library support** for Shows, Home Videos & Photos, Movies, and Music Videos libraries.
+- **Dedicated Movies area** with poster-style cards, resume progress, featured/resume picks, and movie-only recommendations.
+- **Music video mixes** that group videos by artist/channel and play as queue-backed playlists.
+- **Subscriptions directory** that works as a searchable show/channel directory instead of a follow/unfollow system.
+- **Season-aware show pages** for episodic libraries, including season selection, latest episode shortcuts, and lazy full-series loading.
+- **Rich watch page** with direct play where possible, Jellyfin HLS fallback, resume position, queue/episode shelves, autoplay-next, volume persistence, seeking, fullscreen, and responsive mobile layout.
+- **Browser-native navigation** so search, channel, library, and watch routes survive refresh and work with back/forward buttons.
+- **Light, dark, and system themes** saved in browser storage.
+
+## Screenshot Tour
+
+The screenshot files below are produced by the browser smoke workflow and are intended to live in the repository `screenshots/` directory.
+
+| Area | Screenshot | What to look for |
+| --- | --- | --- |
+| Movies | ![Movies route with YouTube Movies shelves](screenshots/06-movies.png) | A separate Movies destination with a featured/resume card and poster grids. |
+| Movie context | ![Movie context returning to Movies](screenshots/06b-movie-context.png) | Movie metadata routes back to the Movies surface instead of a fake channel. |
+| Show guide | ![Season-aware show page](screenshots/10b-snl-show-page.png) | Episodic shows open as season-aware guides with latest/play-season actions. |
+| Music videos | ![Music videos route](screenshots/10-music-videos.png) | Music libraries provide artist/channel mixes plus recommendations and new videos. |
+| Mix playback | ![Mix watch page with queue](screenshots/11-mix-watch-playing.png) | Mixes use an ordered queue with autoplay-next and persistent player controls. |
+| Subscriptions | ![Subscriptions directory](screenshots/13b-subscriptions.png) | Shows and channels are listed in a filterable directory without subscribe state. |
+| Search | ![Search results](screenshots/14-search.png) | Search keeps movies, episodes, music videos, and standard videos visually distinct. |
+| Watch | ![Watch page](screenshots/15-watch.png) | The player includes resume, metadata, recommendations, and queue/episode context. |
+| Browser history | ![Browser back to search](screenshots/16-browser-back-search.png) | Browser back/forward preserves search and watch task context. |
+| Mobile watch | ![Responsive mobile watch page](screenshots/18-watch-mobile.png) | The watch layout stacks cleanly on narrow screens. |
+
+To regenerate the screenshots, run the app and connect the smoke script to a Jellyfin test server:
+
+```bash
+npm run dev
+BIDI_PORT=9226 \
+JELLYTUBE_APP_URL=http://127.0.0.1:5173/ \
+JELLYTUBE_SERVER_URL=http://your-jellyfin.example \
+JELLYTUBE_USERNAME=your-admin-user \
+JELLYTUBE_PASSWORD=your-password \
+SCREENSHOT_DIR=./screenshots \
+node scripts/bidi-smoke.mjs
+```
+
+The smoke script requires a browser exposing a WebDriver BiDi endpoint on `BIDI_PORT` and writes PNG files to `SCREENSHOT_DIR`.
 
 ## Requirements
 
 - Node.js 20+
-- A Jellyfin server reachable from the browser
-- An admin Jellyfin account
+- A Jellyfin server reachable from the browser running JellyTube
+- An admin Jellyfin account for onboarding validation
 - Jellyfin Playback Reporting plugin installed and active
-- A Jellyfin library with downloaded YouTube videos, using either Shows or Home Videos & Photos
+- At least one supported Jellyfin library:
+  - **Shows** for episodic YouTube archives
+  - **Home Videos & Photos** for general video archives
+  - **Movies** for movie-style content
+  - **Music Videos** for music-video collections
 
 ## Quick Setup On A Server
 
@@ -18,7 +68,7 @@ From the JellyTube directory, run:
 ./scripts/quick-setup.sh
 ```
 
-The script installs dependencies, builds the production frontend, and starts JellyTube detached from the terminal.
+The setup script installs dependencies, builds the production frontend, and starts JellyTube detached from the terminal.
 
 Defaults:
 
@@ -28,10 +78,10 @@ Defaults:
 - PID file: `.jellytube/jellytube.pid`
 - Log file: `.jellytube/jellytube.log`
 
-To use a different host or port:
+Use a different port or host by setting environment variables:
 
 ```bash
-JELLYTUBE_PORT=8088 ./scripts/quick-setup.sh
+JELLYTUBE_PORT=8088 JELLYTUBE_HOST=127.0.0.1 ./scripts/quick-setup.sh
 ```
 
 Stop the detached server with:
@@ -57,19 +107,73 @@ npm install
 npm run dev
 ```
 
-Open the local Vite URL, sign in with Jellyfin credentials, and select the YouTube video library.
+Open the local Vite URL, sign in with Jellyfin credentials, and select the Jellyfin libraries that should appear in JellyTube.
+
+Useful development checks:
+
+```bash
+npm run check
+npm run test:unit
+npm test
+```
+
+## First-Run Flow
+
+1. Enter the Jellyfin server URL, username, and password.
+2. JellyTube validates that the account can administer the server and that Playback Reporting is available.
+3. Select one or more supported Jellyfin libraries.
+4. JellyTube saves the server URL, access token, user ID, selected libraries, and theme preference in browser local storage.
+5. After onboarding, media and API requests are made directly from the browser to Jellyfin.
+
+## Application Areas
+
+### Home
+
+The Home route is optimized for return visits. Continue watching appears first when Jellyfin has resume data, followed by recommendations, latest uploads sorted by content/release date where possible, and replay picks based on play count.
+
+### Movies
+
+Movies are intentionally separated from normal channel uploads. Movie cards use poster-style presentation, movie metadata points back to the Movies route, and watch-page recommendations stay movie-only.
+
+### Music Videos
+
+Music Videos groups compatible items into artist/channel mixes. Opening a mix starts a queue-backed watch flow with autoplay-next behavior and the queue panel visible beside the player.
+
+### Subscriptions
+
+Subscriptions is a directory, not a subscription-management feature. It derives shows and channels from already-loaded Jellyfin items, supports filtering, and avoids eager full-series API expansion until a channel/show is opened.
+
+### Channels And Shows
+
+Non-episodic channels show a latest-by-release-date grid plus replay picks. Episodic shows use season-aware guides with episode ordering and actions to play the latest episode or the selected season.
+
+### Search
+
+Search works across selected libraries and ranks likely show/episode matches above unrelated title matches. Results preserve visual identity, so movies, episodes, music videos, and standard videos remain distinguishable.
+
+### Watch
+
+The Watch page prepares a direct stream when the browser can play it and falls back to Jellyfin HLS when needed. It reports progress to Jellyfin, resumes from saved playback position, persists volume/mute state, supports seeking and fullscreen, and can continue through episode shelves or mix queues.
+
+### Library Settings
+
+The Libraries route lets server owners add or remove supported Jellyfin libraries after onboarding without signing out.
 
 ## Configuration
 
 The production server reads these optional environment variables:
 
-- `JELLYTUBE_HOST`: bind host, default `0.0.0.0`
-- `JELLYTUBE_PORT`: bind port, default `4173`
-- `JELLYTUBE_DIST`: build directory, default `dist`
-- `JELLYTUBE_RUNTIME_DIR`: quick-setup runtime directory, default `.jellytube`
-- `JELLYTUBE_PID_FILE`: PID file path
-- `JELLYTUBE_LOG_FILE`: log file path
+| Variable | Default | Description |
+| --- | --- | --- |
+| `JELLYTUBE_HOST` | `0.0.0.0` | Host/IP address for the production server to bind. |
+| `JELLYTUBE_PORT` | `4173` | Port for the production server. |
+| `JELLYTUBE_DIST` | `dist` | Directory containing the built frontend. |
+| `JELLYTUBE_RUNTIME_DIR` | `.jellytube` | Runtime directory used by quick setup. |
+| `JELLYTUBE_PID_FILE` | `.jellytube/jellytube.pid` | PID file for the detached server. |
+| `JELLYTUBE_LOG_FILE` | `.jellytube/jellytube.log` | Log file for the detached server. |
 
-## Notes
+## Data And Security Notes
 
-JellyTube is a frontend-only app. Jellyfin credentials and session data are stored in the user's browser local storage, and media/API calls go directly from the browser to the configured Jellyfin server.
+JellyTube is a frontend-only app. It does not proxy Jellyfin credentials or media through a backend service. Credentials and session data are stored in the user's browser local storage, and media/API calls go directly from the browser to the configured Jellyfin server.
+
+Because JellyTube runs in the browser, the Jellyfin server must be reachable from that browser and configured to allow the browser requests needed by your deployment.
