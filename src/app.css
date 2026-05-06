@@ -1226,16 +1226,6 @@ label {
   font-weight: 700;
 }
 
-.resume-note {
-  width: fit-content;
-  margin-top: 14px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: #fff5d7;
-  color: #644900;
-  font-weight: 700;
-  font-size: 0.9rem;
-}
 
 .overview {
   margin-top: 16px;

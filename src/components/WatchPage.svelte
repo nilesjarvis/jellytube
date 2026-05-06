@@ -1005,9 +1005,6 @@
         <span>{formatDuration(detailedItem.RunTimeTicks)}</span>
       {/if}
     </div>
-    {#if progress > 0 && progress < 95}
-      <div class="resume-note">Resume point: {Math.round(progress)}%</div>
-    {/if}
     {#if detailedItem.Overview}
       <p class="overview">{detailedItem.Overview}</p>
     {/if}
