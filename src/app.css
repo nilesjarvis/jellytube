@@ -892,20 +892,33 @@ label {
 
 .cinematic-glow {
   position: absolute;
-  inset: -38px -48px -52px;
+  inset: -72px -92px -98px;
   z-index: -1;
   pointer-events: none;
   opacity: 0;
-  border-radius: 24px;
+  border-radius: 72px;
   background:
-    radial-gradient(circle at 20% 18%, var(--cinematic-left) 0 16%, transparent 48%),
-    radial-gradient(circle at 82% 22%, var(--cinematic-right) 0 15%, transparent 50%),
-    radial-gradient(circle at 50% 52%, var(--cinematic-center) 0 14%, transparent 52%),
-    linear-gradient(180deg, transparent 12%, var(--cinematic-floor) 100%);
-  transform: translateZ(0);
+    radial-gradient(ellipse at 18% 16%, var(--cinematic-left) 0 13%, transparent 47%),
+    radial-gradient(ellipse at 82% 18%, var(--cinematic-right) 0 13%, transparent 49%),
+    radial-gradient(ellipse at 50% 42%, var(--cinematic-center) 0 12%, transparent 46%),
+    radial-gradient(ellipse at 50% 78%, var(--cinematic-floor) 0 18%, transparent 58%);
+  filter: blur(34px) saturate(1.22);
+  transform: translate3d(0, 0, 0) scale(1.035);
   transition:
     opacity 0.22s ease,
     background 0.75s ease;
+  -webkit-mask-image: radial-gradient(
+    ellipse at 50% 45%,
+    #000 0 34%,
+    rgba(0, 0, 0, 0.78) 50%,
+    transparent 76%
+  );
+  mask-image: radial-gradient(
+    ellipse at 50% 45%,
+    #000 0 34%,
+    rgba(0, 0, 0, 0.78) 50%,
+    transparent 76%
+  );
 }
 
 .player-frame.cinematic .cinematic-glow {
@@ -914,10 +927,6 @@ label {
 
 :root[data-theme='light'] .player-frame.cinematic .cinematic-glow {
   opacity: 0.68;
-}
-
-.player-frame.cinematic .player-shell {
-  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.34);
 }
 
 .player-shell {
@@ -1602,8 +1611,9 @@ label {
   }
 
   .cinematic-glow {
-    inset: -22px -20px -30px;
-    border-radius: 18px;
+    inset: -36px -32px -44px;
+    border-radius: 42px;
+    filter: blur(22px) saturate(1.16);
   }
 
   .player-frame.cinematic .cinematic-glow {

@@ -728,6 +728,21 @@ async function main() {
         if (!frame?.classList.contains('cinematic') || localStorage.getItem('jellytube.cinematicMode') !== 'true') {
           return false;
         }
+        const glow = document.querySelector('.cinematic-glow');
+        const shellBounds = document.querySelector('.player-shell')?.getBoundingClientRect();
+        const glowBounds = glow?.getBoundingClientRect();
+        const glowStyle = glow ? getComputedStyle(glow) : null;
+        if (
+          !glowStyle?.filter.includes('blur') ||
+          !glowBounds ||
+          !shellBounds ||
+          glowBounds.left >= shellBounds.left - 20 ||
+          glowBounds.right <= shellBounds.right + 20 ||
+          glowBounds.top >= shellBounds.top - 20 ||
+          glowBounds.bottom <= shellBounds.bottom + 20
+        ) {
+          return false;
+        }
         const left = getComputedStyle(frame).getPropertyValue('--cinematic-left').trim();
         window.__jellytubeCinematicLeft = left;
         return left && left !== 'rgba(255, 0, 51, 0.38)';
