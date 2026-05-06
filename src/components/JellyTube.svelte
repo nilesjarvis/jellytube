@@ -1025,7 +1025,7 @@
 
   function scrollToTop(scroll: boolean) {
     if (!scroll) return;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
   function readUrlRoute(): UrlRoute {
