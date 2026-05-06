@@ -961,6 +961,10 @@
     return (item.UserData?.PlaybackPositionTicks ?? 0) > 0 && !item.UserData?.Played ? 'Resume' : 'Watch';
   }
 
+  function videoCountLabel(count: number) {
+    return `${count} ${count === 1 ? 'video' : 'videos'}`;
+  }
+
   function relatedFor(item: JellyfinItem | null) {
     const pool = item?.contentKind === 'movie' ? moviePool : mergeItems(videoPool, musicPool);
     const ranked = rankRecommendations(pool, activity, item);
@@ -1132,9 +1136,14 @@
       <Music2 size={21} />
       <span>Music</span>
     </button>
-    <button class:active={route === 'subscriptions'} on:click={() => goRoute('subscriptions')}>
+    <button
+      class:active={route === 'subscriptions'}
+      aria-label="Subscriptions"
+      title="Subscriptions"
+      on:click={() => goRoute('subscriptions')}
+    >
       <ListVideo size={21} />
-      <span>Subscriptions</span>
+      <span>Subs</span>
     </button>
     <button class:active={route === 'channel'} on:click={() => selectedChannel && goRoute('channel')} disabled={!selectedChannel}>
       <UsersRound size={21} />
@@ -1204,6 +1213,8 @@
                 {client}
                 {item}
                 poster={item.contentKind === 'movie'}
+                titleContext="recommendation"
+                titleChannel={channelName(item)}
                 on:select={(event) => openItem(event.detail)}
                 on:channel={(event) => openChannel(event.detail)}
               />
@@ -1358,7 +1369,7 @@
                 <span class="subscription-copy">
                   <strong>{entry.name}</strong>
                   <small>
-                    {entry.itemCount ? `${entry.itemCount} videos` : 'Show'}{entry.sourceLibraryName ? ` · ${entry.sourceLibraryName}` : ''}
+                    {entry.itemCount ? videoCountLabel(entry.itemCount) : 'Show'}{entry.sourceLibraryName ? ` · ${entry.sourceLibraryName}` : ''}
                   </small>
                 </span>
               </button>
@@ -1385,7 +1396,7 @@
                 </span>
                 <span class="subscription-copy">
                   <strong>{entry.name}</strong>
-                  <small>{entry.itemCount} videos{entry.kind === 'music' ? ' · Music videos' : ''}</small>
+                  <small>{videoCountLabel(entry.itemCount)}{entry.kind === 'music' ? ' · Music videos' : ''}</small>
                 </span>
               </button>
             {/each}

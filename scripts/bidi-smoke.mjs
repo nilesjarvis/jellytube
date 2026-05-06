@@ -224,7 +224,7 @@ async function main() {
   await waitFor(
     socket,
     context,
-    `document.body.innerText.includes('Recommended') && document.body.innerText.includes('Subscriptions') && document.querySelectorAll('.video-card').length > 3`,
+    `document.body.innerText.includes('Recommended') && document.querySelector('[aria-label="Subscriptions"]') && document.querySelectorAll('.video-card').length > 3`,
     'home feed',
     20000
   );
@@ -322,7 +322,9 @@ async function main() {
       Boolean(
         location.pathname === '/search' &&
         new URL(location.href).searchParams.get('q') === 'Homeland' &&
-        document.querySelector('.video-card .video-title')?.innerText.includes('Homeland S') &&
+        document.querySelector('.video-card .video-channel')?.innerText.includes('Homeland') &&
+        document.querySelector('.video-card .video-channel')?.innerText.includes('S07') &&
+        !document.querySelector('.video-card .video-title')?.innerText.includes('Homeland S') &&
         !document.querySelector('.video-card .video-title')?.innerText.includes('Das Boot')
       )
     `,
@@ -636,7 +638,7 @@ async function main() {
   );
   await screenshot(socket, context, '13-channel');
 
-  await evaluate(socket, context, `[...document.querySelectorAll('.sidebar button')].find((button) => button.innerText.includes('Subscriptions')).click()`);
+  await evaluate(socket, context, `[...document.querySelectorAll('.sidebar button')].find((button) => button.getAttribute('aria-label') === 'Subscriptions').click()`);
   await waitFor(
     socket,
     context,
