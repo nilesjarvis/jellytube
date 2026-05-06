@@ -8,7 +8,7 @@ export type RankedItem = JellyfinItem & {
 };
 
 export type DisplayTitleOptions = {
-  context?: 'feed' | 'series' | 'channel';
+  context?: 'feed' | 'series' | 'channel' | 'recommendation';
   channel?: string;
 };
 
@@ -130,7 +130,10 @@ export function rankRecommendations(
 }
 
 export function displayTitle(item: JellyfinItem, options: DisplayTitleOptions = {}) {
-  const inEpisodeContext = options.context === 'series' || options.context === 'channel';
+  const inEpisodeContext =
+    options.context === 'series' ||
+    options.context === 'channel' ||
+    options.context === 'recommendation';
   const parsedEpisode = episodeInfo(item);
   if (parsedEpisode) {
     if (inEpisodeContext) return episodeTitle(item);
@@ -143,7 +146,7 @@ export function displayTitle(item: JellyfinItem, options: DisplayTitleOptions = 
     const code = season || episode ? ` ${season}${episode}` : '';
     return `${item.SeriesName}${code} - ${item.Name}`;
   }
-  if (options.context === 'channel' && options.channel) {
+  if ((options.context === 'channel' || options.context === 'recommendation') && options.channel) {
     return titleWithoutRedundantChannel(item.Name, options.channel);
   }
   return item.Name;

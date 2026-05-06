@@ -1391,7 +1391,7 @@
         </div>
         <div class="video-grid">
           {#each recommended as item (item.Id)}
-            <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            <VideoCard {client} {item} titleContext="recommendation" titleChannel={channelName(item)} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
           {/each}
         </div>
       </section>

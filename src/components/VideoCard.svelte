@@ -15,7 +15,7 @@
   export let item: JellyfinItem;
   export let compact = false;
   export let poster = false;
-  export let titleContext: 'feed' | 'series' | 'channel' = 'feed';
+  export let titleContext: 'feed' | 'series' | 'channel' | 'recommendation' = 'feed';
   export let titleChannel = '';
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem; channel: string }>();
@@ -24,7 +24,18 @@
   $: progress = playbackProgress(item);
   $: channel = channelName(item);
   $: title = displayTitle(item, { context: titleContext, channel: titleChannel || channel });
-  $: contextualEpisodeCode = titleContext !== 'feed' ? episodeCode(item) : '';
+  $: episodeLabel = episodeCode(item);
+  $: readableRecommendationCode = episodeLabel.length <= 8 ? episodeLabel : '';
+  $: contextualEpisodeCode =
+    titleContext === 'recommendation'
+      ? readableRecommendationCode
+      : titleContext !== 'feed'
+        ? episodeLabel
+        : '';
+  $: contextLine =
+    titleContext === 'recommendation' && contextualEpisodeCode
+      ? `${contextualEpisodeCode} · ${channel}`
+      : channel;
 </script>
 
 <article class:compact class:poster class="video-card">
@@ -44,7 +55,9 @@
 
   <div class="video-copy">
     <button class="video-title" on:click={() => dispatch('select', item)}>{title}</button>
-    {#if contextualEpisodeCode}
+    {#if titleContext === 'recommendation'}
+      <button class="video-channel" on:click={() => dispatch('channel', channel)}>{contextLine}</button>
+    {:else if contextualEpisodeCode}
       <div class="video-kicker">{contextualEpisodeCode}</div>
     {:else if titleContext === 'feed'}
       <button class="video-channel" on:click={() => dispatch('channel', channel)}>{channel}</button>

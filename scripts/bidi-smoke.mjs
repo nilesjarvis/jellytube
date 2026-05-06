@@ -227,6 +227,25 @@ async function main() {
     20000
   );
   await screenshot(socket, context, '03-home-feed-light');
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        const recommended = [...document.querySelectorAll('.feed-section')]
+          .find((section) => section.querySelector('h2')?.innerText.trim() === 'Recommended');
+        if (recommended) {
+          window.scrollTo({
+            top: recommended.getBoundingClientRect().top + window.scrollY - 88,
+            behavior: 'instant'
+          });
+        }
+        return Boolean(recommended);
+      })()
+    `
+  );
+  await screenshot(socket, context, '03b-recommended');
+  await evaluate(socket, context, `window.scrollTo({ top: 0, behavior: 'instant' })`);
 
   await evaluate(
     socket,

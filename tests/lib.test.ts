@@ -175,6 +175,27 @@ test('channel context removes repeated channel names from video titles', () => {
   assert.equal(displayTitle(musicVideo, { context: 'channel', channel: 'Wet Leg' }), 'Mangetout ｜ SNL UK');
 });
 
+test('recommendation context keeps titles concise in mixed feeds', () => {
+  const homeland = item({
+    Id: 'homeland',
+    Name: 'Paean to the People',
+    Type: 'Episode',
+    SeriesName: 'Homeland',
+    SeriesId: 'homeland-series',
+    ParentIndexNumber: 7,
+    IndexNumber: 12
+  });
+  const sketch = item({
+    Id: 'snl-sketch',
+    Name: 'The Stand Off - Saturday Night Live [P40DyAwN13U]',
+    Type: 'Video'
+  });
+
+  assert.equal(displayTitle(homeland), 'Homeland S07E12 - Paean to the People');
+  assert.equal(displayTitle(homeland, { context: 'recommendation', channel: 'Homeland' }), 'Paean to the People');
+  assert.equal(displayTitle(sketch, { context: 'recommendation', channel: 'Saturday Night Live' }), 'The Stand Off');
+});
+
 test('search ranks actual series episodes above unrelated title matches', () => {
   const homeland = item({
     Id: 'homeland',
