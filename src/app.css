@@ -2038,3 +2038,76 @@ label {
     transition: none;
   }
 }
+
+/* THEATER MODE */
+.watch-left,
+.watch-main,
+.watch-player-area {
+  min-width: 0;
+}
+
+.watch-left {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.recommendation-rail {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.watch-layout.theater-mode {
+  grid-template-columns: minmax(0, 1fr) 402px;
+  grid-template-rows: auto auto;
+  align-items: start;
+  max-width: 1754px;
+}
+
+.watch-layout.theater-mode .watch-left {
+  display: contents;
+}
+
+.watch-layout.theater-mode .watch-player-area {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.watch-layout.theater-mode .watch-main {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.watch-layout.theater-mode .recommendation-rail {
+  grid-column: 2;
+  grid-row: 2;
+  width: auto;
+}
+
+.watch-layout.theater-mode .player-shell {
+  height: clamp(320px, 42vw, calc(100vh - 260px));
+  padding-top: 0;
+}
+
+.watch-layout.theater-mode .player-frame.cinematic .cinematic-glow {
+  inset: -56px -42px -70px;
+}
+
+@media (max-width: 1016px) {
+  .watch-left,
+  .watch-main,
+  .recommendation-rail,
+  .watch-layout.theater-mode .watch-player-area,
+  .watch-layout.theater-mode .watch-main,
+  .watch-layout.theater-mode .recommendation-rail {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .watch-layout.theater-mode .watch-left {
+    display: block;
+  }
+
+  .theater-control {
+    display: none !important;
+  }
+}

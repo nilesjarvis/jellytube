@@ -10,6 +10,7 @@
     Play,
     Ratio,
     RotateCcw,
+    RectangleHorizontal,
     Sparkles,
     SkipBack,
     SkipForward,
@@ -95,6 +96,13 @@
   let autoplayNext = localStorage.getItem('jellytube.autoplayNext') !== 'false';
   let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
+  let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
+
+  function toggleTheaterMode() {
+    theaterMode = !theaterMode;
+    localStorage.setItem('jellytube.theaterMode', String(theaterMode));
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
   let cinematicStyle = CINEMATIC_FALLBACK_STYLE;
   let cinematicTimer = 0;
   let cinematicFailures = 0;
@@ -819,9 +827,10 @@
   }
 </script>
 
-<section class="watch-layout">
-  <div class="watch-main">
-    <button class="back-button" on:click={() => dispatch('back')}>
+<section class="watch-layout" class:theater-mode={theaterMode}>
+  <div class="watch-left">
+    <div class="watch-player-area">
+      <button class="back-button" on:click={() => dispatch('back')}>
       <ArrowLeft size={19} />
       <span>Back</span>
     </button>
@@ -978,6 +987,16 @@
               >
                 <Sparkles size={21} />
               </button>
+              
+              <button
+                class="player-control theater-control"
+                class:active={theaterMode}
+                aria-label={theaterMode ? 'Default view' : 'Theater mode'}
+                title={theaterMode ? 'Default view' : 'Theater mode'}
+                on:click={toggleTheaterMode}
+              >
+                <RectangleHorizontal size={21} />
+              </button>
 
               <button class="player-control fullscreen-control" aria-label="Toggle fullscreen" on:click={() => void toggleFullscreen()}>
                 {#if fullscreen}
@@ -991,7 +1010,9 @@
         {/if}
       </div>
     </div>
+  </div>
 
+  <div class="watch-main">
     <h1>{title}</h1>
     <div class="watch-meta">
       <button class="watch-channel" on:click={() => (isMovie ? dispatch('movies') : dispatch('channel', contextLabel))}>
@@ -1070,6 +1091,7 @@
         </div>
       </section>
     {/if}
+  </div>
   </div>
 
   <aside class="recommendation-rail" aria-label={isMovie ? 'Recommended movies' : 'Recommended videos'}>
