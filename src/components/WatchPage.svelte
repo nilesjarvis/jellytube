@@ -90,7 +90,7 @@
   let fullscreen = false;
   let scrolledEpisodeId = '';
 
-  $: title = displayTitle(detailedItem);
+  $: currentEpisodeCode = episodeCode(detailedItem);
   $: progress = playbackProgress(detailedItem);
   $: durationSeconds = duration || ticksToSeconds(detailedItem.RunTimeTicks);
   $: progressPercent = durationSeconds > 0 ? Math.min(100, (currentTime / durationSeconds) * 100) : 0;
@@ -103,6 +103,10 @@
   $: hasEpisodeShelf = episodeSeasons.length > 0;
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
+  $: title = displayTitle(detailedItem, {
+    context: detailedItem.Type === 'Episode' ? 'series' : isMovie ? 'feed' : 'channel',
+    channel: contextLabel
+  });
   $: selectedEpisodeItems =
     episodeSeasons.find((season) => season.season === selectedEpisodeSeason)?.items ??
     episodeSeasons[0]?.items ??
@@ -847,6 +851,9 @@
       <button class="watch-channel" on:click={() => (isMovie ? dispatch('movies') : dispatch('channel', contextLabel))}>
         {contextLabel}
       </button>
+      {#if currentEpisodeCode}
+        <span>{currentEpisodeCode}</span>
+      {/if}
       <span>{compactMeta(detailedItem)}</span>
       {#if formatDuration(detailedItem.RunTimeTicks)}
         <span>{formatDuration(detailedItem.RunTimeTicks)}</span>
@@ -904,7 +911,7 @@
               </span>
               <span class="episode-copy">
                 <span class="episode-code">{episodeCode(episode)}</span>
-                <strong>{displayTitle(episode)}</strong>
+                <strong>{displayTitle(episode, { context: 'series' })}</strong>
                 <small>{compactMeta(episode)}</small>
               </span>
             </button>
@@ -950,6 +957,8 @@
         {client}
         item={recommendation}
         compact
+        titleContext={!isMovie && channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
+        titleChannel={contextLabel}
         on:select={(event) => dispatch('select', event.detail)}
         on:channel={(event) => dispatch('channel', event.detail)}
       />

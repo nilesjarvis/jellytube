@@ -723,6 +723,7 @@ label {
 }
 
 .video-channel,
+.video-kicker,
 .video-meta {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -732,7 +733,8 @@ label {
   line-height: 1.45;
 }
 
-.video-channel {
+.video-channel,
+.video-kicker {
   margin-top: 7px;
   display: block;
   width: fit-content;

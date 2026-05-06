@@ -7,6 +7,11 @@ export type RankedItem = JellyfinItem & {
   reason?: string;
 };
 
+export type DisplayTitleOptions = {
+  context?: 'feed' | 'series' | 'channel';
+  channel?: string;
+};
+
 export function mergeItems(...groups: JellyfinItem[][]) {
   const seen = new Map<string, JellyfinItem>();
   for (const group of groups) {
@@ -124,16 +129,22 @@ export function rankRecommendations(
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }
 
-export function displayTitle(item: JellyfinItem) {
+export function displayTitle(item: JellyfinItem, options: DisplayTitleOptions = {}) {
+  const inEpisodeContext = options.context === 'series' || options.context === 'channel';
   const parsedEpisode = episodeInfo(item);
   if (parsedEpisode) {
+    if (inEpisodeContext) return episodeTitle(item);
     return `${parsedEpisode.seriesName} ${episodeCode(item)} - ${episodeTitle(item)}`;
   }
   if (item.Type === 'Episode' && item.SeriesName) {
+    if (inEpisodeContext) return item.Name;
     const season = item.ParentIndexNumber ? `S${String(item.ParentIndexNumber).padStart(2, '0')}` : '';
     const episode = item.IndexNumber ? `E${String(item.IndexNumber).padStart(2, '0')}` : '';
     const code = season || episode ? ` ${season}${episode}` : '';
     return `${item.SeriesName}${code} - ${item.Name}`;
+  }
+  if (options.context === 'channel' && options.channel) {
+    return titleWithoutRedundantChannel(item.Name, options.channel);
   }
   return item.Name;
 }
@@ -229,6 +240,35 @@ function tokenize(value: string) {
 
 function stripYoutubeId(value: string) {
   return value.replace(/\s*\[[a-zA-Z0-9_-]{6,}\]\s*$/, '').trim();
+}
+
+function titleWithoutRedundantChannel(value: string, channel: string) {
+  const title = stripYoutubeId(value);
+  const normalizedChannel = normalizeTitleSegment(channel);
+  if (!title || !normalizedChannel) return title || value;
+
+  const separators = [' | ', ' ｜ ', ' - ', ' – ', ' — ', ': ', '：'];
+  for (const separator of separators) {
+    const index = title.lastIndexOf(separator);
+    if (index <= 0) continue;
+    const prefix = title.slice(0, index).trim();
+    const suffix = title.slice(index + separator.length).trim();
+    if (prefix && normalizeTitleSegment(suffix) === normalizedChannel) return prefix;
+  }
+
+  for (const separator of separators) {
+    const index = title.indexOf(separator);
+    if (index <= 0) continue;
+    const prefix = title.slice(0, index).trim();
+    const suffix = title.slice(index + separator.length).trim();
+    if (suffix && normalizeTitleSegment(prefix) === normalizedChannel) return suffix;
+  }
+
+  return title;
+}
+
+function normalizeTitleSegment(value: string) {
+  return stripYoutubeId(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function firstSegment(value: string, separators: string[]) {

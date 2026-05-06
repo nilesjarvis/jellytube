@@ -1314,7 +1314,7 @@
           </div>
           <div class="video-grid">
             {#each channelSeasonItems as item (item.Id)}
-              <VideoCard {client} {item} on:select={(event) => openItem(event.detail, channelSeasonItems, `${selectedChannel} Season ${activeChannelSeason}`, true)} on:channel={(event) => openChannel(event.detail)} />
+              <VideoCard {client} {item} titleContext="series" titleChannel={selectedChannel} on:select={(event) => openItem(event.detail, channelSeasonItems, `${selectedChannel} Season ${activeChannelSeason}`, true)} on:channel={(event) => openChannel(event.detail)} />
             {/each}
           </div>
         </section>
@@ -1324,7 +1324,7 @@
         <h2>{channelEpisodeCollection ? 'Latest uploads from this show' : 'Latest by release date'}</h2>
         <div class="video-grid">
           {#each channelLatest as item (item.Id)}
-            <VideoCard {client} {item} poster={item.contentKind === 'movie'} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            <VideoCard {client} {item} titleContext={channelEpisodeCollection ? 'series' : 'channel'} titleChannel={selectedChannel} poster={item.contentKind === 'movie'} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
           {/each}
         </div>
       </section>
@@ -1334,7 +1334,7 @@
           <h2>Replay picks</h2>
           <div class="video-grid">
             {#each channelPopular.slice(0, 18) as item (item.Id)}
-              <VideoCard {client} {item} poster={item.contentKind === 'movie'} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+              <VideoCard {client} {item} titleContext={channelEpisodeCollection ? 'series' : 'channel'} titleChannel={selectedChannel} poster={item.contentKind === 'movie'} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
             {/each}
           </div>
         </section>

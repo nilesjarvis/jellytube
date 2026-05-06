@@ -8,22 +8,27 @@
     formatDuration,
     playbackProgress
   } from '../lib/recommendations';
+  import { episodeCode } from '../lib/episodes';
   import type { JellyfinItem } from '../lib/types';
 
   export let client: JellyfinClient;
   export let item: JellyfinItem;
   export let compact = false;
   export let poster = false;
+  export let titleContext: 'feed' | 'series' | 'channel' = 'feed';
+  export let titleChannel = '';
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem; channel: string }>();
 
   $: imageUrl = client.getImageUrl(item, compact ? 320 : 640);
   $: progress = playbackProgress(item);
   $: channel = channelName(item);
+  $: title = displayTitle(item, { context: titleContext, channel: titleChannel || channel });
+  $: contextualEpisodeCode = titleContext !== 'feed' ? episodeCode(item) : '';
 </script>
 
 <article class:compact class:poster class="video-card">
-  <button class="thumbnail-button" on:click={() => dispatch('select', item)} aria-label={displayTitle(item)}>
+  <button class="thumbnail-button" on:click={() => dispatch('select', item)} aria-label={title}>
     {#if imageUrl}
       <img src={imageUrl} alt="" loading="lazy" />
     {:else}
@@ -38,8 +43,12 @@
   </button>
 
   <div class="video-copy">
-    <button class="video-title" on:click={() => dispatch('select', item)}>{displayTitle(item)}</button>
-    <button class="video-channel" on:click={() => dispatch('channel', channel)}>{channel}</button>
+    <button class="video-title" on:click={() => dispatch('select', item)}>{title}</button>
+    {#if contextualEpisodeCode}
+      <div class="video-kicker">{contextualEpisodeCode}</div>
+    {:else if titleContext === 'feed'}
+      <button class="video-channel" on:click={() => dispatch('channel', channel)}>{channel}</button>
+    {/if}
     <div class="video-meta">{compactMeta(item)}</div>
   </div>
 </article>

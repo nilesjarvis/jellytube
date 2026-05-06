@@ -6,7 +6,7 @@ import {
 } from '../src/lib/channelDirectory';
 import { compareByContentDateDesc, contentDate, relativeDate } from '../src/lib/dates';
 import { episodeCollectionForItem } from '../src/lib/episodes';
-import { channelName, compactMeta, groupByChannel } from '../src/lib/recommendations';
+import { channelName, compactMeta, displayTitle, groupByChannel } from '../src/lib/recommendations';
 import { rankSearchResults } from '../src/lib/search';
 import type { JellyfinItem } from '../src/lib/types';
 
@@ -134,6 +134,45 @@ test('episode collections sort full series episodes by season, episode, then pre
     'snl-s29e09',
     'snl-s29e10'
   ]);
+});
+
+test('episode titles stay concise inside a series context', () => {
+  const snl = item({
+    Id: 'snl-s29e09',
+    Name: 'Jennifer Aniston/Black Eyed Peas',
+    Type: 'Episode',
+    SeriesName: 'Saturday Night Live',
+    SeriesId: 'snl',
+    ParentIndexNumber: 29,
+    IndexNumber: 9
+  });
+  const archivedName = item({
+    Id: 'archive-s01e02',
+    Name: 'Archive Show S01E02 - The Clear Title',
+    Type: 'Episode'
+  });
+
+  assert.equal(displayTitle(snl), 'Saturday Night Live S29E09 - Jennifer Aniston/Black Eyed Peas');
+  assert.equal(displayTitle(snl, { context: 'series' }), 'Jennifer Aniston/Black Eyed Peas');
+  assert.equal(displayTitle(archivedName), 'Archive Show S01E02 - The Clear Title');
+  assert.equal(displayTitle(archivedName, { context: 'series' }), 'The Clear Title');
+});
+
+test('channel context removes repeated channel names from video titles', () => {
+  const sketch = item({
+    Id: 'snl-sketch',
+    Name: 'The Stand Off - Saturday Night Live [P40DyAwN13U]',
+    Type: 'Video'
+  });
+  const musicVideo = item({
+    Id: 'wet-leg',
+    Name: 'Wet Leg： Mangetout ｜ SNL UK [x3V9FUZ2ajk]',
+    Type: 'MusicVideo'
+  });
+
+  assert.equal(displayTitle(sketch), 'The Stand Off - Saturday Night Live [P40DyAwN13U]');
+  assert.equal(displayTitle(sketch, { context: 'channel', channel: 'Saturday Night Live' }), 'The Stand Off');
+  assert.equal(displayTitle(musicVideo, { context: 'channel', channel: 'Wet Leg' }), 'Mangetout ｜ SNL UK');
 });
 
 test('search ranks actual series episodes above unrelated title matches', () => {

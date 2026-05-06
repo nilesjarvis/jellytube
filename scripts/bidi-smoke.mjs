@@ -308,7 +308,8 @@ async function main() {
     `
       Boolean(
         location.pathname.startsWith('/watch/') &&
-        document.querySelector('.watch-main h1')?.innerText.includes('Homeland') &&
+        document.querySelector('.watch-channel')?.innerText === 'Homeland' &&
+        !document.querySelector('.watch-main h1')?.innerText.includes('Homeland S') &&
         document.querySelector('.episode-shelf') &&
         document.querySelectorAll('.episode-strip .episode-tile').length > 8
       )
@@ -328,7 +329,9 @@ async function main() {
     `
       Boolean(
         location.pathname === '/watch/ee4d0998c1c945dcc1f935ba89dc791e' &&
-        document.querySelector('.watch-main h1')?.innerText.includes('Saturday Night Live S29E09') &&
+        document.querySelector('.watch-channel')?.innerText === 'Saturday Night Live' &&
+        document.body.innerText.includes('S29E09') &&
+        !document.querySelector('.watch-main h1')?.innerText.includes('Saturday Night Live S29E09') &&
         document.querySelector('.episode-shelf') &&
         document.body.innerText.includes('S29E08') &&
         document.body.innerText.includes('S29E09') &&
@@ -353,7 +356,7 @@ async function main() {
   await waitFor(
     socket,
     context,
-    `document.querySelector('.watch-main h1')?.innerText.includes('Saturday Night Live S29E10') && document.querySelector('.watch-main h1')?.innerText !== window.__jellytubeSnlTitle`,
+    `document.body.innerText.includes('S29E10') && !document.querySelector('.watch-main h1')?.innerText.includes('Saturday Night Live S29E10') && document.querySelector('.watch-main h1')?.innerText !== window.__jellytubeSnlTitle`,
     'snl next episode'
   );
   await screenshot(socket, context, '10-snl-next-episode');
