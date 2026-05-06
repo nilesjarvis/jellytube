@@ -1,0 +1,6 @@
+node_modules
+dist
+.vite
+.jellytube
+.DS_Store
+screenshots/*.png

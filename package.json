@@ -1,0 +1,31 @@
+{
+  "name": "jellytube",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "serve": "node scripts/serve-dist.mjs",
+    "start": "node scripts/serve-dist.mjs",
+    "setup": "bash scripts/quick-setup.sh",
+    "stop": "bash scripts/stop.sh",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test:unit": "node scripts/run-unit-tests.mjs",
+    "test": "npm run check && npm run test:unit"
+  },
+  "dependencies": {
+    "hls.js": "^1.5.20",
+    "lucide-svelte": "^0.468.0",
+    "svelte": "^5.17.3"
+  },
+  "devDependencies": {
+    "@tsconfig/svelte": "^5.0.4",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "svelte-check": "^4.1.1",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
