@@ -229,6 +229,16 @@ async function main() {
     20000
   );
   await screenshot(socket, context, '03-home-feed-light');
+  await evaluate(socket, context, `document.querySelector('.topbar-left .icon-button').click()`);
+  await waitFor(
+    socket,
+    context,
+    `document.querySelector('.app-shell.menu-open') && [...document.querySelectorAll('.sidebar button')].some((button) => button.innerText.includes('Subscriptions'))`,
+    'expanded navigation'
+  );
+  await screenshot(socket, context, '03c-expanded-navigation');
+  await evaluate(socket, context, `document.querySelector('.topbar-left .icon-button').click()`);
+  await waitFor(socket, context, `!document.querySelector('.app-shell.menu-open')`, 'collapsed navigation');
   await evaluate(
     socket,
     context,

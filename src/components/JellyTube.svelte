@@ -1143,7 +1143,8 @@
       on:click={() => goRoute('subscriptions')}
     >
       <ListVideo size={21} />
-      <span>Subs</span>
+      <span class="nav-label-short">Subs</span>
+      <span class="nav-label-full">Subscriptions</span>
     </button>
     <button class:active={route === 'channel'} on:click={() => selectedChannel && goRoute('channel')} disabled={!selectedChannel}>
       <UsersRound size={21} />

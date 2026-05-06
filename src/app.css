@@ -439,6 +439,10 @@ label {
   white-space: nowrap;
 }
 
+.sidebar .nav-label-full {
+  display: none;
+}
+
 .sidebar button.active {
   background: var(--soft);
   font-weight: 750;
@@ -1753,6 +1757,14 @@ label {
   .menu-open .sidebar button span {
     max-width: 160px;
   }
+
+  .menu-open .sidebar .nav-label-short {
+    display: none;
+  }
+
+  .menu-open .sidebar .nav-label-full {
+    display: inline;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -1831,6 +1843,14 @@ label {
 
   .sidebar button span {
     max-width: 160px;
+  }
+
+  .menu-open .sidebar .nav-label-short {
+    display: none;
+  }
+
+  .menu-open .sidebar .nav-label-full {
+    display: inline;
   }
 
   .content {
