@@ -1180,7 +1180,7 @@
       <Library size={21} />
       <span>{session.selectedLibraries.length} libs</span>
     </button>
-    <button on:click={loadAll}>
+    <button title="Force sync new content from Jellyfin" on:click={loadAll}>
       <RefreshCcw size={20} />
       <span>Refresh</span>
     </button>
