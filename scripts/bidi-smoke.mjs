@@ -665,6 +665,25 @@ async function main() {
     'show and channel directory'
   );
   await screenshot(socket, context, '13b-subscriptions');
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        const filter = document.querySelector('.directory-filter input');
+        filter.value = '__no_matching_channel__';
+        filter.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `document.body.innerText.includes('No shows or channels found.')`,
+    'empty subscription filter'
+  );
+  await screenshot(socket, context, '13c-empty-subscriptions-filter');
 
   await evaluate(
     socket,

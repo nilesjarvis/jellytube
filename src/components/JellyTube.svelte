@@ -176,6 +176,7 @@
   $: channelDirectoryPool = searchPool.filter((item) => item.contentKind !== 'movie' && item.Type !== 'Movie');
   $: channelDirectory = channelDirectoryEntries(channelDirectoryPool, seriesPool);
   $: filteredChannelDirectory = filterChannelDirectory(channelDirectory, channelDirectoryQuery);
+  $: channelDirectoryFilterActive = channelDirectoryQuery.trim().length > 0;
   $: showDirectory = filteredChannelDirectory.filter((entry) => entry.kind === 'show').slice(0, 180);
   $: creatorDirectory = filteredChannelDirectory.filter((entry) => entry.kind !== 'show').slice(0, 180);
   $: latestDirectoryVideos = [...channelDirectoryPool].sort(compareByContentDateDesc).slice(0, 48);
@@ -1409,7 +1410,7 @@
         <div class="empty-state compact">No shows or channels found.</div>
       {/if}
 
-      {#if latestDirectoryVideos.length}
+      {#if latestDirectoryVideos.length && !channelDirectoryFilterActive}
         <section class="feed-section">
           <div class="section-heading">
             <h2>Recent uploads</h2>
