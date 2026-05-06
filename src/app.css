@@ -389,13 +389,17 @@ label {
   justify-self: end;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   min-width: 0;
+  flex: 0 1 auto;
 }
 
 .account-pill {
   justify-self: end;
-  max-width: 100%;
+  max-width: min(100%, 180px);
+  min-width: 0;
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -969,7 +973,8 @@ label {
   box-shadow: 0 0 0 3px var(--focus);
 }
 
-.player-shell:fullscreen {
+.player-shell:fullscreen,
+.player-shell:-webkit-full-screen {
   height: 100%;
   padding-top: 0;
 }
@@ -1821,7 +1826,7 @@ label {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
@@ -1844,6 +1849,9 @@ label {
   .search-form {
     grid-column: 1 / -1;
     grid-row: 2;
+    order: 3;
+    flex: 1 0 100%;
+    max-width: none;
   }
 
   .account-pill {
@@ -2015,6 +2023,13 @@ label {
 
   .player-time {
     font-size: 0.78rem;
+  }
+
+  @media (max-width: 420px) {
+    .player-control-row .player-control:nth-of-type(2),
+    .player-control-row .player-control:nth-of-type(3) {
+      display: none;
+    }
   }
 
   .center-play {
