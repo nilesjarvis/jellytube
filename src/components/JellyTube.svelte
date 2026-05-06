@@ -189,6 +189,26 @@
       : episodeCollection?.currentSeason ?? 0;
   $: featuredMovie = movieResume[0] ?? moviePopular[0] ?? movies[0] ?? null;
 
+  $: {
+    if (route === 'watch' && selectedItem) {
+      document.title = `${displayTitle(selectedItem)} - JellyTube`;
+    } else if (route === 'channel' && selectedChannel) {
+      document.title = `${selectedChannel} - JellyTube`;
+    } else if (route === 'search' && searchedFor) {
+      document.title = `${searchedFor} - JellyTube`;
+    } else if (route === 'movies') {
+      document.title = 'Movies - JellyTube';
+    } else if (route === 'music') {
+      document.title = 'Music - JellyTube';
+    } else if (route === 'subscriptions') {
+      document.title = 'Subscriptions - JellyTube';
+    } else if (route === 'home') {
+      document.title = 'Home - JellyTube';
+    } else {
+      document.title = 'JellyTube';
+    }
+  }
+
   onMount(() => {
     applyTheme();
     const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
