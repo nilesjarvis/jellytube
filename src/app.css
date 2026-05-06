@@ -884,10 +884,17 @@ label {
 .player-frame {
   position: relative;
   isolation: isolate;
+  --player-aspect-padding: 56.25%;
+  --player-video-fit: contain;
   --cinematic-left: rgba(255, 0, 51, 0.38);
   --cinematic-right: rgba(41, 121, 255, 0.32);
   --cinematic-center: rgba(255, 255, 255, 0.16);
   --cinematic-floor: rgba(0, 0, 0, 0.36);
+}
+
+.player-frame.ultrawide-crop {
+  --player-aspect-padding: 42.8571428571%;
+  --player-video-fit: cover;
 }
 
 .cinematic-glow {
@@ -934,22 +941,31 @@ label {
   overflow: hidden;
   border-radius: 8px;
   background: #000;
-  aspect-ratio: 16 / 9;
+  height: 0;
+  padding-top: var(--player-aspect-padding);
   color: #fff;
   outline: 0;
+  transition: padding-top 0.32s cubic-bezier(0.2, 0, 0.2, 1);
 }
 
 .player-shell:focus-visible {
   box-shadow: 0 0 0 3px var(--focus);
 }
 
+.player-shell:fullscreen {
+  height: 100%;
+  padding-top: 0;
+}
+
 .player-shell video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   background: #000;
   cursor: pointer;
-  object-fit: contain;
+  object-fit: var(--player-video-fit);
 }
 
 .player-hit-target {
@@ -1653,6 +1669,7 @@ label {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .player-shell,
   .cinematic-glow {
     transition: none;
   }

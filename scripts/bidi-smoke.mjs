@@ -188,6 +188,7 @@ async function main() {
       (() => {
         localStorage.removeItem('jellytube.session.v1');
         localStorage.removeItem('jellytube.cinematicMode');
+        localStorage.removeItem('jellytube.ultrawideCrop');
         localStorage.setItem('jellytube.theme', 'light');
         localStorage.setItem('jellytube.autoplayNext', 'true');
         return true;
@@ -704,10 +705,67 @@ async function main() {
     `
       Boolean(
         !document.querySelector('.player-frame')?.classList.contains('cinematic') &&
+        !document.querySelector('.player-frame')?.classList.contains('ultrawide-crop') &&
+        localStorage.getItem('jellytube.ultrawideCrop') !== 'true' &&
         localStorage.getItem('jellytube.cinematicMode') !== 'true'
       )
     `,
-    'cinematic glow off by default'
+    'watch display modes off by default'
+  );
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        document.querySelector('.ultrawide-control').click();
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const frame = document.querySelector('.player-frame');
+        const shell = document.querySelector('.player-shell');
+        const video = document.querySelector('.player-shell video');
+        if (!frame?.classList.contains('ultrawide-crop') || localStorage.getItem('jellytube.ultrawideCrop') !== 'true') {
+          return false;
+        }
+        const bounds = shell?.getBoundingClientRect();
+        if (!bounds?.height) return false;
+        const ratio = bounds.width / bounds.height;
+        window.__jellytubeUltrawideRatio = ratio;
+        return Math.abs(ratio - 21 / 9) < 0.08 && getComputedStyle(video).objectFit === 'cover';
+      })()
+    `,
+    'ultrawide crop mode',
+    12000
+  );
+  await screenshot(socket, context, '15a-ultrawide-watch');
+  await evaluate(socket, context, `document.querySelector('.ultrawide-control').click()`);
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const frame = document.querySelector('.player-frame');
+        const shell = document.querySelector('.player-shell');
+        const video = document.querySelector('.player-shell video');
+        const bounds = shell?.getBoundingClientRect();
+        if (!bounds?.height) return false;
+        const ratio = bounds.width / bounds.height;
+        return (
+          !frame?.classList.contains('ultrawide-crop') &&
+          localStorage.getItem('jellytube.ultrawideCrop') === 'false' &&
+          Math.abs(ratio - 16 / 9) < 0.08 &&
+          getComputedStyle(video).objectFit === 'contain'
+        );
+      })()
+    `,
+    'ultrawide crop toggle off',
+    12000
   );
   await evaluate(
     socket,

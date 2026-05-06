@@ -8,6 +8,7 @@
     Minimize,
     Pause,
     Play,
+    Ratio,
     RotateCcw,
     Sparkles,
     SkipBack,
@@ -92,6 +93,7 @@
   let controlsTimer = 0;
   let clickTimer = 0;
   let autoplayNext = localStorage.getItem('jellytube.autoplayNext') !== 'false';
+  let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let cinematicStyle = CINEMATIC_FALLBACK_STYLE;
   let cinematicTimer = 0;
@@ -600,6 +602,11 @@
     localStorage.setItem('jellytube.autoplayNext', String(autoplayNext));
   }
 
+  function toggleUltrawideCrop() {
+    ultrawideCrop = !ultrawideCrop;
+    localStorage.setItem('jellytube.ultrawideCrop', String(ultrawideCrop));
+  }
+
   function toggleCinematicMode() {
     cinematicMode = !cinematicMode;
     localStorage.setItem('jellytube.cinematicMode', String(cinematicMode));
@@ -820,7 +827,7 @@
     </button>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-    <div class="player-frame" class:cinematic={cinematicMode} style={cinematicStyle}>
+    <div class="player-frame" class:cinematic={cinematicMode} class:ultrawide-crop={ultrawideCrop} style={cinematicStyle}>
       <div class="cinematic-glow" aria-hidden="true"></div>
 
       <div
@@ -951,6 +958,16 @@
 
               <span class="player-time">{formatClock(currentTime)} / {formatClock(durationSeconds)}</span>
               <span class="player-source-pill" title={activeAttempt?.detail}>{sourceLabel}</span>
+
+              <button
+                class="player-control ultrawide-control"
+                class:active={ultrawideCrop}
+                aria-label={ultrawideCrop ? 'Use original player aspect' : 'Crop to 21:9 player'}
+                title={ultrawideCrop ? '21:9 crop on' : '21:9 crop off'}
+                on:click={toggleUltrawideCrop}
+              >
+                <Ratio size={21} />
+              </button>
 
               <button
                 class="player-control cinematic-control"
