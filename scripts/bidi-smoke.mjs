@@ -187,6 +187,7 @@ async function main() {
     `
       (() => {
         localStorage.removeItem('jellytube.session.v1');
+        localStorage.removeItem('jellytube.cinematicMode');
         localStorage.setItem('jellytube.theme', 'light');
         localStorage.setItem('jellytube.autoplayNext', 'true');
         return true;
@@ -696,6 +697,52 @@ async function main() {
         return true;
       })()
     `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      Boolean(
+        !document.querySelector('.player-frame')?.classList.contains('cinematic') &&
+        localStorage.getItem('jellytube.cinematicMode') !== 'true'
+      )
+    `,
+    'cinematic glow off by default'
+  );
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        document.querySelector('.cinematic-control').click();
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const frame = document.querySelector('.player-frame');
+        if (!frame?.classList.contains('cinematic') || localStorage.getItem('jellytube.cinematicMode') !== 'true') {
+          return false;
+        }
+        const left = getComputedStyle(frame).getPropertyValue('--cinematic-left').trim();
+        window.__jellytubeCinematicLeft = left;
+        return left && left !== 'rgba(255, 0, 51, 0.38)';
+      })()
+    `,
+    'cinematic glow sampling',
+    12000
+  );
+  await screenshot(socket, context, '15b-cinematic-watch');
+  await evaluate(socket, context, `document.querySelector('.cinematic-control').click()`);
+  await waitFor(
+    socket,
+    context,
+    `!document.querySelector('.player-frame')?.classList.contains('cinematic') && localStorage.getItem('jellytube.cinematicMode') === 'false'`,
+    'cinematic glow toggle off'
   );
   await screenshot(socket, context, '15-watch');
 

@@ -7,6 +7,11 @@ import {
 import { compareByContentDateDesc, contentDate, relativeDate } from '../src/lib/dates';
 import { episodeCollectionForItem } from '../src/lib/episodes';
 import { channelName, compactMeta, displayTitle, groupByChannel } from '../src/lib/recommendations';
+import {
+  cinematicColorsFromImageData,
+  cinematicGlowStyle,
+  shouldSampleCinematicGlow
+} from '../src/lib/cinematicGlow';
 import { rankSearchResults } from '../src/lib/search';
 import type { JellyfinItem } from '../src/lib/types';
 
@@ -356,4 +361,51 @@ test('channel directory filter matches show and source names', () => {
   assert.deepEqual(filterChannelDirectory(directory, 'music videos').map((entry) => entry.name), [
     'Sabrina Carpenter'
   ]);
+});
+
+test('cinematic glow sampling only runs for active visible playback', () => {
+  const active = {
+    enabled: true,
+    playing: true,
+    visible: true,
+    readyState: 3,
+    width: 1280,
+    height: 720,
+    blocked: false
+  };
+
+  assert.equal(shouldSampleCinematicGlow(active), true);
+  assert.equal(shouldSampleCinematicGlow({ ...active, enabled: false }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, playing: false }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, visible: false }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, readyState: 1 }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, width: 0 }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, blocked: true }), false);
+});
+
+test('cinematic glow derives separate left and right colors from a tiny frame', () => {
+  const width = 4;
+  const height = 2;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < pixels.length; index += 4) {
+    const x = (index / 4) % width;
+    pixels[index] = x < 2 ? 220 : 15;
+    pixels[index + 1] = 20;
+    pixels[index + 2] = x < 2 ? 25 : 230;
+    pixels[index + 3] = 255;
+  }
+
+  const colors = cinematicColorsFromImageData(pixels, width, height);
+  assert.match(colors.left, /^rgba\(/);
+  assert.match(colors.right, /^rgba\(/);
+  assert.notEqual(colors.left, colors.right);
+  assert.match(cinematicGlowStyle(colors), /--cinematic-left: rgba\(/);
+});
+
+test('cinematic glow bounds very dark and bright frames', () => {
+  const blackFrame = new Uint8ClampedArray([0, 0, 0, 255, 0, 0, 0, 255]);
+  const whiteFrame = new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255]);
+
+  assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(26, 26, 26,/);
+  assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(196, 196, 196,/);
 });

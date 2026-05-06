@@ -881,6 +881,45 @@ label {
   font-weight: 700;
 }
 
+.player-frame {
+  position: relative;
+  isolation: isolate;
+  --cinematic-left: rgba(255, 0, 51, 0.38);
+  --cinematic-right: rgba(41, 121, 255, 0.32);
+  --cinematic-center: rgba(255, 255, 255, 0.16);
+  --cinematic-floor: rgba(0, 0, 0, 0.36);
+}
+
+.cinematic-glow {
+  position: absolute;
+  inset: -38px -48px -52px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 20% 18%, var(--cinematic-left) 0 16%, transparent 48%),
+    radial-gradient(circle at 82% 22%, var(--cinematic-right) 0 15%, transparent 50%),
+    radial-gradient(circle at 50% 52%, var(--cinematic-center) 0 14%, transparent 52%),
+    linear-gradient(180deg, transparent 12%, var(--cinematic-floor) 100%);
+  transform: translateZ(0);
+  transition:
+    opacity 0.22s ease,
+    background 0.75s ease;
+}
+
+.player-frame.cinematic .cinematic-glow {
+  opacity: 0.88;
+}
+
+:root[data-theme='light'] .player-frame.cinematic .cinematic-glow {
+  opacity: 0.68;
+}
+
+.player-frame.cinematic .player-shell {
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.34);
+}
+
 .player-shell {
   position: relative;
   overflow: hidden;
@@ -1078,6 +1117,16 @@ label {
 .player-control:hover,
 .player-control:focus-visible {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.player-control.active,
+.player-control.active:hover,
+.player-control.active:focus-visible {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.cinematic-control.active {
+  color: #fff;
 }
 
 .volume-control {
@@ -1552,6 +1601,15 @@ label {
     padding: 28px 10px 9px;
   }
 
+  .cinematic-glow {
+    inset: -22px -20px -30px;
+    border-radius: 18px;
+  }
+
+  .player-frame.cinematic .cinematic-glow {
+    opacity: 0.58;
+  }
+
   .player-control-row {
     gap: 2px;
   }
@@ -1581,5 +1639,11 @@ label {
 
   .onboarding-panel {
     padding: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cinematic-glow {
+    transition: none;
   }
 }

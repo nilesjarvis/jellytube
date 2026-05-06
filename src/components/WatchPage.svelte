@@ -9,6 +9,7 @@
     Pause,
     Play,
     RotateCcw,
+    Sparkles,
     SkipBack,
     SkipForward,
     TriangleAlert,
@@ -23,6 +24,16 @@
     formatDuration,
     playbackProgress
   } from '../lib/recommendations';
+  import {
+    CINEMATIC_FAILURE_LIMIT,
+    CINEMATIC_FALLBACK_STYLE,
+    CINEMATIC_SAMPLE_HEIGHT,
+    CINEMATIC_SAMPLE_INTERVAL_MS,
+    CINEMATIC_SAMPLE_WIDTH,
+    cinematicColorsFromImageData,
+    cinematicGlowStyle,
+    shouldSampleCinematicGlow
+  } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream } from '../lib/types';
   import VideoCard from './VideoCard.svelte';
@@ -81,6 +92,13 @@
   let controlsTimer = 0;
   let clickTimer = 0;
   let autoplayNext = localStorage.getItem('jellytube.autoplayNext') !== 'false';
+  let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
+  let cinematicStyle = CINEMATIC_FALLBACK_STYLE;
+  let cinematicTimer = 0;
+  let cinematicFailures = 0;
+  let cinematicBlocked = false;
+  let cinematicCanvas: HTMLCanvasElement | null = null;
+  let lastCinematicSampleTime = -1;
   let isPlaying = false;
   let isMuted = localStorage.getItem('jellytube.playerMuted') === 'true';
   let volume = savedVolume();
@@ -115,10 +133,15 @@
   onMount(() => {
     void loadPlayback(autoplay);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   });
 
   onDestroy(() => {
+    clearCinematicTimer();
     void stopPlayback();
   });
 
@@ -141,6 +164,7 @@
     currentTime = 0;
     bufferedPercent = 0;
     duration = 0;
+    resetCinematicGlow();
     await stopPlayback();
     playRequested = autoPlay;
     await tick();
@@ -315,6 +339,7 @@
     clearVideoSource();
     playRequested = false;
     isPlaying = false;
+    clearCinematicTimer();
   }
 
   function teardownHls() {
@@ -468,6 +493,7 @@
     syncPlaybackState();
     loading = false;
     buffering = false;
+    if (cinematicMode) scheduleCinematicSample(180);
   }
 
   function handlePlay() {
@@ -477,12 +503,14 @@
     if (fallbackNotice.startsWith('Autoplay was blocked')) fallbackNotice = '';
     void reportStart();
     scheduleControls();
+    scheduleCinematicSample(160);
   }
 
   function handlePause() {
     isPlaying = false;
     buffering = false;
     controlsVisible = true;
+    clearCinematicTimer();
     void safeReport('progress');
   }
 
@@ -490,6 +518,7 @@
     isPlaying = false;
     playRequested = false;
     controlsVisible = true;
+    clearCinematicTimer();
     void finishReporting();
     if (autoplayNext && hasNextQueued) dispatch('next');
   }
@@ -571,6 +600,19 @@
     localStorage.setItem('jellytube.autoplayNext', String(autoplayNext));
   }
 
+  function toggleCinematicMode() {
+    cinematicMode = !cinematicMode;
+    localStorage.setItem('jellytube.cinematicMode', String(cinematicMode));
+    cinematicFailures = 0;
+    cinematicBlocked = false;
+    if (cinematicMode) {
+      scheduleCinematicSample(0);
+    } else {
+      clearCinematicTimer();
+      cinematicStyle = CINEMATIC_FALLBACK_STYLE;
+    }
+  }
+
   function changeEpisodeSeason(event: Event) {
     const season = Number((event.currentTarget as HTMLSelectElement).value);
     if (!Number.isFinite(season)) return;
@@ -648,6 +690,14 @@
     fullscreen = Boolean(document.fullscreenElement);
   }
 
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible' && isPlaying) {
+      scheduleCinematicSample(250);
+    } else {
+      clearCinematicTimer();
+    }
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.target instanceof HTMLInputElement) return;
     if (event.key === ' ' || event.key === 'k') {
@@ -681,6 +731,70 @@
     }, 2400);
   }
 
+  function resetCinematicGlow() {
+    cinematicStyle = CINEMATIC_FALLBACK_STYLE;
+    cinematicFailures = 0;
+    cinematicBlocked = false;
+    lastCinematicSampleTime = -1;
+  }
+
+  function clearCinematicTimer() {
+    window.clearTimeout(cinematicTimer);
+    cinematicTimer = 0;
+  }
+
+  function scheduleCinematicSample(delay = CINEMATIC_SAMPLE_INTERVAL_MS) {
+    clearCinematicTimer();
+    if (!cinematicMode || cinematicBlocked || error) return;
+    cinematicTimer = window.setTimeout(sampleCinematicGlow, delay);
+  }
+
+  function sampleCinematicGlow() {
+    cinematicTimer = 0;
+    if (!video) return;
+
+    const state = {
+      enabled: cinematicMode,
+      playing: isPlaying,
+      visible: document.visibilityState === 'visible',
+      readyState: video.readyState,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      blocked: cinematicBlocked
+    };
+
+    if (!shouldSampleCinematicGlow(state)) {
+      if (cinematicMode && isPlaying && !cinematicBlocked) scheduleCinematicSample();
+      return;
+    }
+
+    if (Math.abs(video.currentTime - lastCinematicSampleTime) < 0.75) {
+      scheduleCinematicSample();
+      return;
+    }
+
+    try {
+      const canvas = cinematicCanvas ?? document.createElement('canvas');
+      cinematicCanvas = canvas;
+      canvas.width = CINEMATIC_SAMPLE_WIDTH;
+      canvas.height = CINEMATIC_SAMPLE_HEIGHT;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) throw new Error('Canvas sampling is unavailable.');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+      cinematicStyle = cinematicGlowStyle(
+        cinematicColorsFromImageData(frame.data, canvas.width, canvas.height)
+      );
+      lastCinematicSampleTime = video.currentTime;
+      cinematicFailures = 0;
+    } catch {
+      cinematicFailures += 1;
+      cinematicBlocked = cinematicFailures >= CINEMATIC_FAILURE_LIMIT;
+    }
+
+    if (cinematicMode && isPlaying && !cinematicBlocked) scheduleCinematicSample();
+  }
+
   function ticksToSeconds(ticks?: number) {
     return ticks ? ticks / 10_000_000 : 0;
   }
@@ -706,144 +820,159 @@
     </button>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-    <div
-      class="player-shell youtube-player"
-      class:controls-visible={!isPlaying || controlsVisible || Boolean(error)}
-      bind:this={playerShell}
-      tabindex="0"
-      role="application"
-      aria-label={`Video player for ${title}`}
-      on:mousemove={showControls}
-      on:mouseleave={scheduleControls}
-      on:focus={showControls}
-      on:keydown={handleKeydown}
-      on:wheel={handleWheel}
-    >
-      <video
-        bind:this={video}
-        autoplay={autoplay}
-        playsinline
-        preload="metadata"
-        poster={client.getImageUrl(detailedItem, 1280)}
-        on:play={handlePlay}
-        on:pause={handlePause}
-        on:ended={handleEnded}
-        on:loadedmetadata={handleLoadedMetadata}
-        on:canplay={() => {
-          loading = false;
-          buffering = false;
-        }}
-        on:playing={() => {
-          loading = false;
-          buffering = false;
-        }}
-        on:waiting={() => {
-          if (!video.paused) buffering = true;
-        }}
-        on:timeupdate={syncPlaybackState}
-        on:progress={syncBuffered}
-        on:volumechange={handleVolumeChange}
-        on:error={() => void handlePlaybackFailure()}
-      ></video>
+    <div class="player-frame" class:cinematic={cinematicMode} style={cinematicStyle}>
+      <div class="cinematic-glow" aria-hidden="true"></div>
 
-      {#if !error}
-        <button
-          class="player-hit-target"
-          aria-label={isPlaying ? 'Pause' : 'Play'}
-          on:click={handlePlayerClick}
-          on:dblclick={handlePlayerDoubleClick}
-        ></button>
-      {/if}
+      <div
+        class="player-shell youtube-player"
+        class:controls-visible={!isPlaying || controlsVisible || Boolean(error)}
+        bind:this={playerShell}
+        tabindex="0"
+        role="application"
+        aria-label={`Video player for ${title}`}
+        on:mousemove={showControls}
+        on:mouseleave={scheduleControls}
+        on:focus={showControls}
+        on:keydown={handleKeydown}
+        on:wheel={handleWheel}
+      >
+        <video
+          bind:this={video}
+          autoplay={autoplay}
+          crossorigin="anonymous"
+          playsinline
+          preload="metadata"
+          poster={client.getImageUrl(detailedItem, 1280)}
+          on:play={handlePlay}
+          on:pause={handlePause}
+          on:ended={handleEnded}
+          on:loadedmetadata={handleLoadedMetadata}
+          on:canplay={() => {
+            loading = false;
+            buffering = false;
+          }}
+          on:playing={() => {
+            loading = false;
+            buffering = false;
+          }}
+          on:waiting={() => {
+            if (!video.paused) buffering = true;
+          }}
+          on:timeupdate={syncPlaybackState}
+          on:progress={syncBuffered}
+          on:volumechange={handleVolumeChange}
+          on:error={() => void handlePlaybackFailure()}
+        ></video>
 
-      {#if loading || buffering}
-        <div class="player-overlay player-loading">
-          <Loader2 size={38} class="spin" />
-        </div>
-      {/if}
-
-      {#if error}
-        <div class="player-overlay error-overlay">
-          <TriangleAlert size={32} />
-          <strong>{error}</strong>
-          <span>{mediaSource ? mediaSummary(mediaSource) : 'No media source'}</span>
-          <button class="player-retry" on:click={() => void loadPlayback(true)}>
-            <RotateCcw size={17} />
-            <span>Retry playback</span>
-          </button>
-        </div>
-      {:else}
-        {#if !isPlaying && !loading}
-          <button class="center-play" aria-label="Play" on:click={togglePlay}>
-            <Play size={34} fill="currentColor" />
-          </button>
+        {#if !error}
+          <button
+            class="player-hit-target"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            on:click={handlePlayerClick}
+            on:dblclick={handlePlayerDoubleClick}
+          ></button>
         {/if}
 
-        {#if fallbackNotice}
-          <div class="player-status-toast">{fallbackNotice}</div>
+        {#if loading || buffering}
+          <div class="player-overlay player-loading">
+            <Loader2 size={38} class="spin" />
+          </div>
         {/if}
 
-        <div class="player-controls-layer" aria-label="Playback controls">
-          <input
-            class="player-seek"
-            style={seekStyle}
-            type="range"
-            min="0"
-            max={seekMax}
-            step="0.1"
-            value={currentTime}
-            aria-label="Seek"
-            on:input={handleSeekInput}
-            on:pointerdown={showControls}
-          />
-
-          <div class="player-control-row">
-            <button class="player-control" aria-label={isPlaying ? 'Pause' : 'Play'} on:click={togglePlay}>
-              {#if isPlaying}
-                <Pause size={22} fill="currentColor" />
-              {:else}
-                <Play size={22} fill="currentColor" />
-              {/if}
-            </button>
-            <button class="player-control" aria-label="Back 5 seconds" on:click={() => seekBy(-5)}>
-              <SkipBack size={21} />
-            </button>
-            <button class="player-control" aria-label="Forward 5 seconds" on:click={() => seekBy(5)}>
-              <SkipForward size={21} />
-            </button>
-
-            <div class="volume-control">
-              <button class="player-control" aria-label={isMuted ? 'Unmute' : 'Mute'} on:click={toggleMute}>
-                {#if isMuted || volume === 0}
-                  <VolumeX size={22} />
-                {:else}
-                  <Volume2 size={22} />
-                {/if}
-              </button>
-              <input
-                class="volume-slider"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={isMuted ? 0 : volume}
-                aria-label="Volume"
-                on:input={handleVolumeInput}
-              />
-            </div>
-
-            <span class="player-time">{formatClock(currentTime)} / {formatClock(durationSeconds)}</span>
-            <span class="player-source-pill" title={activeAttempt?.detail}>{sourceLabel}</span>
-
-            <button class="player-control fullscreen-control" aria-label="Toggle fullscreen" on:click={() => void toggleFullscreen()}>
-              {#if fullscreen}
-                <Minimize size={22} />
-              {:else}
-                <Maximize size={22} />
-              {/if}
+        {#if error}
+          <div class="player-overlay error-overlay">
+            <TriangleAlert size={32} />
+            <strong>{error}</strong>
+            <span>{mediaSource ? mediaSummary(mediaSource) : 'No media source'}</span>
+            <button class="player-retry" on:click={() => void loadPlayback(true)}>
+              <RotateCcw size={17} />
+              <span>Retry playback</span>
             </button>
           </div>
-        </div>
-      {/if}
+        {:else}
+          {#if !isPlaying && !loading}
+            <button class="center-play" aria-label="Play" on:click={togglePlay}>
+              <Play size={34} fill="currentColor" />
+            </button>
+          {/if}
+
+          {#if fallbackNotice}
+            <div class="player-status-toast">{fallbackNotice}</div>
+          {/if}
+
+          <div class="player-controls-layer" aria-label="Playback controls">
+            <input
+              class="player-seek"
+              style={seekStyle}
+              type="range"
+              min="0"
+              max={seekMax}
+              step="0.1"
+              value={currentTime}
+              aria-label="Seek"
+              on:input={handleSeekInput}
+              on:pointerdown={showControls}
+            />
+
+            <div class="player-control-row">
+              <button class="player-control" aria-label={isPlaying ? 'Pause' : 'Play'} on:click={togglePlay}>
+                {#if isPlaying}
+                  <Pause size={22} fill="currentColor" />
+                {:else}
+                  <Play size={22} fill="currentColor" />
+                {/if}
+              </button>
+              <button class="player-control" aria-label="Back 5 seconds" on:click={() => seekBy(-5)}>
+                <SkipBack size={21} />
+              </button>
+              <button class="player-control" aria-label="Forward 5 seconds" on:click={() => seekBy(5)}>
+                <SkipForward size={21} />
+              </button>
+
+              <div class="volume-control">
+                <button class="player-control" aria-label={isMuted ? 'Unmute' : 'Mute'} on:click={toggleMute}>
+                  {#if isMuted || volume === 0}
+                    <VolumeX size={22} />
+                  {:else}
+                    <Volume2 size={22} />
+                  {/if}
+                </button>
+                <input
+                  class="volume-slider"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={isMuted ? 0 : volume}
+                  aria-label="Volume"
+                  on:input={handleVolumeInput}
+                />
+              </div>
+
+              <span class="player-time">{formatClock(currentTime)} / {formatClock(durationSeconds)}</span>
+              <span class="player-source-pill" title={activeAttempt?.detail}>{sourceLabel}</span>
+
+              <button
+                class="player-control cinematic-control"
+                class:active={cinematicMode}
+                aria-label={cinematicMode ? 'Disable cinematic glow' : 'Enable cinematic glow'}
+                title={cinematicMode ? 'Cinematic glow on' : 'Cinematic glow off'}
+                on:click={toggleCinematicMode}
+              >
+                <Sparkles size={21} />
+              </button>
+
+              <button class="player-control fullscreen-control" aria-label="Toggle fullscreen" on:click={() => void toggleFullscreen()}>
+                {#if fullscreen}
+                  <Minimize size={22} />
+                {:else}
+                  <Maximize size={22} />
+                {/if}
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
 
     <h1>{title}</h1>
