@@ -72,6 +72,7 @@ export type JellyfinMediaStream = {
 export type JellyfinMediaSource = {
   Id: string;
   Container?: string;
+  Bitrate?: number;
   SupportsDirectPlay?: boolean;
   SupportsDirectStream?: boolean;
   SupportsTranscoding?: boolean;

@@ -239,6 +239,25 @@ export class JellyfinClient {
     );
   }
 
+  async getPreviewPlaybackInfo(itemId: string) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const previewBitrate = 3_000_000;
+    return this.post<PlaybackInfo>(
+      `/Items/${itemId}/PlaybackInfo`,
+      {
+        DeviceProfile: browserDeviceProfile(previewBitrate),
+        MaxStreamingBitrate: previewBitrate
+      },
+      {
+        userId: this.userId,
+        StartTimeTicks: '0',
+        IsPlayback: 'false',
+        AutoOpenLiveStream: 'false',
+        MaxStreamingBitrate: String(previewBitrate)
+      }
+    );
+  }
+
   async getPlaybackActivity(days = 365) {
     const timezoneOffset = new Date().getTimezoneOffset();
     return this.get<PlaybackActivity[]>('/user_usage_stats/user_activity', {
@@ -394,9 +413,9 @@ export type PlaybackEventPayload = {
   SubtitleStreamIndex?: number;
 };
 
-function browserDeviceProfile() {
+function browserDeviceProfile(maxStreamingBitrate = 140_000_000) {
   return {
-    MaxStreamingBitrate: 140_000_000,
+    MaxStreamingBitrate: maxStreamingBitrate,
     DirectPlayProfiles: [
       { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3' },
       { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9', AudioCodec: 'vorbis,opus' }

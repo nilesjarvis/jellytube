@@ -7,6 +7,13 @@ import {
 import { compareByContentDateDesc, contentDate, relativeDate } from '../src/lib/dates';
 import { episodeCollectionForItem } from '../src/lib/episodes';
 import {
+  canDirectPreview,
+  directStreamExtension,
+  isDirectPreviewLightweight,
+  isHoverPreviewEligible,
+  previewHlsOptions
+} from '../src/lib/hoverPreview';
+import {
   channelName,
   compactMeta,
   continueWatching,
@@ -304,6 +311,68 @@ test('music recommendations can include recently replayed music videos', () => {
   });
 
   assert.deepEqual(ranked.map((result) => result.Id), ['candidate', 'played-music']);
+});
+
+test('hover preview is limited to non-movie videos on fine pointer devices', () => {
+  const video = item({ Id: 'video-preview', Name: 'Video', contentKind: 'video' });
+  const music = item({ Id: 'music-preview', Name: 'Music', Type: 'MusicVideo', contentKind: 'musicVideo' });
+  const movie = item({ Id: 'movie-preview', Name: 'Movie', Type: 'Movie', contentKind: 'movie' });
+
+  assert.equal(isHoverPreviewEligible(video), true);
+  assert.equal(isHoverPreviewEligible(music), true);
+  assert.equal(isHoverPreviewEligible(movie), false);
+  assert.equal(isHoverPreviewEligible(video, { poster: true }), false);
+  assert.equal(isHoverPreviewEligible(video, { finePointer: false }), false);
+  assert.equal(isHoverPreviewEligible(video, { reducedMotion: true }), false);
+});
+
+test('hover preview chooses direct playable sources and low-bitrate hls options', () => {
+  const webm = {
+    Id: 'source',
+    Container: 'webm',
+    SupportsDirectPlay: true,
+    DefaultAudioStreamIndex: 1,
+    DefaultSubtitleStreamIndex: 2,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'vp9' },
+      { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
+    ]
+  };
+  const av1 = {
+    ...webm,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'av1' },
+      { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
+    ]
+  };
+  const heavyWebm = {
+    ...webm,
+    Bitrate: 24_000_000,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'vp9', Width: 3840, Height: 2160, BitRate: 24_000_000 },
+      { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
+    ]
+  };
+  const video = {
+    canPlayType: (mime: string) => (mime.includes('webm') && !mime.includes('av1') ? 'probably' : '')
+  };
+
+  assert.equal(directStreamExtension(webm), 'webm');
+  assert.equal(canDirectPreview(webm, video), true);
+  assert.equal(isDirectPreviewLightweight(webm), true);
+  assert.equal(canDirectPreview(av1, video), false);
+  assert.equal(canDirectPreview(heavyWebm, video), true);
+  assert.equal(isDirectPreviewLightweight(heavyWebm), false);
+  assert.deepEqual(previewHlsOptions(webm, 'preview-session'), {
+    startTicks: 0,
+    playSessionId: 'preview-session',
+    audioStreamIndex: 1,
+    subtitleStreamIndex: undefined,
+    maxWidth: 640,
+    maxHeight: 360,
+    videoBitrate: 3000000,
+    audioBitrate: 128000
+  });
 });
 
 test('watch recommendations prefer similar metadata over same-channel filler', () => {

@@ -663,9 +663,13 @@ label {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
+  display: block;
+  padding: 0;
   overflow: hidden;
   border-radius: 8px;
-  background: #ddd;
+  appearance: none;
+  background: #000;
+  line-height: 0;
 }
 
 .thumbnail-button img {
@@ -673,6 +677,73 @@ label {
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.thumbnail-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  background: #000;
+  transition: opacity 160ms ease;
+}
+
+.thumbnail-button.preview-ready .thumbnail-preview {
+  opacity: 1;
+}
+
+.thumbnail-button::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  bottom: 0;
+  width: 34%;
+  height: 3px;
+  border-radius: 999px;
+  background: #ff0033;
+  box-shadow: 0 0 10px rgba(255, 0, 51, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-120%) scaleX(0.25);
+  transform-origin: center;
+}
+
+.thumbnail-button.preview-loading::after {
+  opacity: 1;
+  animation: thumbnail-preview-loading 900ms cubic-bezier(0.42, 0, 0.25, 1) infinite;
+}
+
+.thumbnail-button.preview-ready::after,
+.thumbnail-button.preview-failed::after {
+  opacity: 0;
+  animation: none;
+}
+
+@keyframes thumbnail-preview-loading {
+  0% {
+    transform: translateX(-125%) scaleX(0.2);
+  }
+
+  18% {
+    transform: translateX(-35%) scaleX(0.55);
+  }
+
+  50% {
+    transform: translateX(100%) scaleX(1.35);
+  }
+
+  78% {
+    transform: translateX(220%) scaleX(0.55);
+  }
+
+  100% {
+    transform: translateX(330%) scaleX(0.2);
+  }
 }
 
 .thumbnail-fallback {
@@ -688,6 +759,7 @@ label {
 
 .duration {
   position: absolute;
+  z-index: 2;
   right: 6px;
   bottom: 6px;
   padding: 2px 5px;
@@ -700,6 +772,7 @@ label {
 
 .progress-bar {
   position: absolute;
+  z-index: 2;
   left: 0;
   bottom: 0;
   height: 4px;
