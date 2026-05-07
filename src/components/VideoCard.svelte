@@ -236,7 +236,7 @@
     {#if formatDuration(item.RunTimeTicks)}
       <span class="duration">{formatDuration(item.RunTimeTicks)}</span>
     {/if}
-    {#if showProgress}
+    {#if showProgress && !showPreviewLoading}
       <span class="progress-bar" style={`width: ${progress}%`}></span>
     {/if}
   </button>
