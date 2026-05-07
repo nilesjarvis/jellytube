@@ -24,7 +24,8 @@
     compactMeta,
     displayTitle,
     formatDuration,
-    playbackProgress
+    playbackProgress,
+    shouldStartFromBeginning
   } from '../lib/recommendations';
   import {
     CINEMATIC_FAILURE_LIMIT,
@@ -59,6 +60,7 @@
     channel: string;
     movies: void;
     next: void;
+    finished: JellyfinItem;
   }>();
 
   type PlaybackAttempt = {
@@ -205,7 +207,9 @@
 
     try {
       detailedItem = await client.getItem(item.Id);
-      const startTicks = detailedItem.UserData?.PlaybackPositionTicks ?? 0;
+      const startTicks = shouldStartFromBeginning(detailedItem)
+        ? 0
+        : detailedItem.UserData?.PlaybackPositionTicks ?? 0;
       resumeSeconds = startTicks / 10_000_000;
       const playbackInfo = await client.getPlaybackInfo(item.Id, startTicks);
       mediaSource = playbackInfo.MediaSources[0] ?? null;
@@ -553,6 +557,7 @@
     playRequested = false;
     controlsVisible = true;
     clearCinematicTimer();
+    dispatch('finished', detailedItem);
     void finishReporting();
     if (autoplayNext && hasNextQueued) dispatch('next');
   }

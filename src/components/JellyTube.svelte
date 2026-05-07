@@ -122,6 +122,7 @@
   let seriesEpisodeCache: Record<string, JellyfinItem[]> = {};
   let channelLoading = false;
   let activity: PlaybackActivity[] = [];
+  let recentPlaybackIds: string[] = [];
 
   function displayChannelSeasons(seasons: EpisodeSeason[]) {
     if (seasons.length < 10) return seasons;
@@ -277,13 +278,25 @@
       recent = mergeItems(videoRecentByRelease, videoRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
       if (!recent.length) recent = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
       resume = continueWatching(mergeItems(videoResume, videoPool, musicPool)).slice(0, 24);
-      recommended = rankRecommendations(mergeItems(videoPool, musicPool), activity).slice(0, 48);
+      recommended = rankRecommendations(mergeItems(videoPool, musicPool), {
+        activity,
+        mode: 'home',
+        recentItemIds: recentPlaybackIds
+      }).slice(0, 48);
       popular = popularItems(mergeItems(videoPool, musicPool)).slice(0, 24);
       movies = movieRecent;
       movieResume = continueWatching(mergeItems(movieResumeItems, moviePool)).slice(0, 18);
-      moviePopular = rankRecommendations(moviePool, activity).slice(0, 36);
+      moviePopular = rankRecommendations(moviePool, {
+        activity,
+        mode: 'movie',
+        recentItemIds: recentPlaybackIds
+      }).slice(0, 36);
       musicVideos = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 100);
-      musicRecommended = rankRecommendations(musicPool, activity).slice(0, 36);
+      musicRecommended = rankRecommendations(musicPool, {
+        activity,
+        mode: 'music',
+        recentItemIds: recentPlaybackIds
+      }).slice(0, 36);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
     } finally {
@@ -986,9 +999,15 @@
     return `${count} ${count === 1 ? 'video' : 'videos'}`;
   }
 
-  function relatedFor(item: JellyfinItem | null) {
+  function relatedFor(item: JellyfinItem | null, queue: JellyfinItem[] = []) {
     const pool = item?.contentKind === 'movie' ? moviePool : mergeItems(videoPool, musicPool);
-    const ranked = rankRecommendations(pool, activity, item);
+    const ranked = rankRecommendations(pool, {
+      activity,
+      currentItem: item,
+      mode: item?.contentKind === 'movie' ? 'movie' : 'watch',
+      recentItemIds: recentPlaybackIds,
+      queueItems: queue
+    });
     if (!item) return ranked.slice(0, 28);
     const recommendationPool = episodeInfo(item)
       ? ranked.filter((candidate) => !sameEpisodeSeries(candidate, item))
@@ -997,6 +1016,29 @@
     const sameChannel = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() === currentChannel);
     const other = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() !== currentChannel);
     return [...sameChannel, ...other].slice(0, 28);
+  }
+
+  function rememberFinishedItem(item: JellyfinItem) {
+    recentPlaybackIds = [item.Id, ...recentPlaybackIds.filter((id) => id !== item.Id)].slice(0, 80);
+    refreshRecommendations();
+  }
+
+  function refreshRecommendations() {
+    recommended = rankRecommendations(mergeItems(videoPool, musicPool), {
+      activity,
+      mode: 'home',
+      recentItemIds: recentPlaybackIds
+    }).slice(0, 48);
+    moviePopular = rankRecommendations(moviePool, {
+      activity,
+      mode: 'movie',
+      recentItemIds: recentPlaybackIds
+    }).slice(0, 36);
+    musicRecommended = rankRecommendations(musicPool, {
+      activity,
+      mode: 'music',
+      recentItemIds: recentPlaybackIds
+    }).slice(0, 36);
   }
 
   function ensureQueueStartsWith(queue: JellyfinItem[], item: JellyfinItem) {
@@ -1202,7 +1244,7 @@
           episodeSeasons={episodeCollection?.seasons ?? []}
           selectedEpisodeSeason={activeEpisodeSeason}
           episodeSeriesTitle={episodeCollection?.seriesName ?? ''}
-          recommendations={relatedFor(selectedItem)}
+          recommendations={relatedFor(selectedItem, watchQueue)}
           on:back={goBackOrHome}
           on:select={(event) => openItem(event.detail)}
           on:queueSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}
@@ -1210,6 +1252,7 @@
           on:episodeSeason={(event) => (selectedEpisodeSeason = event.detail)}
           on:channel={(event) => openChannel(event.detail)}
           on:movies={() => navigateTo({ view: 'movies' })}
+          on:finished={(event) => rememberFinishedItem(event.detail)}
           on:next={playNextQueued}
         />
       {/key}

@@ -6,7 +6,8 @@
     compactMeta,
     displayTitle,
     formatDuration,
-    playbackProgress
+    playbackProgress,
+    shouldStartFromBeginning
   } from '../lib/recommendations';
   import { episodeCode } from '../lib/episodes';
   import type { JellyfinItem } from '../lib/types';
@@ -22,6 +23,7 @@
 
   $: imageUrl = client.getImageUrl(item, compact ? 320 : 640);
   $: progress = playbackProgress(item);
+  $: showProgress = progress > 0 && progress < 95 && !shouldStartFromBeginning(item);
   $: channel = channelName(item);
   $: title = displayTitle(item, { context: titleContext, channel: titleChannel || channel });
   $: episodeLabel = episodeCode(item);
@@ -48,7 +50,7 @@
     {#if formatDuration(item.RunTimeTicks)}
       <span class="duration">{formatDuration(item.RunTimeTicks)}</span>
     {/if}
-    {#if progress > 0 && progress < 95}
+    {#if showProgress}
       <span class="progress-bar" style={`width: ${progress}%`}></span>
     {/if}
   </button>

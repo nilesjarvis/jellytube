@@ -6,7 +6,15 @@ import {
 } from '../src/lib/channelDirectory';
 import { compareByContentDateDesc, contentDate, relativeDate } from '../src/lib/dates';
 import { episodeCollectionForItem } from '../src/lib/episodes';
-import { channelName, compactMeta, displayTitle, groupByChannel } from '../src/lib/recommendations';
+import {
+  channelName,
+  compactMeta,
+  continueWatching,
+  displayTitle,
+  groupByChannel,
+  rankRecommendations,
+  shouldStartFromBeginning
+} from '../src/lib/recommendations';
 import {
   cinematicColorsFromImageData,
   cinematicGlowStyle,
@@ -200,6 +208,135 @@ test('recommendation context keeps titles concise in mixed feeds', () => {
   assert.equal(displayTitle(homeland), 'Homeland S07E12 - Paean to the People');
   assert.equal(displayTitle(homeland, { context: 'recommendation', channel: 'Homeland' }), 'Paean to the People');
   assert.equal(displayTitle(sketch, { context: 'recommendation', channel: 'Saturday Night Live' }), 'The Stand Off');
+});
+
+test('short partially watched videos are restarted instead of resumed', () => {
+  const short = item({
+    Id: 'short-started',
+    Name: 'Short clip',
+    RunTimeTicks: 7 * 60 * 10_000_000,
+    UserData: {
+      PlaybackPositionTicks: 2 * 60 * 10_000_000,
+      PlayedPercentage: 28,
+      LastPlayedDate: '2026-05-06T12:00:00.000Z'
+    }
+  });
+  const long = item({
+    Id: 'long-started',
+    Name: 'Long essay',
+    RunTimeTicks: 24 * 60 * 10_000_000,
+    UserData: {
+      PlaybackPositionTicks: 5 * 60 * 10_000_000,
+      PlayedPercentage: 21,
+      LastPlayedDate: '2026-05-06T13:00:00.000Z'
+    }
+  });
+
+  assert.equal(shouldStartFromBeginning(short), true);
+  assert.equal(shouldStartFromBeginning(long), false);
+  assert.deepEqual(continueWatching([short, long]).map((result) => result.Id), ['long-started']);
+});
+
+test('recommendations penalize recently finished items without hard excluding them', () => {
+  const current = item({ Id: 'current', Name: 'Current video', contentKind: 'video' });
+  const queued = item({ Id: 'queued', Name: 'Queued video', contentKind: 'video' });
+  const finished = item({ Id: 'finished', Name: 'Finished video', contentKind: 'video' });
+  const resumable = item({
+    Id: 'resumable',
+    Name: 'Long started video',
+    contentKind: 'video',
+    RunTimeTicks: 30 * 60 * 10_000_000,
+    UserData: {
+      PlaybackPositionTicks: 6 * 60 * 10_000_000,
+      PlayedPercentage: 20
+    }
+  });
+  const watchedYesterday = item({
+    Id: 'watched-yesterday',
+    Name: 'Recently completed video',
+    contentKind: 'video',
+    UserData: {
+      Played: true,
+      PlayCount: 1,
+      LastPlayedDate: '2026-05-06T12:00:00.000Z'
+    }
+  });
+  const candidate = item({ Id: 'candidate', Name: 'Fresh candidate', contentKind: 'video' });
+
+  const ranked = rankRecommendations([current, queued, finished, resumable, watchedYesterday, candidate], {
+    currentItem: current,
+    queueItems: [queued],
+    recentItemIds: ['finished'],
+    now: Date.parse('2026-05-07T12:00:00.000Z')
+  });
+
+  assert.deepEqual(ranked.map((result) => result.Id), ['candidate', 'finished']);
+});
+
+test('music recommendations can include recently replayed music videos', () => {
+  const playedMusic = item({
+    Id: 'played-music',
+    Name: 'Replayable Song',
+    Type: 'MusicVideo',
+    contentKind: 'musicVideo',
+    UserData: {
+      Played: true,
+      PlayCount: 6,
+      LastPlayedDate: '2026-05-07T11:00:00.000Z'
+    }
+  });
+  const playedVideo = item({
+    Id: 'played-video',
+    Name: 'Completed standard video',
+    contentKind: 'video',
+    UserData: {
+      Played: true,
+      PlayCount: 2,
+      LastPlayedDate: '2026-05-07T11:00:00.000Z'
+    }
+  });
+  const candidate = item({ Id: 'candidate', Name: 'Unplayed music video', Type: 'MusicVideo', contentKind: 'musicVideo' });
+
+  const ranked = rankRecommendations([playedMusic, playedVideo, candidate], {
+    mode: 'music',
+    recentItemIds: ['played-music'],
+    now: Date.parse('2026-05-07T12:00:00.000Z')
+  });
+
+  assert.deepEqual(ranked.map((result) => result.Id), ['candidate', 'played-music']);
+});
+
+test('watch recommendations prefer similar metadata over same-channel filler', () => {
+  const current = item({
+    Id: 'current-physics',
+    Name: 'Quantum physics explained - Physics Channel',
+    contentKind: 'video',
+    RunTimeTicks: 18 * 60 * 10_000_000,
+    Genres: ['Science'],
+    Tags: ['physics', 'quantum']
+  });
+  const sameChannel = item({
+    Id: 'same-channel',
+    Name: 'Weekly mailbag - Physics Channel',
+    contentKind: 'video',
+    RunTimeTicks: 18 * 60 * 10_000_000
+  });
+  const similar = item({
+    Id: 'similar',
+    Name: 'Quantum physics experiment explained - Science Lab',
+    contentKind: 'video',
+    RunTimeTicks: 20 * 60 * 10_000_000,
+    Genres: ['Science'],
+    Tags: ['physics', 'quantum']
+  });
+
+  const ranked = rankRecommendations([sameChannel, similar], {
+    currentItem: current,
+    mode: 'watch',
+    now: Date.parse('2026-05-07T12:00:00.000Z')
+  });
+
+  assert.deepEqual(ranked.map((result) => result.Id), ['similar', 'same-channel']);
 });
 
 test('search ranks actual series episodes above unrelated title matches', () => {

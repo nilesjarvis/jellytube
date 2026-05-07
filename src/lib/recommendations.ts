@@ -5,12 +5,30 @@ import { contentDate, contentDateValue, dateValue, relativeDate } from './dates'
 export type RankedItem = JellyfinItem & {
   score?: number;
   reason?: string;
+  reasons?: string[];
 };
 
 export type DisplayTitleOptions = {
   context?: 'feed' | 'series' | 'channel' | 'recommendation';
   channel?: string;
 };
+
+export type RecommendationMode = 'home' | 'watch' | 'movie' | 'music' | 'replay';
+
+export type RecommendationOptions = {
+  activity?: PlaybackActivity[];
+  currentItem?: JellyfinItem | null;
+  mode?: RecommendationMode;
+  recentItemIds?: Iterable<string>;
+  queueItems?: JellyfinItem[];
+  now?: number;
+  recentlyWatchedDays?: number;
+  maxPerChannel?: number;
+  maxPerSeries?: number;
+};
+
+const SHORT_FORM_RESUME_TICKS = 8 * 60 * 10_000_000;
+const RECENTLY_WATCHED_DAYS = 3;
 
 export function mergeItems(...groups: JellyfinItem[][]) {
   const seen = new Map<string, JellyfinItem>();
@@ -24,7 +42,7 @@ export function mergeItems(...groups: JellyfinItem[][]) {
 
 export function continueWatching(items: JellyfinItem[]) {
   return items
-    .filter((item) => (item.UserData?.PlaybackPositionTicks ?? 0) > 0 && !item.UserData?.Played)
+    .filter(hasMeaningfulResume)
     .sort((a, b) => dateValue(b.UserData?.LastPlayedDate) - dateValue(a.UserData?.LastPlayedDate));
 }
 
@@ -40,23 +58,32 @@ export function popularItems(items: JellyfinItem[]) {
 
 export function rankRecommendations(
   items: JellyfinItem[],
-  activity: PlaybackActivity[] = [],
+  input: PlaybackActivity[] | RecommendationOptions = [],
   currentItem?: JellyfinItem | null
 ) {
+  const options = recommendationOptions(input, currentItem);
+  const activity = options.activity;
   const watched = items.filter(
     (item) =>
       (item.UserData?.PlayCount ?? 0) > 0 ||
       (item.UserData?.PlaybackPositionTicks ?? 0) > 0 ||
       item.UserData?.Played
   );
-  const currentTokens = currentItem ? itemTokens(currentItem) : new Set<string>();
-  const currentChannel = currentItem ? channelName(currentItem).toLowerCase() : '';
+  const activeItem = options.currentItem ?? null;
+  const currentTokens = activeItem ? itemSimilarityTokens(activeItem) : new Set<string>();
+  const currentChannel = activeItem ? channelName(activeItem).toLowerCase() : '';
+  const currentGenreSet = tokenSet(activeItem?.Genres ?? []);
+  const currentArtistSet = tokenSet([
+    ...(activeItem?.Artists ?? []),
+    ...(activeItem?.ArtistItems ?? []).map((artist) => artist.Name),
+    ...(activeItem?.Studios ?? []).map((studio) => studio.Name)
+  ]);
   const historyTokens = new Map<string, number>();
   const watchedSeries = new Set<string>();
   const watchedParents = new Set<string>();
   const watchedGenres = new Set<string>();
   const watchedChannels = new Set<string>();
-  const now = Date.now();
+  const now = options.now;
 
   for (const item of watched) {
     const weight = 1 + Math.min(item.UserData?.PlayCount ?? 0, 5);
@@ -75,58 +102,85 @@ export function rankRecommendations(
     }
   }
 
-  return items
-    .filter((item) => item.Id !== currentItem?.Id)
+  const ranked = items
+    .filter((item) => isRecommendationCandidate(item, options))
     .map<RankedItem>((item) => {
       let score = 0;
       const reasons: string[] = [];
       const itemDate = contentDateValue(item);
       const ageDays = itemDate ? (now - itemDate) / 86_400_000 : 365;
-      const playCount = item.UserData?.PlayCount ?? 0;
-      const progress = item.UserData?.PlayedPercentage ?? 0;
 
-      if (!item.UserData?.Played) score += 20;
-      if ((item.UserData?.PlaybackPositionTicks ?? 0) > 0 && !item.UserData?.Played) {
-        score += 14;
-        reasons.push('resume');
+      const completed = isCompleted(item);
+      const rewatchable = isRewatchable(item, options);
+      const recentlyPlayed =
+        options.recentItemIds.has(item.Id) || wasRecentlyWatched(item, options.now, options.recentlyWatchedDays);
+
+      score += completed ? 6 : 20;
+      if (completed && rewatchable) score += Math.min((item.UserData?.PlayCount ?? 0) * 2, 8);
+      if (recentlyPlayed) {
+        score -= rewatchable ? 8 : 18;
+        reasons.push('recently played');
       }
       if (ageDays < 14) {
-        score += 16;
+        score += 12;
         reasons.push('new');
       } else if (ageDays < 60) {
-        score += 8;
+        score += 6;
       }
-      if (playCount > 0 && !item.UserData?.Played) score += Math.min(playCount * 4, 16);
       if (item.SeriesId && watchedSeries.has(item.SeriesId)) {
-        score += 20;
+        score += options.mode === 'watch' ? 12 : 20;
         reasons.push('same series');
       }
       if (item.ParentId && watchedParents.has(item.ParentId)) score += 8;
       if ((item.Genres ?? []).some((genre) => watchedGenres.has(genre.toLowerCase()))) score += 6;
       const itemChannel = channelName(item).toLowerCase();
       if (currentChannel && itemChannel === currentChannel) {
-        score += 64;
+        score += options.mode === 'watch' ? 24 : 18;
         reasons.push('same channel');
       } else if (watchedChannels.has(itemChannel)) {
-        score += 14;
+        score += 10;
         reasons.push('from channels you watch');
       }
 
-      for (const token of itemTokens(item)) {
-        score += Math.min(historyTokens.get(token) ?? 0, 10);
-        if (currentTokens.has(token)) score += 2;
+      const currentOverlap = overlapCount(currentTokens, itemSimilarityTokens(item));
+      if (currentOverlap > 0) {
+        score += Math.min(currentOverlap * 7, 42);
+        reasons.push('similar title');
       }
+      const genreOverlap = overlapCount(currentGenreSet, tokenSet(item.Genres ?? []));
+      if (genreOverlap > 0) {
+        score += Math.min(genreOverlap * 10, 30);
+        reasons.push('similar genre');
+      }
+      const creatorOverlap = overlapCount(
+        currentArtistSet,
+        tokenSet([
+          ...(item.Artists ?? []),
+          ...(item.ArtistItems ?? []).map((artist) => artist.Name),
+          ...(item.Studios ?? []).map((studio) => studio.Name)
+        ])
+      );
+      if (creatorOverlap > 0) {
+        score += Math.min(creatorOverlap * 12, 24);
+        reasons.push('similar creator');
+      }
+      score += durationAffinity(activeItem, item);
+      score += contentKindAffinity(activeItem, item);
 
-      if (item.UserData?.Played) score -= 18;
-      if (progress > 92) score -= 14;
+      for (const token of itemTokens(item)) {
+        score += Math.min(historyTokens.get(token) ?? 0, 8);
+      }
 
       return {
         ...item,
         score,
-        reason: reasons[0] ?? recommendationReason(item)
+        reason: reasons[0] ?? recommendationReason(item),
+        reasons: reasons.length ? reasons : [recommendationReason(item)]
       };
     })
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || contentDateValue(b) - contentDateValue(a));
+
+  return diversifyRecommendations(ranked, options);
 }
 
 export function displayTitle(item: JellyfinItem, options: DisplayTitleOptions = {}) {
@@ -220,6 +274,28 @@ export function playbackProgress(item: JellyfinItem) {
   return Math.min(Math.max((position / item.RunTimeTicks) * 100, 0), 100);
 }
 
+export function isShortForm(item: JellyfinItem) {
+  return Boolean(item.RunTimeTicks && item.RunTimeTicks < SHORT_FORM_RESUME_TICKS);
+}
+
+export function shouldStartFromBeginning(item: JellyfinItem) {
+  return (
+    isShortForm(item) &&
+    (item.UserData?.PlaybackPositionTicks ?? 0) > 0 &&
+    !item.UserData?.Played &&
+    playbackProgress(item) < 95
+  );
+}
+
+export function hasMeaningfulResume(item: JellyfinItem) {
+  return (
+    (item.UserData?.PlaybackPositionTicks ?? 0) > 0 &&
+    !item.UserData?.Played &&
+    playbackProgress(item) < 95 &&
+    !shouldStartFromBeginning(item)
+  );
+}
+
 function itemTokens(item: JellyfinItem) {
   return new Set([
     ...tokenize(item.Name),
@@ -231,6 +307,129 @@ function itemTokens(item: JellyfinItem) {
     ...(item.Genres ?? []).flatMap(tokenize),
     ...(item.Tags ?? []).flatMap(tokenize)
   ]);
+}
+
+function itemSimilarityTokens(item: JellyfinItem) {
+  const channel = channelName(item);
+  return new Set([
+    ...tokenize(displayTitle(item, { context: 'recommendation', channel })),
+    ...tokenize(item.SeriesName ?? ''),
+    ...(item.Genres ?? []).flatMap(tokenize),
+    ...(item.Tags ?? []).flatMap(tokenize)
+  ]);
+}
+
+function recommendationOptions(
+  input: PlaybackActivity[] | RecommendationOptions,
+  currentItem?: JellyfinItem | null
+): Required<Pick<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays'>> &
+  Omit<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays'> & {
+    recentItemIds: Set<string>;
+    queueItemIds: Set<string>;
+  } {
+  const options = Array.isArray(input) ? { activity: input, currentItem } : input;
+  return {
+    ...options,
+    activity: options.activity ?? [],
+    currentItem: options.currentItem ?? currentItem ?? null,
+    mode: options.mode ?? (options.currentItem ?? currentItem ? 'watch' : 'home'),
+    recentItemIds: new Set(options.recentItemIds ?? []),
+    queueItemIds: new Set((options.queueItems ?? []).map((item) => item.Id)),
+    now: options.now ?? Date.now(),
+    recentlyWatchedDays: options.recentlyWatchedDays ?? RECENTLY_WATCHED_DAYS
+  };
+}
+
+function isRecommendationCandidate(
+  item: JellyfinItem,
+  options: ReturnType<typeof recommendationOptions>
+) {
+  if (item.Id === options.currentItem?.Id) return false;
+  if (options.queueItemIds.has(item.Id)) return false;
+  if (options.mode === 'replay') return true;
+  if (hasMeaningfulResume(item)) return false;
+  if (isCompleted(item) && !isRewatchable(item, options)) return false;
+  return true;
+}
+
+function isCompleted(item: JellyfinItem) {
+  return Boolean(item.UserData?.Played || playbackProgress(item) >= 95);
+}
+
+function isRewatchable(item: JellyfinItem, options: ReturnType<typeof recommendationOptions>) {
+  return options.mode === 'music'
+    ? item.contentKind === 'musicVideo' || item.Type === 'MusicVideo'
+    : item.contentKind === 'musicVideo' || item.Type === 'MusicVideo';
+}
+
+function wasRecentlyWatched(item: JellyfinItem, now: number, days: number) {
+  const lastPlayed = dateValue(item.UserData?.LastPlayedDate);
+  if (!lastPlayed) return false;
+  const ageDays = (now - lastPlayed) / 86_400_000;
+  if (ageDays < 0 || ageDays > days) return false;
+  return Boolean(item.UserData?.Played || playbackProgress(item) >= 92 || (item.UserData?.PlayCount ?? 0) > 0);
+}
+
+function contentKindAffinity(currentItem: JellyfinItem | null, item: JellyfinItem) {
+  if (!currentItem) return 0;
+  const currentKind = currentItem.contentKind ?? currentItem.Type;
+  const itemKind = item.contentKind ?? item.Type;
+  if (currentKind === itemKind) return 12;
+  if (currentKind === 'movie' || itemKind === 'movie') return -18;
+  return -6;
+}
+
+function durationAffinity(currentItem: JellyfinItem | null, item: JellyfinItem) {
+  if (!currentItem?.RunTimeTicks || !item.RunTimeTicks) return 0;
+  const currentDuration = currentItem.RunTimeTicks;
+  const candidateDuration = item.RunTimeTicks;
+  const ratio = Math.min(currentDuration, candidateDuration) / Math.max(currentDuration, candidateDuration);
+  if (isShortForm(currentItem) && isShortForm(item)) return 8;
+  if (isShortForm(currentItem) !== isShortForm(item)) return -8;
+  if (ratio > 0.75) return 8;
+  if (ratio > 0.5) return 4;
+  return 0;
+}
+
+function diversifyRecommendations(items: RankedItem[], options: ReturnType<typeof recommendationOptions>) {
+  const maxPerChannel = options.maxPerChannel ?? (options.mode === 'watch' ? 4 : 6);
+  const maxPerSeries = options.maxPerSeries ?? (options.mode === 'watch' ? 3 : 5);
+  const channelCounts = new Map<string, number>();
+  const seriesCounts = new Map<string, number>();
+  const selected: RankedItem[] = [];
+  const skipped: RankedItem[] = [];
+
+  for (const item of items) {
+    const channel = channelName(item).toLowerCase();
+    const series = recommendationSeriesKey(item);
+    const channelCount = channelCounts.get(channel) ?? 0;
+    const seriesCount = series ? seriesCounts.get(series) ?? 0 : 0;
+    if (channelCount >= maxPerChannel || (series && seriesCount >= maxPerSeries)) {
+      skipped.push(item);
+      continue;
+    }
+    selected.push(item);
+    channelCounts.set(channel, channelCount + 1);
+    if (series) seriesCounts.set(series, seriesCount + 1);
+  }
+
+  return [...selected, ...skipped];
+}
+
+function recommendationSeriesKey(item: JellyfinItem) {
+  return episodeInfo(item)?.seriesKey ?? item.SeriesId ?? normalizeTitleSegment(item.SeriesName ?? '');
+}
+
+function tokenSet(values: string[]) {
+  return new Set(values.flatMap(tokenize));
+}
+
+function overlapCount(first: Set<string>, second: Set<string>) {
+  let count = 0;
+  for (const value of first) {
+    if (second.has(value)) count += 1;
+  }
+  return count;
 }
 
 function tokenize(value: string) {
