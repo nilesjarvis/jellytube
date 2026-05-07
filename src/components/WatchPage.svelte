@@ -163,6 +163,13 @@
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
   $: hasEpisodeShelf = episodeSeasons.length > 0;
+  $: recommendationAutoplayItem = recommendations.find(
+    (recommendation) =>
+      recommendation.Id !== item.Id && !queue.some((queueItem) => queueItem.Id === recommendation.Id)
+  );
+  $: showRecommendationAutoplayToggle = Boolean(
+    recommendationAutoplayItem && !hasEpisodeShelf && queue.length <= 1
+  );
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
   $: title = displayTitle(detailedItem, {
@@ -601,7 +608,12 @@
     clearCinematicTimer();
     dispatch('finished', detailedItem);
     void finishReporting();
-    if (autoplayNext && hasNextQueued) dispatch('next');
+    if (!autoplayNext) return;
+    if (hasNextQueued) {
+      dispatch('next');
+      return;
+    }
+    if (recommendationAutoplayItem) dispatch('select', recommendationAutoplayItem);
   }
 
   function syncPlaybackState() {
@@ -1356,7 +1368,15 @@
 
     {#if isMovie && recommendations.length}
       <section class="movie-recommendation-panel" aria-label="More movies">
-        <h2>More movies</h2>
+        <div class="recommendation-heading">
+          <h2>More movies</h2>
+          {#if showRecommendationAutoplayToggle}
+            <label class="autoplay-next">
+              <input type="checkbox" checked={autoplayNext} on:change={toggleAutoplayNext} />
+              <span>Autoplay</span>
+            </label>
+          {/if}
+        </div>
         <div class="movie-recommendation-grid">
           {#each recommendations as recommendation (recommendation.Id)}
             <VideoCard
@@ -1370,17 +1390,30 @@
         </div>
       </section>
     {:else}
-      {#each recommendations as recommendation (recommendation.Id)}
-        <VideoCard
-          {client}
-          item={recommendation}
-          compact
-          titleContext={channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
-          titleChannel={contextLabel}
-          on:select={(event) => dispatch('select', event.detail)}
-          on:channel={(event) => dispatch('channel', event.detail)}
-        />
-      {/each}
+      {#if recommendations.length}
+        <section class="recommendation-panel" aria-label="Recommended videos">
+          <div class="recommendation-heading">
+            <h2>Recommended</h2>
+            {#if showRecommendationAutoplayToggle}
+              <label class="autoplay-next">
+                <input type="checkbox" checked={autoplayNext} on:change={toggleAutoplayNext} />
+                <span>Autoplay</span>
+              </label>
+            {/if}
+          </div>
+          {#each recommendations as recommendation (recommendation.Id)}
+            <VideoCard
+              {client}
+              item={recommendation}
+              compact
+              titleContext={channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
+              titleChannel={contextLabel}
+              on:select={(event) => dispatch('select', event.detail)}
+              on:channel={(event) => dispatch('channel', event.detail)}
+            />
+          {/each}
+        </section>
+      {/if}
     {/if}
   </aside>
 </section>

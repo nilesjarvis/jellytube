@@ -5,19 +5,16 @@
     Home,
     Library,
     ListVideo,
-    Loader2,
     LogOut,
     Menu,
     Moon,
     Music2,
     Play,
-    RefreshCcw,
     RotateCcw,
     Search,
     Server,
     Sun,
-    UserCircle,
-    UsersRound
+    UserCircle
   } from 'lucide-svelte';
   import { channelDirectoryEntries, filterChannelDirectory } from '../lib/channelDirectory';
   import {
@@ -59,6 +56,8 @@
     PlaybackActivity,
     SelectedLibrary
   } from '../lib/types';
+  import SkeletonLibraryGrid from './SkeletonLibraryGrid.svelte';
+  import SkeletonRoute from './SkeletonRoute.svelte';
   import VideoCard from './VideoCard.svelte';
   import WatchPage from './WatchPage.svelte';
 
@@ -1209,10 +1208,6 @@
       <span class="nav-label-short">Subs</span>
       <span class="nav-label-full">Subscriptions</span>
     </button>
-    <button class:active={route === 'channel'} on:click={() => selectedChannel && goRoute('channel')} disabled={!selectedChannel}>
-      <UsersRound size={21} />
-      <span>Channel</span>
-    </button>
     <button
       class:active={route === 'libraries'}
       class="library-summary"
@@ -1221,10 +1216,6 @@
     >
       <Library size={21} />
       <span>{session.selectedLibraries.length} libs</span>
-    </button>
-    <button title="Force sync new content from Jellyfin" on:click={loadAll}>
-      <RefreshCcw size={20} />
-      <span>Refresh</span>
     </button>
     <button on:click={() => dispatch('logout')}>
       <LogOut size={20} />
@@ -1262,9 +1253,7 @@
         <button class="secondary-action" on:click={loadAll}>Try again</button>
       </div>
     {:else if loading}
-      <div class="loading-state">
-        <Loader2 size={28} class="spin" />
-      </div>
+      <SkeletonRoute {route} label={route === 'search' && searchedFor ? `Searching ${searchedFor}` : 'Loading content'} />
     {:else if route === 'search'}
       <section class="feed-section">
         <div class="section-heading">
@@ -1558,8 +1547,8 @@
       {/if}
 
       {#if channelLoading}
-        <div class="loading-state compact">
-          <Loader2 size={24} class="spin" />
+        <div class="skeleton-inline-status">
+          <SkeletonRoute route="channel" label={`Loading ${selectedChannel}`} />
         </div>
       {/if}
 
@@ -1647,8 +1636,9 @@
           <span>{librarySelectionIds.length} selected</span>
         </div>
         {#if librarySettingsLoading}
-          <div class="loading-state compact">
-            <Loader2 size={24} class="spin" />
+          <div class="skeleton-inline-status" role="status" aria-busy="true">
+            <span class="sr-only">Loading libraries</span>
+            <SkeletonLibraryGrid count={6} />
           </div>
         {:else}
           <div class="settings-grid">
