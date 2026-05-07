@@ -105,6 +105,7 @@
 
   let recent: JellyfinItem[] = [];
   let resume: JellyfinItem[] = [];
+  let latestAdded: JellyfinItem[] = [];
   let recommended: JellyfinItem[] = [];
   let popular: JellyfinItem[] = [];
   let movies: JellyfinItem[] = [];
@@ -276,6 +277,9 @@
 
       recent = mergeItems(videoRecentByRelease, videoRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
       if (!recent.length) recent = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
+      latestAdded = mergeItems(videoFullByAdded, movieFull, musicFull)
+        .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
+        .slice(0, 48);
       resume = continueWatching(mergeItems(videoResume, videoPool, musicPool)).slice(0, 24);
       recommended = rankRecommendations(mergeItems(videoPool, musicPool), {
         activity,
@@ -1306,7 +1310,7 @@
         {/if}
         {#if movieResume.length}
           <h3>Continue watching</h3>
-          <div class="movie-grid">
+          <div class="movie-grid horizontal-movie-rail">
             {#each movieResume as item (item.Id)}
               <VideoCard {client} {item} poster on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
             {/each}
@@ -1665,9 +1669,31 @@
       {#if resume.length}
         <section class="feed-section">
           <h2>Continue watching</h2>
-          <div class="video-grid">
+          <div class="video-grid horizontal-video-rail">
             {#each resume as item (item.Id)}
               <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      {#if latestAdded.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <h2>Latest added</h2>
+            <span>Across selected libraries</span>
+          </div>
+          <div class="video-grid">
+            {#each latestAdded as item (item.Id)}
+              <VideoCard
+                {client}
+                {item}
+                poster={item.contentKind === 'movie'}
+                titleContext="recommendation"
+                titleChannel={channelName(item)}
+                on:select={(event) => openItem(event.detail)}
+                on:channel={(event) => openChannel(event.detail)}
+              />
             {/each}
           </div>
         </section>

@@ -510,6 +510,32 @@ label {
   gap: 28px 16px;
 }
 
+.video-grid.horizontal-video-rail,
+.movie-grid.horizontal-movie-rail {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  scroll-padding-inline: 2px;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.video-grid.horizontal-video-rail {
+  grid-auto-columns: minmax(280px, 342px);
+}
+
+.movie-grid.horizontal-movie-rail {
+  grid-auto-columns: minmax(154px, 186px);
+}
+
+.horizontal-video-rail .video-card,
+.horizontal-movie-rail .video-card {
+  scroll-snap-align: start;
+}
+
 .movie-feature {
   width: 100%;
   min-height: 280px;
@@ -2267,6 +2293,14 @@ label {
 
   .video-grid {
     grid-template-columns: 1fr;
+  }
+
+  .video-grid.horizontal-video-rail {
+    grid-auto-columns: minmax(238px, 82vw);
+  }
+
+  .movie-grid.horizontal-movie-rail {
+    grid-auto-columns: minmax(142px, 42vw);
   }
 
   .movie-feature {
