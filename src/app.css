@@ -1830,12 +1830,15 @@ label {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
+    min-height: 100dvh;
+    --mobile-topbar-offset: calc(113px + env(safe-area-inset-top, 0px));
   }
 
   .topbar {
     flex-wrap: wrap;
     gap: 10px;
-    padding: 10px 12px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 10px
+      max(12px, env(safe-area-inset-left, 0px));
   }
 
   .topbar-left {
@@ -1860,10 +1863,12 @@ label {
 
   .sidebar {
     position: fixed;
-    top: 113px;
+    top: var(--mobile-topbar-offset);
     left: 0;
     z-index: 30;
     width: 224px;
+    height: calc(100dvh - var(--mobile-topbar-offset));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-100%);
     transition: transform 0.18s ease;
     border-right: 1px solid var(--border);
@@ -1894,7 +1899,8 @@ label {
   }
 
   .content {
-    padding: 18px 14px 40px;
+    padding: 18px max(14px, env(safe-area-inset-right, 0px)) calc(40px + env(safe-area-inset-bottom, 0px))
+      max(14px, env(safe-area-inset-left, 0px));
   }
 
   .video-grid {
@@ -1994,7 +2000,12 @@ label {
   }
 
   .player-controls-layer {
-    padding: 28px 10px 9px;
+    padding: 28px 10px max(9px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .player-shell:fullscreen .player-controls-layer,
+  .player-shell:-webkit-full-screen .player-controls-layer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
   .cinematic-glow {
@@ -2044,6 +2055,241 @@ label {
   .onboarding-panel {
     padding: 24px;
   }
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+  }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .play-mark {
+    width: 29px;
+    height: 20px;
+  }
+
+  .search-form {
+    height: 38px;
+    grid-template-columns: 1fr 48px;
+  }
+
+  .search-form input {
+    padding-inline: 14px;
+    font-size: 0.95rem;
+  }
+
+  .watch-layout {
+    margin-left: calc(-1 * max(14px, env(safe-area-inset-left, 0px)));
+    margin-right: calc(-1 * max(14px, env(safe-area-inset-right, 0px)));
+  }
+
+  .watch-main,
+  .recommendation-rail {
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+
+  .watch-player-area {
+    padding-inline: 0;
+  }
+
+  .back-button {
+    margin-left: max(14px, env(safe-area-inset-left, 0px));
+    margin-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+
+  .watch-main h1,
+  .watch-meta,
+  .watch-channel,
+  .queue-heading strong,
+  .episode-shelf-heading h2,
+  .show-hero-copy h1,
+  .show-overview {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .watch-main h1 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    font-size: 1.25rem;
+  }
+
+  .episode-shelf {
+    margin-top: 18px;
+  }
+
+  .episode-shelf-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .episode-shelf-heading > div:first-child {
+    min-width: 0;
+  }
+
+  .episode-shelf-heading h2 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: 1.15rem;
+    line-height: 1.18;
+  }
+
+  .episode-shelf-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .season-picker {
+    gap: 6px;
+    font-size: 0.82rem;
+  }
+
+  .season-picker select {
+    min-width: 116px;
+    height: 34px;
+    padding-left: 10px;
+    padding-right: 28px;
+  }
+
+  .episode-strip {
+    grid-auto-columns: minmax(210px, min(76vw, 260px));
+  }
+
+  .overview {
+    max-height: min(42vh, 18rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-shell {
+    --mobile-topbar-offset: calc(108px + env(safe-area-inset-top, 0px));
+  }
+
+  .topbar {
+    gap: 8px;
+  }
+
+  .topbar-left {
+    gap: 10px;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .account-pill {
+    max-width: none;
+    flex: 0 0 auto;
+    padding-inline: 8px;
+  }
+
+  .account-pill span {
+    display: none;
+  }
+
+  .episode-shelf-heading h2 {
+    font-size: 1.08rem;
+  }
+
+  .episode-shelf-actions {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px 12px;
+  }
+
+  .autoplay-next,
+  .season-picker {
+    justify-content: flex-start;
+  }
+
+  .season-picker select {
+    flex: 0 0 118px;
+  }
+
+  .episode-strip {
+    grid-auto-columns: minmax(198px, 82vw);
+  }
+
+  .player-frame.ultrawide-crop {
+    --player-aspect-padding: 56.25%;
+  }
+
+  .player-controls-layer {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .ultrawide-control,
+  .cinematic-control {
+    display: none;
+  }
+
+  .fullscreen-control {
+    margin-left: 4px;
+  }
+
+  .player-time {
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .volume-control {
+    display: none;
+  }
+
+  .player-control-row {
+    gap: 0;
+  }
+
+  .fullscreen-control {
+    margin-left: 2px;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .content {
+    padding-top: 10px;
+  }
+
+  .watch-layout {
+    padding-top: 8px;
+  }
+
+  .watch-main h1 {
+    margin-top: 10px;
+    font-size: 1.15rem;
+  }
+
+  .overview {
+    max-height: 32vh;
+  }
+
+  .center-play {
+    width: 54px;
+    height: 54px;
+  }
+}
+
+.player-loading ~ .player-controls-layer {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
