@@ -3,6 +3,7 @@
   import type Hls from 'hls.js';
   import {
     ArrowLeft,
+    Check,
     Loader2,
     Maximize,
     Minimize,
@@ -11,6 +12,7 @@
     Ratio,
     RotateCcw,
     RectangleHorizontal,
+    Settings,
     Sparkles,
     SkipBack,
     SkipForward,
@@ -38,6 +40,12 @@
     shouldSampleCinematicGlow
   } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
+  import {
+    playbackQualityById,
+    playbackQualityOptions,
+    type PlaybackQualityId,
+    type PlaybackQualityOption
+  } from '../lib/playbackQuality';
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream } from '../lib/types';
   import VideoCard from './VideoCard.svelte';
 
@@ -67,6 +75,7 @@
     url: string;
     label: string;
     detail: string;
+    qualityId: PlaybackQualityId;
     mediaKind: 'direct' | 'hls';
     playMethod: PlaybackEventPayload['PlayMethod'];
   };
@@ -113,6 +122,10 @@
   let controlsTimer = 0;
   let clickTimer = 0;
   let autoplayNext = localStorage.getItem('jellytube.autoplayNext') !== 'false';
+  let preferredQualityId = savedQualityId();
+  let selectedQualityId = preferredQualityId;
+  let qualityOptions: PlaybackQualityOption[] = [];
+  let qualityMenuOpen = false;
   let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
@@ -144,6 +157,8 @@
   $: seekMax = durationSeconds || 0;
   $: seekStyle = `--progress: ${progressPercent}%; --buffered: ${Math.max(bufferedPercent, progressPercent)}%;`;
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
+  $: selectedQuality = playbackQualityById(qualityOptions, selectedQualityId);
+  $: qualityButtonLabel = selectedQuality?.label ?? 'Auto';
   $: queueIndex = queue.findIndex((queueItem) => queueItem.Id === item.Id);
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
@@ -197,6 +212,7 @@
     buffering = false;
     error = '';
     fallbackNotice = '';
+    qualityMenuOpen = false;
     currentTime = 0;
     bufferedPercent = 0;
     duration = 0;
@@ -216,7 +232,9 @@
       playSessionId = playbackInfo.PlaySessionId ?? '';
       if (!mediaSource) throw new Error('No playable media source was returned by Jellyfin.');
 
-      attempts = buildPlaybackAttempts(mediaSource);
+      qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
+      selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
+      attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
       if (!attempts.length) {
         throw new Error('Jellyfin did not return a browser-compatible direct stream or HLS transcode option.');
       }
@@ -229,12 +247,26 @@
     }
   }
 
-  function buildPlaybackAttempts(source: JellyfinMediaSource) {
+  function buildPlaybackAttempts(source: JellyfinMediaSource, qualityId: string | null | undefined = selectedQualityId) {
     const nextAttempts: PlaybackAttempt[] = [];
     const directAttempt = getDirectAttempt(source);
-    const hlsAttempt = getHlsAttempt(source);
+    const quality = playbackQualityById(qualityOptions, qualityId);
+
+    if (quality?.mode === 'direct') {
+      if (directAttempt) nextAttempts.push(directAttempt);
+      const fallbackHlsAttempt = getHlsAttempt(source);
+      if (fallbackHlsAttempt) nextAttempts.push(fallbackHlsAttempt);
+      return nextAttempts;
+    }
+
+    if (quality?.mode === 'hls') {
+      const hlsAttempt = getHlsAttempt(source, quality);
+      if (hlsAttempt) nextAttempts.push(hlsAttempt);
+      return nextAttempts;
+    }
 
     if (directAttempt) nextAttempts.push(directAttempt);
+    const hlsAttempt = getHlsAttempt(source);
     if (hlsAttempt) nextAttempts.push(hlsAttempt);
     return nextAttempts;
   }
@@ -248,16 +280,19 @@
 
     return {
       url: client.getStreamUrl(item.Id, source.Id, extension),
-      label: 'Direct play',
+      label: 'Original',
       detail: mediaSummary(source),
+      qualityId: 'direct',
       mediaKind: 'direct',
       playMethod: 'DirectPlay'
     };
   }
 
-  function getHlsAttempt(source: JellyfinMediaSource): PlaybackAttempt | null {
+  function getHlsAttempt(source: JellyfinMediaSource, quality?: PlaybackQualityOption): PlaybackAttempt | null {
     if (source.SupportsTranscoding === false) return null;
-    const { maxWidth, maxHeight } = preferredHlsSize();
+    const preferredSize = preferredHlsSize();
+    const maxWidth = quality?.maxWidth ?? preferredSize.maxWidth;
+    const maxHeight = quality?.maxHeight ?? preferredSize.maxHeight;
     return {
       url: client.getHlsUrl(item.Id, source.Id, {
         startTicks: 0,
@@ -265,10 +300,13 @@
         audioStreamIndex: source.DefaultAudioStreamIndex,
         subtitleStreamIndex: source.DefaultSubtitleStreamIndex,
         maxWidth,
-        maxHeight
+        maxHeight,
+        videoBitrate: quality?.videoBitrate,
+        audioBitrate: quality?.audioBitrate
       }),
-      label: 'Jellyfin HLS',
-      detail: `H.264/AAC up to ${maxHeight}p`,
+      label: quality?.label ?? 'Auto',
+      detail: quality ? `Jellyfin transcode · ${quality.detail}` : `Jellyfin HLS up to ${maxHeight}p`,
+      qualityId: quality?.id ?? 'auto',
       mediaKind: 'hls',
       playMethod: 'Transcode'
     };
@@ -334,7 +372,10 @@
 
     if (attemptIndex < attempts.length - 1) {
       const failedLabel = activeAttempt?.label ?? 'The stream';
-      fallbackNotice = `${failedLabel} was rejected by this browser. Switched to Jellyfin HLS.`;
+      const nextAttempt = attempts[attemptIndex + 1];
+      const nextLabel = nextAttempt?.label ?? 'Jellyfin HLS';
+      fallbackNotice = `${failedLabel} was rejected by this browser. Switched to ${nextLabel}.`;
+      if (nextAttempt) selectedQualityId = nextAttempt.qualityId;
       await startAttempt(attemptIndex + 1, playRequested);
       return;
     }
@@ -372,6 +413,7 @@
   async function stopPlayback() {
     window.clearTimeout(controlsTimer);
     window.clearTimeout(clickTimer);
+    qualityMenuOpen = false;
     await finishReporting();
     teardownHls();
     clearVideoSource();
@@ -620,6 +662,11 @@
   }
 
   function handlePlayerClick() {
+    if (qualityMenuOpen) {
+      qualityMenuOpen = false;
+      scheduleControls();
+      return;
+    }
     window.clearTimeout(clickTimer);
     clickTimer = window.setTimeout(() => {
       togglePlay();
@@ -637,6 +684,53 @@
   function toggleAutoplayNext() {
     autoplayNext = !autoplayNext;
     localStorage.setItem('jellytube.autoplayNext', String(autoplayNext));
+  }
+
+  function toggleQualityMenu(event: MouseEvent) {
+    event.stopPropagation();
+    qualityMenuOpen = !qualityMenuOpen;
+    controlsVisible = true;
+    if (!qualityMenuOpen) scheduleControls();
+  }
+
+  async function selectQuality(event: MouseEvent, option: PlaybackQualityOption) {
+    event.stopPropagation();
+    qualityMenuOpen = false;
+    controlsVisible = true;
+    if (!mediaSource || option.id === selectedQualityId) {
+      scheduleControls();
+      return;
+    }
+
+    const previousQualityId = selectedQualityId;
+    const previousPreferredQualityId = preferredQualityId;
+    const previousTime = video?.currentTime ?? currentTime;
+    const shouldResume = Boolean(video && !video.paused && !video.ended) || playRequested;
+    preferredQualityId = option.id;
+    selectedQualityId = option.id;
+    localStorage.setItem('jellytube.playerQuality', preferredQualityId);
+    resumeSeconds = Number.isFinite(previousTime) ? previousTime : 0;
+    currentTime = resumeSeconds;
+    attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
+
+    if (!attempts.length) {
+      preferredQualityId = previousPreferredQualityId;
+      selectedQualityId = previousQualityId;
+      localStorage.setItem('jellytube.playerQuality', preferredQualityId);
+      fallbackNotice = `${option.label} is not available for this video.`;
+      scheduleControls();
+      return;
+    }
+
+    try {
+      await startAttempt(0, shouldResume);
+    } catch (caught) {
+      preferredQualityId = previousPreferredQualityId;
+      selectedQualityId = previousQualityId;
+      localStorage.setItem('jellytube.playerQuality', preferredQualityId);
+      error = caught instanceof Error ? caught.message : 'Could not switch quality.';
+      controlsVisible = true;
+    }
   }
 
   function toggleUltrawideCrop() {
@@ -791,7 +885,21 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.target instanceof HTMLInputElement) return;
+    if (event.key === 'Escape' && qualityMenuOpen) {
+      event.preventDefault();
+      qualityMenuOpen = false;
+      scheduleControls();
+      return;
+    }
+
+    if (
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLButtonElement ||
+      event.target instanceof HTMLSelectElement
+    ) {
+      return;
+    }
+
     if (event.key === ' ' || event.key === 'k') {
       event.preventDefault();
       togglePlay();
@@ -817,7 +925,7 @@
 
   function scheduleControls() {
     window.clearTimeout(controlsTimer);
-    if (!isPlaying) return;
+    if (!isPlaying || qualityMenuOpen) return;
     controlsTimer = window.setTimeout(() => {
       controlsVisible = false;
     }, 2400);
@@ -901,6 +1009,13 @@
       return `${hours}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
     }
     return `${minutes}:${String(remaining).padStart(2, '0')}`;
+  }
+
+  function savedQualityId(): PlaybackQualityId {
+    const stored = localStorage.getItem('jellytube.playerQuality');
+    return stored && (stored === 'auto' || stored === 'direct' || /^hls-\d+k$/.test(stored))
+      ? (stored as PlaybackQualityId)
+      : 'auto';
   }
 </script>
 
@@ -1074,6 +1189,43 @@
               >
                 <RectangleHorizontal size={21} />
               </button>
+
+              <div class="quality-control">
+                <button
+                  class="player-control quality-button"
+                  class:active={qualityMenuOpen}
+                  aria-label={`Quality: ${qualityButtonLabel}`}
+                  aria-expanded={qualityMenuOpen}
+                  aria-haspopup="menu"
+                  title={`Quality: ${qualityButtonLabel}`}
+                  on:click={toggleQualityMenu}
+                >
+                  <Settings size={21} />
+                </button>
+
+                {#if qualityMenuOpen}
+                  <div class="quality-menu" role="menu" aria-label="Playback quality">
+                    <div class="quality-menu-heading">Quality</div>
+                    {#each qualityOptions as option (option.id)}
+                      <button
+                        class:active={option.id === selectedQualityId}
+                        class="quality-option"
+                        role="menuitemradio"
+                        aria-checked={option.id === selectedQualityId}
+                        on:click={(event) => void selectQuality(event, option)}
+                      >
+                        <span>
+                          <strong>{option.label}</strong>
+                          <small>{option.detail}</small>
+                        </span>
+                        {#if option.id === selectedQualityId}
+                          <Check size={16} />
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
 
               <button class="player-control fullscreen-control" aria-label="Toggle fullscreen" on:click={() => void toggleFullscreen()}>
                 {#if fullscreen}

@@ -5,11 +5,11 @@ export const HOVER_PREVIEW_DELAY_MS = 300;
 export const HOVER_PREVIEW_MAX_CACHE = 48;
 export const HOVER_PREVIEW_HLS_WIDTH = 640;
 export const HOVER_PREVIEW_HLS_HEIGHT = 360;
-export const HOVER_PREVIEW_VIDEO_BITRATE = 3_000_000;
+export const HOVER_PREVIEW_VIDEO_BITRATE = 1_500_000;
 export const HOVER_PREVIEW_AUDIO_BITRATE = 128_000;
-export const HOVER_PREVIEW_DIRECT_MAX_BITRATE = 8_000_000;
-export const HOVER_PREVIEW_DIRECT_MAX_WIDTH = 1280;
-export const HOVER_PREVIEW_DIRECT_MAX_HEIGHT = 720;
+export const HOVER_PREVIEW_DIRECT_MAX_BITRATE = 4_000_000;
+export const HOVER_PREVIEW_DIRECT_MAX_UNKNOWN_BITRATE_WIDTH = 1280;
+export const HOVER_PREVIEW_DIRECT_MAX_UNKNOWN_BITRATE_HEIGHT = 720;
 export const HOVER_PREVIEW_HLS_BUFFER_SECONDS = 6;
 export const HOVER_PREVIEW_HLS_MAX_BUFFER_SECONDS = 8;
 export const HOVER_PREVIEW_HLS_MAX_BUFFER_SIZE = 8_000_000;
@@ -86,12 +86,12 @@ export function canDirectPreview(
   }
 
   if (extension === 'webm') {
-    if (videoCodec !== 'vp8' && videoCodec !== 'vp9') return false;
+    if (videoCodec !== 'vp8' && videoCodec !== 'vp9' && videoCodec !== 'av1') return false;
     if (audioCodec && audioCodec !== 'opus' && audioCodec !== 'vorbis') return false;
-    const codecString = `${videoCodec}, ${audioCodec || 'opus'}`;
-    return Boolean(
-      video.canPlayType(`video/webm; codecs="${codecString}"`) || video.canPlayType('video/webm')
-    );
+    if (!videoCodec) return Boolean(video.canPlayType('video/webm'));
+    const videoCodecString = videoCodec === 'av1' ? 'av01.0.05M.08' : videoCodec;
+    const codecString = `${videoCodecString}, ${audioCodec || 'opus'}`;
+    return Boolean(video.canPlayType(`video/webm; codecs="${codecString}"`));
   }
 
   return false;
@@ -103,9 +103,9 @@ export function isDirectPreviewLightweight(source: JellyfinMediaSource) {
   const width = videoStream?.Width ?? 0;
   const height = videoStream?.Height ?? 0;
 
-  if (bitrate > HOVER_PREVIEW_DIRECT_MAX_BITRATE) return false;
-  if (width > HOVER_PREVIEW_DIRECT_MAX_WIDTH) return false;
-  if (height > HOVER_PREVIEW_DIRECT_MAX_HEIGHT) return false;
+  if (bitrate > 0) return bitrate <= HOVER_PREVIEW_DIRECT_MAX_BITRATE;
+  if (width > HOVER_PREVIEW_DIRECT_MAX_UNKNOWN_BITRATE_WIDTH) return false;
+  if (height > HOVER_PREVIEW_DIRECT_MAX_UNKNOWN_BITRATE_HEIGHT) return false;
   return true;
 }
 

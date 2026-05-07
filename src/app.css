@@ -1278,7 +1278,82 @@ label {
   text-overflow: ellipsis;
 }
 
+.quality-control {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.quality-menu {
+  position: absolute;
+  right: 0;
+  bottom: 46px;
+  width: 236px;
+  overflow: hidden;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(20, 20, 20, 0.96);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+}
+
+.quality-menu-heading {
+  padding: 7px 9px 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.quality-option {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: #fff;
+  text-align: left;
+  background: transparent;
+}
+
+.quality-option:hover,
+.quality-option:focus-visible,
+.quality-option.active {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.quality-option span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.quality-option strong,
+.quality-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-option strong {
+  font-size: 0.9rem;
+}
+
+.quality-option small {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
 .fullscreen-control {
+  margin-left: 0;
+}
+
+.theater-control {
   margin-left: auto;
 }
 
@@ -2100,6 +2175,11 @@ label {
     height: 34px;
   }
 
+  .quality-menu {
+    bottom: 42px;
+    width: min(232px, calc(100vw - 22px));
+  }
+
   .volume-slider,
   .player-source-pill {
     display: none;
@@ -2315,6 +2395,10 @@ label {
 
   .fullscreen-control {
     margin-left: 4px;
+  }
+
+  .quality-menu {
+    right: -42px;
   }
 
   .player-time {

@@ -27,6 +27,10 @@ import {
   cinematicGlowStyle,
   shouldSampleCinematicGlow
 } from '../src/lib/cinematicGlow';
+import {
+  playbackQualityById,
+  playbackQualityOptions
+} from '../src/lib/playbackQuality';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
 import type { JellyfinItem } from '../src/lib/types';
@@ -345,6 +349,14 @@ test('hover preview chooses direct playable sources and low-bitrate hls options'
       { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
     ]
   };
+  const lowBitrate1080pVp9 = {
+    ...webm,
+    Bitrate: 1_500_000,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'vp9', Width: 1920, Height: 1080, BitRate: 1_500_000 },
+      { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
+    ]
+  };
   const heavyWebm = {
     ...webm,
     Bitrate: 24_000_000,
@@ -354,13 +366,19 @@ test('hover preview chooses direct playable sources and low-bitrate hls options'
     ]
   };
   const video = {
-    canPlayType: (mime: string) => (mime.includes('webm') && !mime.includes('av1') ? 'probably' : '')
+    canPlayType: (mime: string) =>
+      mime.includes('webm') && !mime.includes('av01') ? 'probably' : ''
+  };
+  const av1Video = {
+    canPlayType: (mime: string) => (mime.includes('av01') ? 'probably' : '')
   };
 
   assert.equal(directStreamExtension(webm), 'webm');
   assert.equal(canDirectPreview(webm, video), true);
   assert.equal(isDirectPreviewLightweight(webm), true);
   assert.equal(canDirectPreview(av1, video), false);
+  assert.equal(canDirectPreview(av1, av1Video), true);
+  assert.equal(isDirectPreviewLightweight(lowBitrate1080pVp9), true);
   assert.equal(canDirectPreview(heavyWebm, video), true);
   assert.equal(isDirectPreviewLightweight(heavyWebm), false);
   assert.deepEqual(previewHlsOptions(webm, 'preview-session'), {
@@ -370,9 +388,28 @@ test('hover preview chooses direct playable sources and low-bitrate hls options'
     subtitleStreamIndex: undefined,
     maxWidth: 640,
     maxHeight: 360,
-    videoBitrate: 3000000,
+    videoBitrate: 1500000,
     audioBitrate: 128000
   });
+});
+
+test('playback quality options use bitrate labels and filter above source resolution', () => {
+  const source = {
+    Id: 'source',
+    Container: 'mp4',
+    Bitrate: 9_500_000,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'h264', Width: 1280, Height: 720, BitRate: 9_000_000 },
+      { Type: 'Audio' as const, Codec: 'aac', Index: 1 }
+    ]
+  };
+
+  const options = playbackQualityOptions(source, { directAvailable: true });
+
+  assert.deepEqual(options.map((option) => option.label), ['Auto', 'Original', '4 Mbps', '2 Mbps', '1 Mbps']);
+  assert.equal(options[1].detail, '720p · 9.5 Mbps');
+  assert.equal(playbackQualityById(options, 'hls-20000k')?.id, 'auto');
+  assert.equal(playbackQualityById(options, 'hls-4000k')?.videoBitrate, 4_000_000);
 });
 
 test('watch recommendations prefer similar metadata over same-channel filler', () => {
