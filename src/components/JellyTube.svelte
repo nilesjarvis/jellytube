@@ -143,6 +143,7 @@
   );
   $: channelPopular = popularItems(channelLatest);
   $: channelEpisodeCollection = selectedChannel ? episodeCollectionForChannel(selectedChannel, searchPool) : null;
+  $: channelMixItems = channelEpisodeCollection?.allItems ?? channelLatest;
   $: channelSeries = findChannelSeries(selectedChannel, channelEpisodeCollection?.seriesKey ?? '');
   $: channelDisplaySeasons = displayChannelSeasons(channelEpisodeCollection?.seasons ?? []);
   $: channelBrowsableEpisodes = channelDisplaySeasons.flatMap((season) => season.items);
@@ -447,9 +448,9 @@
       return { view: 'home' };
     }
 
+    await ensureSeriesEpisodes(item);
     const mixChannel = nextRoute.list === 'mix' ? nextRoute.channel?.trim() ?? '' : '';
     const queue = mixChannel ? mixQueueFor(mixChannel, item) : [];
-    await ensureSeriesEpisodes(item);
     setWatchItem(item, queue, mixChannel ? `${mixChannel} Mix` : '', true, options.autoplay);
     scrollToTop(options.scroll);
     return {
@@ -556,6 +557,11 @@
     const first = queue[0];
     if (!first) return;
     openItem(first, queue, `${mix.name} Mix`, true);
+  }
+
+  function playChannelMix() {
+    if (!selectedChannel || !channelMixItems.length) return;
+    openMix({ name: selectedChannel, items: channelMixItems });
   }
 
   function playNextQueued() {
@@ -852,7 +858,14 @@
   }
 
   function mixQueueFor(channel: string, currentItem: JellyfinItem) {
-    const queue = musicPool
+    const localEpisodePool = mergeItems(videoPool, ...Object.values(seriesEpisodeCache));
+    const episodeCollection = episodeCollectionForItem(currentItem, localEpisodePool);
+    const normalizedChannel = normalizeSearch(channel);
+    if (episodeCollection && normalizeSearch(episodeCollection.seriesName) === normalizedChannel) {
+      return episodeCollection.allItems;
+    }
+
+    const queue = mergeItems(videoPool, musicPool, moviePool, localEpisodePool)
       .filter((item) => channelMatches(item, channel))
       .sort(compareByContentDateDesc);
     return queue.some((item) => item.Id === currentItem.Id) ? queue : [currentItem, ...queue];
@@ -1537,6 +1550,10 @@
                 <RotateCcw size={17} />
                 <span>Start over</span>
               </button>
+              <button class="secondary-action" on:click={playChannelMix} disabled={!channelMixItems.length}>
+                <ListVideo size={17} />
+                <span>Mix</span>
+              </button>
             </div>
           </div>
         </section>
@@ -1547,6 +1564,10 @@
             <h1>{selectedChannel}</h1>
             <p>{channelItems.length} videos across selected libraries</p>
           </div>
+          <button class="primary-action channel-mix-action" on:click={playChannelMix} disabled={!channelMixItems.length}>
+            <ListVideo size={18} />
+            <span>Mix</span>
+          </button>
         </section>
       {/if}
 

@@ -2042,6 +2042,12 @@ label {
   flex: 1;
 }
 
+.channel-mix-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 18px;
+}
+
 .channel-avatar {
   width: 88px;
   height: 88px;
@@ -2383,6 +2389,11 @@ label {
   .channel-header {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .channel-mix-action {
+    width: 100%;
+    margin-left: 0;
   }
 
   .channel-avatar {
