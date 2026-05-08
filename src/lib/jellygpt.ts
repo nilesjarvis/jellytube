@@ -24,6 +24,9 @@ export type JellyGptRecommendationRequestOptions = {
   candidates: JellyfinItem[];
   activity: PlaybackActivity[];
   recentItemIds: Iterable<string>;
+  context?: 'home' | 'movie' | 'music' | 'watch';
+  currentItem?: JellyfinItem | null;
+  queueItems?: JellyfinItem[];
   limit?: number;
   timeoutMs?: number;
 };
@@ -35,6 +38,9 @@ export async function fetchJellyGptRecommendations({
   candidates,
   activity,
   recentItemIds,
+  context,
+  currentItem,
+  queueItems,
   limit = 50,
   timeoutMs = 3500
 }: JellyGptRecommendationRequestOptions): Promise<JellyGptRecommendationResponse> {
@@ -53,8 +59,11 @@ export async function fetchJellyGptRecommendations({
         user_id: userId,
         limit,
         now: new Date().toISOString(),
+        context,
+        current_item: currentItem ? toRecommendationCandidate(currentItem) : undefined,
         candidates: candidates.map(toRecommendationCandidate),
         history: activity.map(toPlaybackHistoryEvent),
+        queue_item_ids: queueItems?.map((item) => item.Id),
         recent_item_ids: [...recentItemIds]
       })
     });

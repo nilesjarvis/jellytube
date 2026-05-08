@@ -97,6 +97,8 @@
     { id: 'blended', name: 'Blended', available: true },
     { id: 'llm_rerank', name: 'AI Rerank', available: false, reason: 'Requires Ollama reranking in jellyGPT.' }
   ];
+  const WATCH_RECOMMENDATION_LIMIT = 28;
+  const WATCH_RECOMMENDATION_CANDIDATE_LIMIT = 96;
 
   const dispatch = createEventDispatcher<{ logout: void }>();
   const client = new JellyfinClient(session.serverUrl, session.accessToken, session.userId);
@@ -158,6 +160,9 @@
   let channelLoading = false;
   let activity: PlaybackActivity[] = [];
   let recentPlaybackIds: string[] = [];
+  let watchRecommendations: JellyfinItem[] = [];
+  let watchRecommendationContextKey = '';
+  let watchRecommendationRequestId = 0;
 
   function displayChannelSeasons(seasons: EpisodeSeason[]) {
     if (seasons.length < 10) return seasons;
@@ -225,6 +230,25 @@
       ? selectedEpisodeSeason
       : episodeCollection?.currentSeason ?? 0;
   $: featuredMovie = movieResume[0] ?? moviePopular[0] ?? movies[0] ?? null;
+  $: {
+    const item = selectedItem;
+    const queue = watchQueue;
+    const contextKey = [
+      route,
+      item?.Id ?? '',
+      itemIdsKey(queue),
+      itemIdsKey(videoPool),
+      itemIdsKey(moviePool),
+      itemIdsKey(musicPool),
+      playbackActivityKey(activity),
+      recentPlaybackIds.join(','),
+      jellyGptEnabled ? 'enabled' : 'disabled',
+      jellyGptStatus,
+      jellyGptSelectedAlgorithm,
+      jellyGptUrl
+    ].join('|');
+    syncWatchRecommendations(route, item, queue, contextKey);
+  }
 
   $: {
     if (route === 'watch' && selectedItem) {
@@ -1055,7 +1079,7 @@
     return `${count} ${count === 1 ? 'video' : 'videos'}`;
   }
 
-  function relatedFor(item: JellyfinItem | null, queue: JellyfinItem[] = []) {
+  function relatedCandidatesFor(item: JellyfinItem | null, queue: JellyfinItem[] = []) {
     const pool = item?.contentKind === 'movie' ? moviePool : mergeItems(videoPool, musicPool);
     const ranked = rankRecommendations(pool, {
       activity,
@@ -1064,14 +1088,87 @@
       recentItemIds: recentPlaybackIds,
       queueItems: queue
     });
-    if (!item) return ranked.slice(0, 28);
+    if (!item) return ranked;
     const recommendationPool = episodeInfo(item)
       ? ranked.filter((candidate) => !sameEpisodeSeries(candidate, item))
       : ranked;
     const currentChannel = channelName(item).toLowerCase();
     const sameChannel = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() === currentChannel);
     const other = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() !== currentChannel);
-    return [...sameChannel, ...other].slice(0, 28);
+    return [...sameChannel, ...other];
+  }
+
+  function syncWatchRecommendations(
+    currentRoute: Route,
+    item: JellyfinItem | null,
+    queue: JellyfinItem[],
+    contextKey: string
+  ) {
+    if (currentRoute !== 'watch' || !item) {
+      if (contextKey !== watchRecommendationContextKey) {
+        watchRecommendationContextKey = contextKey;
+        watchRecommendationRequestId += 1;
+      }
+      if (watchRecommendations.length) watchRecommendations = [];
+      return;
+    }
+
+    if (contextKey === watchRecommendationContextKey) return;
+
+    watchRecommendationContextKey = contextKey;
+    const requestId = ++watchRecommendationRequestId;
+    const candidates = relatedCandidatesFor(item, queue);
+    const fallback = candidates.slice(0, WATCH_RECOMMENDATION_LIMIT);
+    watchRecommendations = fallback;
+    void refreshWatchJellyGptRecommendations(item, queue, candidates, fallback, contextKey, requestId);
+  }
+
+  async function refreshWatchJellyGptRecommendations(
+    item: JellyfinItem,
+    queue: JellyfinItem[],
+    candidates: JellyfinItem[],
+    fallback: JellyfinItem[],
+    contextKey: string,
+    requestId: number
+  ) {
+    if (!jellyGptEnabled || jellyGptStatus !== 'connected' || !candidates.length) return;
+    const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
+    if (!normalizedUrl) return;
+
+    try {
+      const candidateWindow = candidates.slice(0, WATCH_RECOMMENDATION_CANDIDATE_LIMIT);
+      const response = await fetchJellyGptRecommendations({
+        url: normalizedUrl,
+        algorithm: jellyGptSelectedAlgorithm,
+        userId: session.userId,
+        candidates: candidateWindow,
+        activity,
+        recentItemIds: recentPlaybackIds,
+        context: 'watch',
+        currentItem: item,
+        queueItems: queue,
+        limit: WATCH_RECOMMENDATION_LIMIT
+      });
+      if (requestId !== watchRecommendationRequestId || contextKey !== watchRecommendationContextKey) return;
+      watchRecommendations = applyJellyGptRanking(
+        response,
+        candidateWindow,
+        fallback,
+        WATCH_RECOMMENDATION_LIMIT
+      );
+    } catch {
+      // The already-rendered built-in list remains the watch-page fallback.
+    }
+  }
+
+  function itemIdsKey(items: JellyfinItem[]) {
+    return items.map((item) => item.Id).join(',');
+  }
+
+  function playbackActivityKey(rows: PlaybackActivity[]) {
+    return rows
+      .map((row) => `${row.item_name ?? ''}:${row.total_count ?? ''}:${row.latest_date ?? ''}`)
+      .join(',');
   }
 
   function rememberFinishedItem(item: JellyfinItem) {
@@ -1475,7 +1572,7 @@
           episodeSeasons={episodeCollection?.seasons ?? []}
           selectedEpisodeSeason={activeEpisodeSeason}
           episodeSeriesTitle={episodeCollection?.seriesName ?? ''}
-          recommendations={relatedFor(selectedItem, watchQueue)}
+          recommendations={watchRecommendations}
           on:back={goBackOrHome}
           on:select={(event) => openItem(event.detail)}
           on:queueSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}

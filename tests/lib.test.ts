@@ -33,7 +33,8 @@ import {
 } from '../src/lib/playbackQuality';
 import {
   applyJellyGptRanking,
-  buildJellyGptCandidatePool
+  buildJellyGptCandidatePool,
+  fetchJellyGptRecommendations
 } from '../src/lib/jellygpt';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
@@ -788,4 +789,61 @@ test('jellyGPT ranking maps sidecar item ids back to local Jellyfin items with f
 
   assert.deepEqual(ranked.map((result) => result.Id), ['beta', 'alpha', 'gamma']);
   assert.equal(ranked[0].reason, 'matches watch history');
+});
+
+test('jellyGPT recommendation requests include watch context', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let requestBody: {
+    context?: string;
+    current_item?: { item_id?: string };
+    queue_item_ids?: string[];
+    candidates?: Array<{ item_id?: string }>;
+  } | null = null;
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis)
+    }
+  });
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body ?? '{}'));
+    return new Response(JSON.stringify({ algo: 'blended', items: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchJellyGptRecommendations({
+      url: 'http://127.0.0.1:8787',
+      algorithm: 'blended',
+      userId: 'user-1',
+      candidates: [item({ Id: 'candidate', Name: 'Candidate video' })],
+      activity: [],
+      recentItemIds: [],
+      context: 'watch',
+      currentItem: item({ Id: 'current', Name: 'Current video' }),
+      queueItems: [item({ Id: 'queued', Name: 'Queued video' })],
+      limit: 28,
+      timeoutMs: 100
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window');
+    } else {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: originalWindow
+      });
+    }
+  }
+
+  assert.equal(requestBody?.context, 'watch');
+  assert.equal(requestBody?.current_item?.item_id, 'current');
+  assert.deepEqual(requestBody?.queue_item_ids, ['queued']);
+  assert.deepEqual(requestBody?.candidates?.map((candidate) => candidate.item_id), ['candidate']);
 });
