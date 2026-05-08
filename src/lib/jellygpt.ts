@@ -17,6 +17,12 @@ export type JellyGptRecommendationResponse = {
   warning?: string | null;
 };
 
+export type JellyGptBingeContext = {
+  channel?: string;
+  series_id?: string;
+  streak_count: number;
+};
+
 export type JellyGptRecommendationRequestOptions = {
   url: string;
   algorithm: string;
@@ -27,6 +33,20 @@ export type JellyGptRecommendationRequestOptions = {
   context?: 'home' | 'movie' | 'music' | 'watch';
   currentItem?: JellyfinItem | null;
   queueItems?: JellyfinItem[];
+  limit?: number;
+  timeoutMs?: number;
+};
+
+export type JellyGptIndexedRecommendationRequestOptions = {
+  url: string;
+  algorithm: string;
+  userId?: string;
+  activity?: PlaybackActivity[];
+  recentItemIds?: Iterable<string>;
+  context?: 'home' | 'movie' | 'music' | 'watch';
+  currentItem?: JellyfinItem | null;
+  queueItems?: JellyfinItem[];
+  binge?: JellyGptBingeContext | null;
   limit?: number;
   timeoutMs?: number;
 };
@@ -68,6 +88,50 @@ export async function fetchJellyGptRecommendations({
       })
     });
     if (!response.ok) throw new Error(`jellyGPT recommendations failed: HTTP ${response.status}`);
+    return (await response.json()) as JellyGptRecommendationResponse;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export async function fetchIndexedJellyGptRecommendations({
+  url,
+  algorithm,
+  userId,
+  activity = [],
+  recentItemIds = [],
+  context,
+  currentItem,
+  queueItems,
+  binge,
+  limit = 50,
+  timeoutMs = 3500
+}: JellyGptIndexedRecommendationRequestOptions): Promise<JellyGptRecommendationResponse> {
+  const normalizedUrl = url.trim().replace(/\/+$/, '');
+  if (!normalizedUrl) throw new Error('jellyGPT URL is not configured.');
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${normalizedUrl}/recommendations/indexed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        algo: algorithm,
+        user_id: userId,
+        limit,
+        now: new Date().toISOString(),
+        context,
+        current_item_id: currentItem?.Id,
+        current_item: currentItem ? toRecommendationCandidate(currentItem) : undefined,
+        history: activity.map(toPlaybackHistoryEvent),
+        queue_item_ids: queueItems?.map((item) => item.Id),
+        recent_item_ids: [...recentItemIds],
+        binge: binge ?? undefined
+      })
+    });
+    if (!response.ok) throw new Error(`jellyGPT indexed recommendations failed: HTTP ${response.status}`);
     return (await response.json()) as JellyGptRecommendationResponse;
   } finally {
     window.clearTimeout(timeout);
