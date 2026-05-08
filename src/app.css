@@ -498,6 +498,166 @@ label {
   gap: 14px;
 }
 
+.recommendation-heading {
+  align-items: center;
+}
+
+.recommendation-heading > div {
+  min-width: 0;
+}
+
+.recommendation-settings-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.recommendation-settings-button:hover {
+  background: var(--soft);
+}
+
+.recommendation-settings-button.connected {
+  border-color: color-mix(in srgb, var(--focus) 34%, var(--border));
+  color: color-mix(in srgb, var(--focus) 82%, var(--text));
+  background: color-mix(in srgb, var(--focus) 9%, var(--surface));
+}
+
+.topbar-ai-button {
+  flex: 0 0 auto;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.48);
+}
+
+.jellygpt-panel {
+  width: min(100%, 620px);
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 24px 70px var(--shadow);
+}
+
+.jellygpt-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.jellygpt-panel-heading h2,
+.jellygpt-panel-heading .eyebrow,
+.jellygpt-panel-copy {
+  margin: 0;
+}
+
+.jellygpt-panel-copy {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.algorithm-settings {
+  display: grid;
+  gap: 10px;
+}
+
+.algorithm-settings-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.algorithm-settings-heading span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.algorithm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.algorithm-card {
+  min-height: 64px;
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface);
+}
+
+.algorithm-card:hover:not(:disabled) {
+  background: var(--soft-2);
+}
+
+.algorithm-card.selected {
+  border-color: color-mix(in srgb, var(--text) 42%, var(--border));
+  background: var(--soft);
+}
+
+.algorithm-card span {
+  font-weight: 750;
+}
+
+.algorithm-card small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jellygpt-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--soft-2);
+}
+
+.jellygpt-status.connected {
+  color: #176b35;
+  background: #ecf8f0;
+}
+
+.jellygpt-status.error-state {
+  color: #8a1f11;
+  background: #fff0ed;
+}
+
+.jellygpt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 .video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));

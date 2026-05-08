@@ -13,6 +13,7 @@
     RotateCcw,
     Search,
     Server,
+    SlidersHorizontal,
     Sun,
     UserCircle
   } from 'lucide-svelte';
@@ -76,6 +77,20 @@
     | { view: 'channel'; channel: string }
     | { view: 'watch'; itemId: string; list?: 'mix'; channel?: string };
   type HistoryMode = 'push' | 'replace' | 'none';
+  type JellyGptAlgorithm = {
+    id: string;
+    name: string;
+    available: boolean;
+    reason?: string | null;
+  };
+
+  const FALLBACK_JELLYGPT_ALGORITHMS: JellyGptAlgorithm[] = [
+    { id: 'existing_logic_like', name: 'Existing JellyTube', available: true },
+    { id: 'recency_popularity', name: 'Recency / Popularity', available: true },
+    { id: 'label_profile', name: 'Label Profile', available: true },
+    { id: 'blended', name: 'Blended', available: true },
+    { id: 'llm_rerank', name: 'AI Rerank', available: false, reason: 'Requires Ollama reranking in jellyGPT.' }
+  ];
 
   const dispatch = createEventDispatcher<{ logout: void }>();
   const client = new JellyfinClient(session.serverUrl, session.accessToken, session.userId);
@@ -102,6 +117,17 @@
   let themeMode: ThemeMode =
     (localStorage.getItem('jellytube.theme') as ThemeMode | null) ?? session.themeMode ?? 'system';
   let effectiveTheme: EffectiveTheme = resolveEffectiveTheme(themeMode);
+  let jellyGptPanelOpen = false;
+  let jellyGptUrl = localStorage.getItem('jellytube.jellygpt.url') ?? 'http://127.0.0.1:8787';
+  let jellyGptEnabled = localStorage.getItem('jellytube.jellygpt.enabled') === 'true';
+  let jellyGptStatus: 'unconfigured' | 'checking' | 'connected' | 'error' = jellyGptEnabled
+    ? 'checking'
+    : 'unconfigured';
+  let jellyGptStatusMessage = jellyGptEnabled ? 'Checking jellyGPT…' : 'Connect jellyGPT for cached AI recommendations.';
+  let jellyGptVersion = '';
+  let jellyGptAlgorithms: JellyGptAlgorithm[] = FALLBACK_JELLYGPT_ALGORITHMS;
+  let jellyGptSelectedAlgorithm = localStorage.getItem('jellytube.jellygpt.algorithm') ?? 'blended';
+  let jellyGptAlgorithmsLoading = false;
 
   let recent: JellyfinItem[] = [];
   let resume: JellyfinItem[] = [];
@@ -219,10 +245,14 @@
     };
     colorSchemeQuery.addEventListener('change', handleSystemThemeChange);
     window.addEventListener('popstate', handlePopState);
+    document.addEventListener('pointerdown', handleJellyGptOutsidePointerDown);
     void initializeApp();
+    if (jellyGptEnabled) void checkJellyGptConnection();
+    void loadJellyGptAlgorithms();
     return () => {
       colorSchemeQuery.removeEventListener('change', handleSystemThemeChange);
       window.removeEventListener('popstate', handlePopState);
+      document.removeEventListener('pointerdown', handleJellyGptOutsidePointerDown);
     };
   });
 
@@ -1086,6 +1116,118 @@
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
+  function openJellyGptSetup() {
+    jellyGptPanelOpen = true;
+    void loadJellyGptAlgorithms();
+    if (jellyGptEnabled) void checkJellyGptConnection();
+  }
+
+  function closeJellyGptSetup() {
+    jellyGptPanelOpen = false;
+  }
+
+  function handleJellyGptOutsidePointerDown(event: PointerEvent) {
+    if (!jellyGptPanelOpen || !(event.target instanceof Element)) return;
+    if (event.target.closest('.jellygpt-panel')) return;
+    closeJellyGptSetup();
+  }
+
+  function normalizeJellyGptUrl(value: string) {
+    const trimmed = value.trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  }
+
+  async function saveJellyGptConnection() {
+    const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
+    if (!normalizedUrl) {
+      jellyGptStatus = 'error';
+      jellyGptStatusMessage = 'Enter the jellyGPT URL first.';
+      return;
+    }
+    jellyGptUrl = normalizedUrl;
+    jellyGptEnabled = true;
+    localStorage.setItem('jellytube.jellygpt.url', normalizedUrl);
+    localStorage.setItem('jellytube.jellygpt.enabled', 'true');
+    await checkJellyGptConnection();
+    await loadJellyGptAlgorithms();
+  }
+
+  function disconnectJellyGpt() {
+    jellyGptEnabled = false;
+    jellyGptVersion = '';
+    jellyGptStatus = 'unconfigured';
+    jellyGptStatusMessage = 'jellyGPT is disconnected. Built-in recommendations stay active.';
+    localStorage.setItem('jellytube.jellygpt.enabled', 'false');
+  }
+
+  async function checkJellyGptConnection() {
+    const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
+    if (!normalizedUrl) {
+      jellyGptStatus = 'unconfigured';
+      jellyGptStatusMessage = 'Connect jellyGPT for cached AI recommendations.';
+      return;
+    }
+
+    jellyGptUrl = normalizedUrl;
+    jellyGptStatus = 'checking';
+    jellyGptStatusMessage = `Checking ${normalizedUrl}…`;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3500);
+    try {
+      const response = await fetch(`${normalizedUrl}/health`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const health = (await response.json()) as { ok?: boolean; version?: string };
+      if (!health.ok) throw new Error('Health check did not report ok=true.');
+      jellyGptEnabled = true;
+      jellyGptVersion = health.version ?? '';
+      jellyGptStatus = 'connected';
+      jellyGptStatusMessage = `Connected${jellyGptVersion ? ` to jellyGPT ${jellyGptVersion}` : ''}.`;
+      localStorage.setItem('jellytube.jellygpt.url', normalizedUrl);
+      localStorage.setItem('jellytube.jellygpt.enabled', 'true');
+      void loadJellyGptAlgorithms();
+    } catch (caught) {
+      jellyGptStatus = 'error';
+      jellyGptVersion = '';
+      jellyGptStatusMessage = caught instanceof Error ? caught.message : 'Could not reach jellyGPT.';
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  async function loadJellyGptAlgorithms() {
+    const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
+    if (!normalizedUrl) {
+      jellyGptAlgorithms = FALLBACK_JELLYGPT_ALGORITHMS;
+      return;
+    }
+
+    jellyGptAlgorithmsLoading = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3500);
+    try {
+      const response = await fetch(`${normalizedUrl}/algorithms`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as { algorithms?: JellyGptAlgorithm[] };
+      const algorithms = data.algorithms?.length ? data.algorithms : FALLBACK_JELLYGPT_ALGORITHMS;
+      jellyGptAlgorithms = algorithms;
+      if (!algorithms.some((algorithm) => algorithm.id === jellyGptSelectedAlgorithm)) {
+        jellyGptSelectedAlgorithm = algorithms.find((algorithm) => algorithm.available)?.id ?? algorithms[0]?.id ?? 'blended';
+        localStorage.setItem('jellytube.jellygpt.algorithm', jellyGptSelectedAlgorithm);
+      }
+    } catch {
+      jellyGptAlgorithms = FALLBACK_JELLYGPT_ALGORITHMS;
+    } finally {
+      window.clearTimeout(timeout);
+      jellyGptAlgorithmsLoading = false;
+    }
+  }
+
+  function selectJellyGptAlgorithm(algorithmId: string) {
+    jellyGptSelectedAlgorithm = algorithmId;
+    localStorage.setItem('jellytube.jellygpt.algorithm', algorithmId);
+  }
+
   function readUrlRoute(): UrlRoute {
     const url = new URL(window.location.href);
     const parts = url.pathname.split('/').filter(Boolean).map(safeDecode);
@@ -1182,6 +1324,16 @@
     </form>
 
     <div class="topbar-actions">
+      <button
+        class:connected={jellyGptEnabled && jellyGptStatus === 'connected'}
+        class="recommendation-settings-button topbar-ai-button"
+        type="button"
+        title="Recommendation settings"
+        on:click={openJellyGptSetup}
+      >
+        <SlidersHorizontal size={17} />
+        <span>Recommendations</span>
+      </button>
       <button
         class="icon-button theme-toggle"
         aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`}
@@ -1721,11 +1873,20 @@
       {/if}
 
       <section class="feed-section">
-        <div class="section-heading">
-          <h2>Recommended</h2>
-          {#if musicSources.length}
-            <span>Includes music-video matches</span>
-          {/if}
+        <div class="section-heading recommendation-heading">
+          <div>
+            <h2>Recommended</h2>
+            <span>{jellyGptEnabled && jellyGptStatus === 'connected' ? 'AI enhanced connection ready' : musicSources.length ? 'Includes music-video matches' : 'Built-in recommendations'}</span>
+          </div>
+          <button
+            class:connected={jellyGptEnabled && jellyGptStatus === 'connected'}
+            class="recommendation-settings-button"
+            type="button"
+            on:click={openJellyGptSetup}
+          >
+            <SlidersHorizontal size={17} />
+            <span>Recommendation settings</span>
+          </button>
         </div>
         <div class="video-grid">
           {#each recommended as item (item.Id)}
@@ -1755,4 +1916,69 @@
       {/if}
     {/if}
   </main>
+
+  {#if jellyGptPanelOpen}
+    <div class="modal-backdrop">
+      <div class="jellygpt-panel" role="dialog" aria-modal="true" aria-labelledby="jellygpt-title">
+        <div class="jellygpt-panel-heading">
+          <div>
+            <p class="eyebrow">Optional sidecar</p>
+            <h2 id="jellygpt-title">Recommendation settings</h2>
+          </div>
+          <button class="icon-button" aria-label="Close jellyGPT setup" on:click={closeJellyGptSetup}>×</button>
+        </div>
+
+        <p class="jellygpt-panel-copy">
+          Connect JellyTube to jellyGPT for cached AI recommendation features. JellyTube keeps using built-in recommendations if the sidecar is offline.
+        </p>
+
+        <label>
+          jellyGPT URL
+          <div class="field-shell">
+            <Server size={17} />
+            <input bind:value={jellyGptUrl} placeholder="http://127.0.0.1:8787" aria-label="jellyGPT URL" />
+          </div>
+        </label>
+
+        <div class="algorithm-settings">
+          <div class="algorithm-settings-heading">
+            <strong>Recommendation system</strong>
+            <span>{jellyGptAlgorithmsLoading ? 'Loading from jellyGPT…' : `${jellyGptAlgorithms.length} available`}</span>
+          </div>
+          <div class="algorithm-grid" role="radiogroup" aria-label="Recommendation system">
+            {#each jellyGptAlgorithms as algorithm (algorithm.id)}
+              <button
+                class:selected={jellyGptSelectedAlgorithm === algorithm.id}
+                class="algorithm-card"
+                type="button"
+                role="radio"
+                aria-checked={jellyGptSelectedAlgorithm === algorithm.id}
+                disabled={!algorithm.available}
+                title={algorithm.reason ?? algorithm.name}
+                on:click={() => selectJellyGptAlgorithm(algorithm.id)}
+              >
+                <span>{algorithm.name}</span>
+                <small>{algorithm.available ? algorithm.id : algorithm.reason ?? 'Unavailable'}</small>
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class:connected={jellyGptStatus === 'connected'} class:error-state={jellyGptStatus === 'error'} class="jellygpt-status">
+          <SlidersHorizontal size={16} />
+          <span>{jellyGptStatusMessage}</span>
+        </div>
+
+        <div class="jellygpt-actions">
+          <button class="primary-action" type="button" on:click={saveJellyGptConnection} disabled={jellyGptStatus === 'checking'}>
+            Save & test
+          </button>
+          <button class="secondary-action" type="button" on:click={checkJellyGptConnection} disabled={jellyGptStatus === 'checking'}>
+            Test connection
+          </button>
+          <button class="text-action" type="button" on:click={disconnectJellyGpt}>Disable</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
