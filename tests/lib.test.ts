@@ -34,6 +34,7 @@ import {
 import {
   applyJellyGptRanking,
   buildJellyGptCandidatePool,
+  fetchIndexedJellyGptRecommendations,
   fetchJellyGptRecommendations
 } from '../src/lib/jellygpt';
 import { rankSearchResults } from '../src/lib/search';
@@ -846,4 +847,71 @@ test('jellyGPT recommendation requests include watch context', async () => {
   assert.equal(requestBody?.current_item?.item_id, 'current');
   assert.deepEqual(requestBody?.queue_item_ids, ['queued']);
   assert.deepEqual(requestBody?.candidates?.map((candidate) => candidate.item_id), ['candidate']);
+});
+
+test('indexed jellyGPT recommendation requests omit candidate lists', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let requestUrl = '';
+  let requestBody: {
+    context?: string;
+    current_item_id?: string;
+    current_item?: { item_id?: string };
+    queue_item_ids?: string[];
+    candidates?: Array<{ item_id?: string }>;
+    binge?: { channel?: string; streak_count?: number };
+  } | null = null;
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis)
+    }
+  });
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestUrl = String(input);
+    requestBody = JSON.parse(String(init?.body ?? '{}'));
+    return new Response(JSON.stringify({ algo: 'blended', items: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchIndexedJellyGptRecommendations({
+      url: 'http://127.0.0.1:8787',
+      algorithm: 'blended',
+      userId: 'user-1',
+      activity: [],
+      recentItemIds: ['recent'],
+      context: 'watch',
+      currentItem: item({ Id: 'current', Name: 'Current video' }),
+      queueItems: [item({ Id: 'queued', Name: 'Queued video' })],
+      binge: {
+        channel: 'Current Channel',
+        streak_count: 3
+      },
+      limit: 28,
+      timeoutMs: 100
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalThis, 'window');
+    } else {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: originalWindow
+      });
+    }
+  }
+
+  assert.equal(requestUrl, 'http://127.0.0.1:8787/recommendations/indexed');
+  assert.equal(requestBody?.context, 'watch');
+  assert.equal(requestBody?.current_item_id, 'current');
+  assert.equal(requestBody?.current_item?.item_id, 'current');
+  assert.deepEqual(requestBody?.queue_item_ids, ['queued']);
+  assert.equal(requestBody?.binge?.streak_count, 3);
+  assert.equal(requestBody?.candidates, undefined);
 });

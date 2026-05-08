@@ -35,9 +35,9 @@
   } from '../lib/episodes';
   import { compareByContentDateDesc, contentDate, contentDateValue, dateValue, relativeDate } from '../lib/dates';
   import {
-    applyJellyGptRanking,
-    buildJellyGptCandidatePool,
-    fetchJellyGptRecommendations,
+    fetchIndexedJellyGptRecommendations,
+    type JellyGptBingeContext,
+    type JellyGptRecommendationResponse,
     type JellyGptRecommendationStatus
   } from '../lib/jellygpt';
   import {
@@ -51,7 +51,8 @@
     mergeItems,
     popularItems,
     playbackProgress,
-    rankRecommendations
+    rankRecommendations,
+    type RankedItem
   } from '../lib/recommendations';
   import { normalizeSearch, rankSearchResults, searchLoadedItems } from '../lib/search';
   import { saveSession } from '../lib/session';
@@ -98,7 +99,6 @@
     { id: 'llm_rerank', name: 'AI Rerank', available: false, reason: 'Requires Ollama reranking in jellyGPT.' }
   ];
   const WATCH_RECOMMENDATION_LIMIT = 28;
-  const WATCH_RECOMMENDATION_CANDIDATE_LIMIT = 96;
 
   const dispatch = createEventDispatcher<{ logout: void }>();
   const client = new JellyfinClient(session.serverUrl, session.accessToken, session.userId);
@@ -163,6 +163,7 @@
   let watchRecommendations: JellyfinItem[] = [];
   let watchRecommendationContextKey = '';
   let watchRecommendationRequestId = 0;
+  let indexedRecommendationCache: Record<string, JellyfinItem> = {};
 
   function displayChannelSeasons(seasons: EpisodeSeason[]) {
     if (seasons.length < 10) return seasons;
@@ -1117,48 +1118,130 @@
 
     watchRecommendationContextKey = contextKey;
     const requestId = ++watchRecommendationRequestId;
-    const candidates = relatedCandidatesFor(item, queue);
-    const fallback = candidates.slice(0, WATCH_RECOMMENDATION_LIMIT);
+    const fallback = relatedCandidatesFor(item, queue).slice(0, WATCH_RECOMMENDATION_LIMIT);
     watchRecommendations = fallback;
-    void refreshWatchJellyGptRecommendations(item, queue, candidates, fallback, contextKey, requestId);
+    void refreshWatchJellyGptRecommendations(item, queue, fallback, contextKey, requestId);
   }
 
   async function refreshWatchJellyGptRecommendations(
     item: JellyfinItem,
     queue: JellyfinItem[],
-    candidates: JellyfinItem[],
     fallback: JellyfinItem[],
     contextKey: string,
     requestId: number
   ) {
-    if (!jellyGptEnabled || jellyGptStatus !== 'connected' || !candidates.length) return;
+    if (!jellyGptEnabled || jellyGptStatus !== 'connected') return;
     const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
     if (!normalizedUrl) return;
 
     try {
-      const candidateWindow = candidates.slice(0, WATCH_RECOMMENDATION_CANDIDATE_LIMIT);
-      const response = await fetchJellyGptRecommendations({
+      const response = await fetchIndexedJellyGptRecommendations({
         url: normalizedUrl,
         algorithm: jellyGptSelectedAlgorithm,
         userId: session.userId,
-        candidates: candidateWindow,
         activity,
         recentItemIds: recentPlaybackIds,
         context: 'watch',
         currentItem: item,
         queueItems: queue,
+        binge: bingeContextFor(item, queue),
         limit: WATCH_RECOMMENDATION_LIMIT
       });
       if (requestId !== watchRecommendationRequestId || contextKey !== watchRecommendationContextKey) return;
-      watchRecommendations = applyJellyGptRanking(
+      watchRecommendations = await resolveIndexedJellyGptRanking(
         response,
-        candidateWindow,
         fallback,
         WATCH_RECOMMENDATION_LIMIT
       );
     } catch {
       // The already-rendered built-in list remains the watch-page fallback.
     }
+  }
+
+  async function resolveIndexedJellyGptRanking(
+    response: JellyGptRecommendationResponse,
+    fallback: JellyfinItem[],
+    limit: number
+  ) {
+    if (!response.items.length) return fallback.slice(0, limit);
+
+    const ranked: RankedItem[] = [];
+    const seen = new Set<string>();
+
+    for (const scored of response.items) {
+      if (ranked.length >= limit || seen.has(scored.item_id)) continue;
+      const item = await resolveIndexedRecommendationItem(scored.item_id);
+      if (!item || seen.has(item.Id)) continue;
+      seen.add(item.Id);
+      ranked.push({
+        ...item,
+        score: scored.score,
+        reason: scored.reason ?? 'Recommended by jellyGPT',
+        reasons: [scored.reason ?? 'Recommended by jellyGPT']
+      });
+    }
+
+    for (const item of fallback) {
+      if (ranked.length >= limit) break;
+      if (seen.has(item.Id)) continue;
+      seen.add(item.Id);
+      ranked.push(item);
+    }
+
+    return ranked.slice(0, limit);
+  }
+
+  async function resolveIndexedRecommendationItem(itemId: string) {
+    const loaded = findLoadedItem(itemId) ?? indexedRecommendationCache[itemId];
+    if (loaded) return normalizeResolvedItem(loaded);
+
+    try {
+      const fetched = await client.getItem(itemId);
+      const normalized = addResolvedItem(fetched);
+      indexedRecommendationCache = {
+        ...indexedRecommendationCache,
+        [normalized.Id]: normalized
+      };
+      return normalized;
+    } catch {
+      return null;
+    }
+  }
+
+  function bingeContextFor(item: JellyfinItem, queue: JellyfinItem[]): JellyGptBingeContext | null {
+    const currentChannel = channelName(item).toLowerCase();
+    const currentSeries = item.SeriesId;
+    let streakCount = 1;
+
+    for (const queueItem of ensureQueueStartsWith(queue, item).slice(1, 8)) {
+      if (isSameBingeContext(queueItem, currentChannel, currentSeries)) {
+        streakCount += 1;
+      } else {
+        break;
+      }
+    }
+
+    for (const recentId of recentPlaybackIds.slice(0, 8)) {
+      const recentItem = findLoadedItem(recentId);
+      if (!recentItem) continue;
+      if (isSameBingeContext(recentItem, currentChannel, currentSeries)) {
+        streakCount += 1;
+      } else {
+        break;
+      }
+    }
+
+    if (streakCount < 2) return null;
+    return {
+      channel: channelName(item),
+      series_id: currentSeries,
+      streak_count: streakCount
+    };
+  }
+
+  function isSameBingeContext(item: JellyfinItem, channel: string, seriesId?: string) {
+    if (seriesId && item.SeriesId === seriesId) return true;
+    return channelName(item).toLowerCase() === channel;
   }
 
   function itemIdsKey(items: JellyfinItem[]) {
@@ -1210,41 +1293,47 @@
 
     try {
       const [homeResponse, movieResponse, musicResponse] = await Promise.all([
-        fetchJellyGptRecommendations({
+        fetchIndexedJellyGptRecommendations({
           url: normalizedUrl,
           algorithm: jellyGptSelectedAlgorithm,
           userId: session.userId,
-          candidates: buildJellyGptCandidatePool(videoPool, musicPool),
           activity,
           recentItemIds: recentPlaybackIds,
+          context: 'home',
           limit: 48
         }),
-        fetchJellyGptRecommendations({
+        fetchIndexedJellyGptRecommendations({
           url: normalizedUrl,
           algorithm: jellyGptSelectedAlgorithm,
           userId: session.userId,
-          candidates: moviePool,
           activity,
           recentItemIds: recentPlaybackIds,
+          context: 'movie',
           limit: 36
         }),
-        fetchJellyGptRecommendations({
+        fetchIndexedJellyGptRecommendations({
           url: normalizedUrl,
           algorithm: jellyGptSelectedAlgorithm,
           userId: session.userId,
-          candidates: musicPool,
           activity,
           recentItemIds: recentPlaybackIds,
+          context: 'music',
           limit: 36
         })
       ]);
 
-      recommended = applyJellyGptRanking(homeResponse, buildJellyGptCandidatePool(videoPool, musicPool), recommended, 48);
-      moviePopular = applyJellyGptRanking(movieResponse, moviePool, moviePopular, 36);
-      musicRecommended = applyJellyGptRanking(musicResponse, musicPool, musicRecommended, 36);
+      const [homeItems, movieItems, musicItems] = await Promise.all([
+        resolveIndexedJellyGptRanking(homeResponse, recommended, 48),
+        resolveIndexedJellyGptRanking(movieResponse, moviePopular, 36),
+        resolveIndexedJellyGptRanking(musicResponse, musicRecommended, 36)
+      ]);
+
+      recommended = homeItems;
+      moviePopular = movieItems;
+      musicRecommended = musicItems;
       jellyGptRecommendationStatus = 'active';
       jellyGptLastRecommendationAt = new Date().toISOString();
-      jellyGptRecommendationMessage = `Using jellyGPT ${jellyGptSelectedAlgorithm} recommendations.`;
+      jellyGptRecommendationMessage = `Using indexed jellyGPT ${jellyGptSelectedAlgorithm} recommendations.`;
     } catch (caught) {
       jellyGptRecommendationStatus = 'error';
       jellyGptRecommendationMessage = caught instanceof Error ? caught.message : 'jellyGPT recommendations unavailable; using built-in fallback.';
