@@ -35,6 +35,12 @@
   } from '../lib/episodes';
   import { compareByContentDateDesc, contentDate, contentDateValue, dateValue, relativeDate } from '../lib/dates';
   import {
+    applyJellyGptRanking,
+    buildJellyGptCandidatePool,
+    fetchJellyGptRecommendations,
+    type JellyGptRecommendationStatus
+  } from '../lib/jellygpt';
+  import {
     channelMatches,
     channelName,
     compactMeta,
@@ -128,6 +134,9 @@
   let jellyGptAlgorithms: JellyGptAlgorithm[] = FALLBACK_JELLYGPT_ALGORITHMS;
   let jellyGptSelectedAlgorithm = localStorage.getItem('jellytube.jellygpt.algorithm') ?? 'blended';
   let jellyGptAlgorithmsLoading = false;
+  let jellyGptRecommendationStatus: JellyGptRecommendationStatus = 'idle';
+  let jellyGptRecommendationMessage = 'Built-in recommendations active.';
+  let jellyGptLastRecommendationAt = '';
 
   let recent: JellyfinItem[] = [];
   let resume: JellyfinItem[] = [];
@@ -331,6 +340,7 @@
         mode: 'music',
         recentItemIds: recentPlaybackIds
       }).slice(0, 36);
+      void refreshJellyGptRecommendations();
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
     } finally {
@@ -1085,6 +1095,63 @@
       mode: 'music',
       recentItemIds: recentPlaybackIds
     }).slice(0, 36);
+    void refreshJellyGptRecommendations();
+  }
+
+  async function refreshJellyGptRecommendations() {
+    if (!jellyGptEnabled || jellyGptStatus !== 'connected') {
+      jellyGptRecommendationStatus = 'fallback';
+      jellyGptRecommendationMessage = 'Built-in recommendations active.';
+      return;
+    }
+
+    const normalizedUrl = normalizeJellyGptUrl(jellyGptUrl);
+    if (!normalizedUrl || (!videoPool.length && !musicPool.length && !moviePool.length)) return;
+
+    jellyGptRecommendationStatus = 'loading';
+    jellyGptRecommendationMessage = `Loading ${jellyGptSelectedAlgorithm} recommendations from jellyGPT…`;
+
+    try {
+      const [homeResponse, movieResponse, musicResponse] = await Promise.all([
+        fetchJellyGptRecommendations({
+          url: normalizedUrl,
+          algorithm: jellyGptSelectedAlgorithm,
+          userId: session.userId,
+          candidates: buildJellyGptCandidatePool(videoPool, musicPool),
+          activity,
+          recentItemIds: recentPlaybackIds,
+          limit: 48
+        }),
+        fetchJellyGptRecommendations({
+          url: normalizedUrl,
+          algorithm: jellyGptSelectedAlgorithm,
+          userId: session.userId,
+          candidates: moviePool,
+          activity,
+          recentItemIds: recentPlaybackIds,
+          limit: 36
+        }),
+        fetchJellyGptRecommendations({
+          url: normalizedUrl,
+          algorithm: jellyGptSelectedAlgorithm,
+          userId: session.userId,
+          candidates: musicPool,
+          activity,
+          recentItemIds: recentPlaybackIds,
+          limit: 36
+        })
+      ]);
+
+      recommended = applyJellyGptRanking(homeResponse, buildJellyGptCandidatePool(videoPool, musicPool), recommended, 48);
+      moviePopular = applyJellyGptRanking(movieResponse, moviePool, moviePopular, 36);
+      musicRecommended = applyJellyGptRanking(musicResponse, musicPool, musicRecommended, 36);
+      jellyGptRecommendationStatus = 'active';
+      jellyGptLastRecommendationAt = new Date().toISOString();
+      jellyGptRecommendationMessage = `Using jellyGPT ${jellyGptSelectedAlgorithm} recommendations.`;
+    } catch (caught) {
+      jellyGptRecommendationStatus = 'error';
+      jellyGptRecommendationMessage = caught instanceof Error ? caught.message : 'jellyGPT recommendations unavailable; using built-in fallback.';
+    }
   }
 
   function ensureQueueStartsWith(queue: JellyfinItem[], item: JellyfinItem) {
@@ -1158,6 +1225,8 @@
     jellyGptVersion = '';
     jellyGptStatus = 'unconfigured';
     jellyGptStatusMessage = 'jellyGPT is disconnected. Built-in recommendations stay active.';
+    jellyGptRecommendationStatus = 'fallback';
+    jellyGptRecommendationMessage = 'Built-in recommendations active.';
     localStorage.setItem('jellytube.jellygpt.enabled', 'false');
   }
 
@@ -1186,6 +1255,7 @@
       localStorage.setItem('jellytube.jellygpt.url', normalizedUrl);
       localStorage.setItem('jellytube.jellygpt.enabled', 'true');
       void loadJellyGptAlgorithms();
+      void refreshJellyGptRecommendations();
     } catch (caught) {
       jellyGptStatus = 'error';
       jellyGptVersion = '';
@@ -1226,6 +1296,7 @@
   function selectJellyGptAlgorithm(algorithmId: string) {
     jellyGptSelectedAlgorithm = algorithmId;
     localStorage.setItem('jellytube.jellygpt.algorithm', algorithmId);
+    void refreshJellyGptRecommendations();
   }
 
   function readUrlRoute(): UrlRoute {
@@ -1876,7 +1947,7 @@
         <div class="section-heading recommendation-heading">
           <div>
             <h2>Recommended</h2>
-            <span>{jellyGptEnabled && jellyGptStatus === 'connected' ? 'AI enhanced connection ready' : musicSources.length ? 'Includes music-video matches' : 'Built-in recommendations'}</span>
+            <span>{jellyGptRecommendationStatus === 'active' ? 'Powered by jellyGPT' : jellyGptEnabled && jellyGptStatus === 'connected' ? jellyGptRecommendationMessage : musicSources.length ? 'Includes music-video matches' : 'Built-in recommendations'}</span>
           </div>
           <button
             class:connected={jellyGptEnabled && jellyGptStatus === 'connected'}
@@ -1967,6 +2038,11 @@
         <div class:connected={jellyGptStatus === 'connected'} class:error-state={jellyGptStatus === 'error'} class="jellygpt-status">
           <SlidersHorizontal size={16} />
           <span>{jellyGptStatusMessage}</span>
+        </div>
+
+        <div class:connected={jellyGptRecommendationStatus === 'active'} class:error-state={jellyGptRecommendationStatus === 'error'} class="jellygpt-status">
+          <SlidersHorizontal size={16} />
+          <span>{jellyGptRecommendationMessage}{jellyGptLastRecommendationAt ? ` Last updated ${relativeDate(jellyGptLastRecommendationAt)}.` : ''}</span>
         </div>
 
         <div class="jellygpt-actions">

@@ -31,6 +31,10 @@ import {
   playbackQualityById,
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
+import {
+  applyJellyGptRanking,
+  buildJellyGptCandidatePool
+} from '../src/lib/jellygpt';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
 import type { JellyfinItem } from '../src/lib/types';
@@ -757,4 +761,31 @@ test('show progress starts at the first episode when there is no history', () =>
   assert.equal(progress.kind, 'start');
   assert.equal(progress.primaryItem?.Id, 's01e01');
   assert.equal(progress.label, 'Start S01E01');
+});
+
+
+test('jellyGPT ranking maps sidecar item ids back to local Jellyfin items with fallback fill', () => {
+  const alpha = item({ Id: 'alpha', Name: 'Alpha video', Type: 'Video' });
+  const beta = item({ Id: 'beta', Name: 'Beta video', Type: 'Video' });
+  const gamma = item({ Id: 'gamma', Name: 'Gamma video', Type: 'Video' });
+  const candidates = buildJellyGptCandidatePool([alpha, beta, gamma]);
+
+  const ranked = applyJellyGptRanking(
+    {
+      algo: 'blended',
+      generated_at: '2026-05-08T12:00:00.000Z',
+      cache_age_seconds: 0,
+      warning: null,
+      items: [
+        { item_id: 'beta', score: 42, reason: 'matches watch history' },
+        { item_id: 'missing', score: 99, reason: 'ignored missing item' }
+      ]
+    },
+    candidates,
+    [alpha, gamma],
+    3
+  );
+
+  assert.deepEqual(ranked.map((result) => result.Id), ['beta', 'alpha', 'gamma']);
+  assert.equal(ranked[0].reason, 'matches watch history');
 });
