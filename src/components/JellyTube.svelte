@@ -617,8 +617,17 @@
     await ensureChannelSeries(channel);
   }
 
+  function shuffledItems(items: JellyfinItem[]) {
+    const shuffled = [...items];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    return shuffled;
+  }
+
   function openMix(mix: { name: string; items: JellyfinItem[] }) {
-    const queue = [...mix.items].sort(compareByContentDateDesc);
+    const queue = shuffledItems(mix.items);
     const first = queue[0];
     if (!first) return;
     openItem(first, queue, `${mix.name} Mix`, true);
@@ -927,12 +936,12 @@
     const episodeCollection = episodeCollectionForItem(currentItem, localEpisodePool);
     const normalizedChannel = normalizeSearch(channel);
     if (episodeCollection && normalizeSearch(episodeCollection.seriesName) === normalizedChannel) {
-      return episodeCollection.allItems;
+      return shuffledItems(episodeCollection.allItems);
     }
 
-    const queue = mergeItems(videoPool, musicPool, moviePool, localEpisodePool)
-      .filter((item) => channelMatches(item, channel))
-      .sort(compareByContentDateDesc);
+    const queue = shuffledItems(
+      mergeItems(videoPool, musicPool, moviePool, localEpisodePool).filter((item) => channelMatches(item, channel))
+    );
     return queue.some((item) => item.Id === currentItem.Id) ? queue : [currentItem, ...queue];
   }
 
