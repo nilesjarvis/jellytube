@@ -1255,10 +1255,12 @@ label {
 }
 
 .skeleton-movie-feature,
+.skeleton-show-hero,
 .skeleton-show-up-next,
 .skeleton-mix-card,
 .skeleton-directory-card,
-.skeleton-library-card {
+.skeleton-library-card,
+.skeleton-watch-layout {
   pointer-events: none;
 }
 
@@ -1278,6 +1280,10 @@ label {
 .skeleton-mix-thumb {
   width: 100%;
   aspect-ratio: 16 / 9;
+}
+
+.skeleton-mix-card > .skeleton-mix-thumb {
+  background: color-mix(in srgb, var(--text) 7%, var(--surface-2));
 }
 
 .skeleton-mix-copy {
@@ -1328,6 +1334,77 @@ label {
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
+}
+
+.skeleton-show-artwork {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+}
+
+.skeleton-show-progress {
+  width: min(100%, 520px);
+  height: 54px;
+  border-radius: 8px;
+}
+
+.skeleton-watch-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background-color: #101010;
+}
+
+.skeleton-watch-main {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-watch-title {
+  width: min(100%, 760px);
+  height: 25px;
+  margin-top: 16px;
+}
+
+.skeleton-watch-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  max-width: 620px;
+}
+
+.skeleton-watch-meta-row .skeleton-line {
+  flex: 0 0 auto;
+}
+
+.skeleton-watch-overview {
+  width: min(100%, 840px);
+  height: 76px;
+  border-radius: 8px;
+}
+
+.skeleton-season-control {
+  width: 132px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.skeleton-episode-shelf {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-episode-tile {
+  pointer-events: none;
+}
+
+.skeleton-recommendation-rail {
+  gap: 14px;
+}
+
+.skeleton-compact-list {
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
 
 @keyframes skeleton-shimmer {

@@ -107,6 +107,8 @@
   let error = '';
   let menuOpen = false;
   let route: Route = 'home';
+  let loadingRoute: Route = 'home';
+  let loadingLabel = 'Loading content';
   let query = '';
   let searchedFor = '';
   let selectedItem: JellyfinItem | null = null;
@@ -293,13 +295,16 @@
 
   async function initializeApp() {
     const initialRoute = readUrlRoute();
-    await loadAll();
+    route = routeForUrlRoute(initialRoute);
+    await loadAll(routeForUrlRoute(initialRoute), loadingLabelForUrlRoute(initialRoute));
     if (!error) {
       await navigateTo(initialRoute, { history: 'replace', scroll: false });
     }
   }
 
-  async function loadAll() {
+  async function loadAll(skeletonRoute: Route = loadingRoute, label = loadingLabelForRoute(skeletonRoute)) {
+    loadingRoute = skeletonRoute;
+    loadingLabel = label;
     loading = true;
     error = '';
     try {
@@ -543,6 +548,8 @@
     route = 'search';
     query = trimmed;
     searchedFor = trimmed;
+    loadingRoute = 'search';
+    loadingLabel = `Searching ${trimmed}`;
     loading = true;
     error = '';
     try {
@@ -739,7 +746,7 @@
     seriesEpisodeRequests.clear();
     seriesPool = [];
     saveSession(session);
-    await loadAll();
+    await loadAll('home');
     await navigateTo({ view: 'home' });
   }
 
@@ -884,6 +891,8 @@
     const existing = findLoadedItem(itemId);
     if (existing) return existing;
 
+    loadingRoute = 'watch';
+    loadingLabel = 'Loading video';
     loading = true;
     error = '';
     try {
@@ -1569,6 +1578,28 @@
     return `/watch/${encodeURIComponent(nextRoute.itemId)}${queryString ? `?${queryString}` : ''}`;
   }
 
+  function routeForUrlRoute(nextRoute: UrlRoute): Route {
+    return nextRoute.view;
+  }
+
+  function loadingLabelForUrlRoute(nextRoute: UrlRoute) {
+    if (nextRoute.view === 'search') return nextRoute.query.trim() ? `Searching ${nextRoute.query.trim()}` : 'Loading search';
+    if (nextRoute.view === 'channel') return nextRoute.channel.trim() ? `Loading ${nextRoute.channel.trim()}` : 'Loading channel';
+    if (nextRoute.view === 'watch') return 'Loading video';
+    return loadingLabelForRoute(routeForUrlRoute(nextRoute));
+  }
+
+  function loadingLabelForRoute(nextRoute: Route) {
+    if (nextRoute === 'movies') return 'Loading movies';
+    if (nextRoute === 'music') return 'Loading music videos';
+    if (nextRoute === 'subscriptions') return 'Loading subscriptions';
+    if (nextRoute === 'libraries') return 'Loading libraries';
+    if (nextRoute === 'channel') return 'Loading channel';
+    if (nextRoute === 'search') return 'Loading search';
+    if (nextRoute === 'watch') return 'Loading video';
+    return 'Loading home feed';
+  }
+
   function watchRouteFor(item: JellyfinItem, queueName = ''): UrlRoute {
     const mixName = queueName.endsWith(' Mix') ? queueName.slice(0, -4).trim() : '';
     return {
@@ -1702,10 +1733,10 @@
     {:else if error}
       <div class="empty-state">
         <p>{error}</p>
-        <button class="secondary-action" on:click={loadAll}>Try again</button>
+        <button class="secondary-action" on:click={() => loadAll(loadingRoute, loadingLabel)}>Try again</button>
       </div>
     {:else if loading}
-      <SkeletonRoute {route} label={route === 'search' && searchedFor ? `Searching ${searchedFor}` : 'Loading content'} />
+      <SkeletonRoute route={loadingRoute} label={loadingLabel} />
     {:else if route === 'search'}
       <section class="feed-section">
         <div class="section-heading">
