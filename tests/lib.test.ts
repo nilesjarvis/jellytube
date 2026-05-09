@@ -23,8 +23,13 @@ import {
   shouldStartFromBeginning
 } from '../src/lib/recommendations';
 import {
+  blendCinematicGlowPalette,
   cinematicColorsFromImageData,
+  cinematicColorsFromPalette,
   cinematicGlowStyle,
+  cinematicPaletteFromImageData,
+  cinematicPalettesAreClose,
+  type CinematicGlowPalette,
   shouldSampleCinematicGlow
 } from '../src/lib/cinematicGlow';
 import {
@@ -621,7 +626,9 @@ test('cinematic glow sampling only runs for active visible playback', () => {
     readyState: 3,
     width: 1280,
     height: 720,
-    blocked: false
+    blocked: false,
+    buffering: false,
+    loading: false
   };
 
   assert.equal(shouldSampleCinematicGlow(active), true);
@@ -631,21 +638,28 @@ test('cinematic glow sampling only runs for active visible playback', () => {
   assert.equal(shouldSampleCinematicGlow({ ...active, readyState: 1 }), false);
   assert.equal(shouldSampleCinematicGlow({ ...active, width: 0 }), false);
   assert.equal(shouldSampleCinematicGlow({ ...active, blocked: true }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, buffering: true }), false);
+  assert.equal(shouldSampleCinematicGlow({ ...active, loading: true }), false);
 });
 
-test('cinematic glow derives separate left and right colors from a tiny frame', () => {
-  const width = 4;
-  const height = 2;
+test('cinematic glow derives edge-biased colors from a frame', () => {
+  const width = 8;
+  const height = 4;
   const pixels = new Uint8ClampedArray(width * height * 4);
   for (let index = 0; index < pixels.length; index += 4) {
     const x = (index / 4) % width;
-    pixels[index] = x < 2 ? 220 : 15;
-    pixels[index + 1] = 20;
-    pixels[index + 2] = x < 2 ? 25 : 230;
+    pixels[index] = x < 2 ? 220 : x >= 6 ? 15 : 35;
+    pixels[index + 1] = x >= 2 && x < 6 ? 210 : 20;
+    pixels[index + 2] = x >= 6 ? 230 : 25;
     pixels[index + 3] = 255;
   }
 
-  const colors = cinematicColorsFromImageData(pixels, width, height);
+  const palette = cinematicPaletteFromImageData(pixels, width, height);
+  assert.ok(palette.left.red > palette.left.blue);
+  assert.ok(palette.right.blue > palette.right.red);
+  assert.ok(palette.center.green > palette.center.red);
+
+  const colors = cinematicColorsFromPalette(palette);
   assert.match(colors.left, /^rgba\(/);
   assert.match(colors.right, /^rgba\(/);
   assert.notEqual(colors.left, colors.right);
@@ -656,8 +670,36 @@ test('cinematic glow bounds very dark and bright frames', () => {
   const blackFrame = new Uint8ClampedArray([0, 0, 0, 255, 0, 0, 0, 255]);
   const whiteFrame = new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255]);
 
-  assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(26, 26, 26,/);
-  assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(196, 196, 196,/);
+  assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(18, 18, 18, 0\.07\)/);
+  assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(186, 186, 186, 0\.07\)/);
+});
+
+test('cinematic glow blends large color changes and skips tiny style updates', () => {
+  const previous: CinematicGlowPalette = {
+    left: { red: 20, green: 30, blue: 40, alpha: 0.2 },
+    right: { red: 20, green: 30, blue: 40, alpha: 0.2 },
+    center: { red: 20, green: 30, blue: 40, alpha: 0.1 },
+    floor: { red: 20, green: 30, blue: 40, alpha: 0.2 }
+  };
+  const next: CinematicGlowPalette = {
+    left: { red: 220, green: 30, blue: 40, alpha: 0.34 },
+    right: { red: 20, green: 30, blue: 220, alpha: 0.34 },
+    center: { red: 20, green: 210, blue: 40, alpha: 0.2 },
+    floor: { red: 180, green: 120, blue: 40, alpha: 0.3 }
+  };
+
+  const blended = blendCinematicGlowPalette(previous, next, 0.25);
+  assert.equal(blended.left.red, 70);
+  assert.equal(blended.right.blue, 85);
+  assert.equal(Math.round(blended.floor.alpha * 1000), 225);
+  assert.equal(
+    cinematicPalettesAreClose(previous, {
+      ...previous,
+      left: { ...previous.left, red: previous.left.red + 1.5, alpha: previous.left.alpha + 0.004 }
+    }),
+    true
+  );
+  assert.equal(cinematicPalettesAreClose(previous, blended), false);
 });
 
 test('show progress resumes the latest partially watched episode', () => {

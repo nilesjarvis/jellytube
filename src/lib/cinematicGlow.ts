@@ -5,6 +5,20 @@ export type CinematicGlowColors = {
   floor: string;
 };
 
+export type CinematicGlowColor = {
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+};
+
+export type CinematicGlowPalette = {
+  left: CinematicGlowColor;
+  right: CinematicGlowColor;
+  center: CinematicGlowColor;
+  floor: CinematicGlowColor;
+};
+
 export type CinematicSampleState = {
   enabled: boolean;
   playing: boolean;
@@ -13,17 +27,20 @@ export type CinematicSampleState = {
   width: number;
   height: number;
   blocked: boolean;
+  buffering: boolean;
+  loading: boolean;
 };
 
 const SAMPLE_READY_STATE = 2;
-const MIN_LUMA = 26;
-const MAX_LUMA = 196;
-const SATURATION_BOOST = 1.18;
-const FALLBACK_COLORS: CinematicGlowColors = {
-  left: 'rgba(255, 0, 51, 0.38)',
-  right: 'rgba(41, 121, 255, 0.32)',
-  center: 'rgba(255, 255, 255, 0.16)',
-  floor: 'rgba(0, 0, 0, 0.36)'
+const MIN_LUMA = 18;
+const MAX_LUMA = 186;
+const LOW_SATURATION_CUTOFF = 0.07;
+const SATURATION_BOOST = 1.14;
+const FALLBACK_PALETTE: CinematicGlowPalette = {
+  left: { red: 20, green: 22, blue: 28, alpha: 0.16 },
+  right: { red: 20, green: 22, blue: 28, alpha: 0.16 },
+  center: { red: 34, green: 36, blue: 42, alpha: 0.1 },
+  floor: { red: 4, green: 5, blue: 7, alpha: 0.22 }
 };
 
 type Region = {
@@ -33,11 +50,22 @@ type Region = {
   y1: number;
 };
 
+const PALETTE_KEYS: Array<keyof CinematicGlowPalette> = ['left', 'right', 'center', 'floor'];
+const REGIONS: Record<keyof CinematicGlowPalette, Region> = {
+  left: { x0: 0, y0: 0.06, x1: 0.24, y1: 0.94 },
+  right: { x0: 0.76, y0: 0.06, x1: 1, y1: 0.94 },
+  center: { x0: 0.28, y0: 0.18, x1: 0.72, y1: 0.68 },
+  floor: { x0: 0.12, y0: 0.68, x1: 0.88, y1: 1 }
+};
+
 export const CINEMATIC_SAMPLE_WIDTH = 32;
 export const CINEMATIC_SAMPLE_HEIGHT = 18;
 export const CINEMATIC_SAMPLE_INTERVAL_MS = 1800;
 export const CINEMATIC_FAILURE_LIMIT = 3;
-export const CINEMATIC_FALLBACK_STYLE = cinematicGlowStyle(FALLBACK_COLORS);
+export const CINEMATIC_BLEND_AMOUNT = 0.32;
+export const CINEMATIC_STYLE_EPSILON = 2.5;
+export const CINEMATIC_FALLBACK_COLORS = cinematicColorsFromPalette(FALLBACK_PALETTE);
+export const CINEMATIC_FALLBACK_STYLE = cinematicGlowStyle(CINEMATIC_FALLBACK_COLORS);
 
 export function shouldSampleCinematicGlow(state: CinematicSampleState) {
   return (
@@ -45,10 +73,25 @@ export function shouldSampleCinematicGlow(state: CinematicSampleState) {
     state.playing &&
     state.visible &&
     !state.blocked &&
+    !state.buffering &&
+    !state.loading &&
     state.readyState >= SAMPLE_READY_STATE &&
     state.width > 0 &&
     state.height > 0
   );
+}
+
+export function cinematicPaletteFromImageData(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): CinematicGlowPalette {
+  return {
+    left: regionColor(data, width, height, REGIONS.left),
+    right: regionColor(data, width, height, REGIONS.right),
+    center: scaleAlpha(regionColor(data, width, height, REGIONS.center), 0.68),
+    floor: scaleAlpha(regionColor(data, width, height, REGIONS.floor), 0.82)
+  };
 }
 
 export function cinematicColorsFromImageData(
@@ -56,32 +99,49 @@ export function cinematicColorsFromImageData(
   width: number,
   height: number
 ): CinematicGlowColors {
+  return cinematicColorsFromPalette(cinematicPaletteFromImageData(data, width, height));
+}
+
+export function cinematicColorsFromPalette(palette: CinematicGlowPalette): CinematicGlowColors {
   return {
-    left: regionColor(data, width, height, {
-      x0: 0,
-      y0: 0,
-      x1: Math.ceil(width * 0.5),
-      y1: height
-    }),
-    right: regionColor(data, width, height, {
-      x0: Math.floor(width * 0.5),
-      y0: 0,
-      x1: width,
-      y1: height
-    }),
-    center: regionColor(data, width, height, {
-      x0: Math.floor(width * 0.25),
-      y0: Math.floor(height * 0.18),
-      x1: Math.ceil(width * 0.75),
-      y1: Math.ceil(height * 0.72)
-    }),
-    floor: regionColor(data, width, height, {
-      x0: 0,
-      y0: Math.floor(height * 0.62),
-      x1: width,
-      y1: height
-    })
+    left: formatGlowColor(palette.left),
+    right: formatGlowColor(palette.right),
+    center: formatGlowColor(palette.center),
+    floor: formatGlowColor(palette.floor)
   };
+}
+
+export function blendCinematicGlowPalette(
+  previous: CinematicGlowPalette | null | undefined,
+  next: CinematicGlowPalette,
+  amount = CINEMATIC_BLEND_AMOUNT
+): CinematicGlowPalette {
+  if (!previous) return next;
+  const weight = Math.min(1, Math.max(0, amount));
+  return {
+    left: blendGlowColor(previous.left, next.left, weight),
+    right: blendGlowColor(previous.right, next.right, weight),
+    center: blendGlowColor(previous.center, next.center, weight),
+    floor: blendGlowColor(previous.floor, next.floor, weight)
+  };
+}
+
+export function cinematicPalettesAreClose(
+  current: CinematicGlowPalette | null | undefined,
+  next: CinematicGlowPalette,
+  threshold = CINEMATIC_STYLE_EPSILON
+) {
+  if (!current) return false;
+  return PALETTE_KEYS.every((key) => {
+    const a = current[key];
+    const b = next[key];
+    return (
+      Math.abs(a.red - b.red) <= threshold &&
+      Math.abs(a.green - b.green) <= threshold &&
+      Math.abs(a.blue - b.blue) <= threshold &&
+      Math.abs(a.alpha - b.alpha) * 255 <= threshold
+    );
+  });
 }
 
 export function cinematicGlowStyle(colors: CinematicGlowColors) {
@@ -94,10 +154,12 @@ export function cinematicGlowStyle(colors: CinematicGlowColors) {
 }
 
 function regionColor(data: Uint8ClampedArray, width: number, height: number, region: Region) {
-  const startX = clampIndex(region.x0, width);
-  const endX = clampIndex(region.x1, width);
-  const startY = clampIndex(region.y0, height);
-  const endY = clampIndex(region.y1, height);
+  const startX = clampIndex(Math.floor(region.x0 * width), width);
+  let endX = clampIndex(Math.ceil(region.x1 * width), width);
+  const startY = clampIndex(Math.floor(region.y0 * height), height);
+  let endY = clampIndex(Math.ceil(region.y1 * height), height);
+  if (endX <= startX) endX = Math.min(width, startX + 1);
+  if (endY <= startY) endY = Math.min(height, startY + 1);
   let totalR = 0;
   let totalG = 0;
   let totalB = 0;
@@ -107,24 +169,71 @@ function regionColor(data: Uint8ClampedArray, width: number, height: number, reg
     for (let x = startX; x < endX; x += 1) {
       const offset = (y * width + x) * 4;
       const alpha = data[offset + 3] / 255;
-      totalR += data[offset] * alpha;
-      totalG += data[offset + 1] * alpha;
-      totalB += data[offset + 2] * alpha;
-      count += alpha;
+      if (alpha <= 0) continue;
+      const red = data[offset];
+      const green = data[offset + 1];
+      const blue = data[offset + 2];
+      const weight = pixelWeight(red, green, blue, alpha);
+      totalR += red * weight;
+      totalG += green * weight;
+      totalB += blue * weight;
+      count += weight;
     }
   }
 
-  if (count <= 0) return FALLBACK_COLORS.center;
+  if (count <= 0) return FALLBACK_PALETTE.center;
   return rgbToGlow(totalR / count, totalG / count, totalB / count);
 }
 
 function rgbToGlow(red: number, green: number, blue: number) {
   const { h, s, l } = rgbToHsl(red, green, blue);
-  const boostedSaturation = s < 0.08 ? 0 : Math.min(1, Math.max(0.28, s * SATURATION_BOOST));
+  const boostedSaturation = s < LOW_SATURATION_CUTOFF ? 0 : Math.min(1, Math.max(0.24, s * SATURATION_BOOST));
   const boundedLightness = Math.min(MAX_LUMA / 255, Math.max(MIN_LUMA / 255, l));
   const [r, g, b] = hslToRgb(h, boostedSaturation, boundedLightness);
-  const alpha = 0.28 + Math.min(0.2, boostedSaturation * 0.16);
-  return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha.toFixed(2)})`;
+  const extremeLightnessPenalty = l < 0.08 || l > 0.92 ? 0.04 : 0;
+  const alpha =
+    boostedSaturation === 0
+      ? 0.14 - extremeLightnessPenalty
+      : 0.2 + Math.min(0.18, boostedSaturation * 0.14) - extremeLightnessPenalty;
+  return {
+    red: r,
+    green: g,
+    blue: b,
+    alpha: Math.min(0.38, Math.max(0.1, alpha))
+  };
+}
+
+function pixelWeight(red: number, green: number, blue: number, alpha: number) {
+  const { s, l } = rgbToHsl(red, green, blue);
+  const saturationWeight = 0.2 + Math.min(1, s * 1.4) * 0.8;
+  const middleDistance = Math.min(1, Math.abs(l - 0.52) / 0.52);
+  const midtoneWeight = 0.32 + (1 - middleDistance) * 0.68;
+  const extremeWeight = l < 0.04 || l > 0.96 ? 0.3 : l < 0.08 || l > 0.9 ? 0.55 : 1;
+  return alpha * saturationWeight * midtoneWeight * extremeWeight;
+}
+
+function scaleAlpha(color: CinematicGlowColor, amount: number): CinematicGlowColor {
+  return {
+    ...color,
+    alpha: Math.max(0, Math.min(1, color.alpha * amount))
+  };
+}
+
+function blendGlowColor(previous: CinematicGlowColor, next: CinematicGlowColor, amount: number) {
+  return {
+    red: lerp(previous.red, next.red, amount),
+    green: lerp(previous.green, next.green, amount),
+    blue: lerp(previous.blue, next.blue, amount),
+    alpha: lerp(previous.alpha, next.alpha, amount)
+  };
+}
+
+function lerp(start: number, end: number, amount: number) {
+  return start + (end - start) * amount;
+}
+
+function formatGlowColor(color: CinematicGlowColor) {
+  return `rgba(${Math.round(color.red)}, ${Math.round(color.green)}, ${Math.round(color.blue)}, ${color.alpha.toFixed(2)})`;
 }
 
 function clampIndex(value: number, size: number) {

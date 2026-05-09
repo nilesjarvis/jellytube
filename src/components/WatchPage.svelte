@@ -35,8 +35,12 @@
     CINEMATIC_SAMPLE_HEIGHT,
     CINEMATIC_SAMPLE_INTERVAL_MS,
     CINEMATIC_SAMPLE_WIDTH,
-    cinematicColorsFromImageData,
+    blendCinematicGlowPalette,
+    cinematicColorsFromPalette,
     cinematicGlowStyle,
+    cinematicPaletteFromImageData,
+    cinematicPalettesAreClose,
+    type CinematicGlowPalette,
     shouldSampleCinematicGlow
   } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
@@ -97,6 +101,8 @@
     webkitExitFullscreen?: () => void;
   };
 
+  type CinematicAvailability = 'idle' | 'dynamic' | 'unavailable';
+
   let video: WebKitVideoElement;
   let playerShell: WebKitFullscreenElement;
   let loading = true;
@@ -139,7 +145,12 @@
   let cinematicTimer = 0;
   let cinematicFailures = 0;
   let cinematicBlocked = false;
+  let cinematicAvailability: CinematicAvailability = 'idle';
   let cinematicCanvas: HTMLCanvasElement | null = null;
+  let cinematicContext: CanvasRenderingContext2D | null = null;
+  let cinematicAnimationFrame = 0;
+  let cinematicPalette: CinematicGlowPalette | null = null;
+  let cinematicRenderedPalette: CinematicGlowPalette | null = null;
   let lastCinematicSampleTime = -1;
   let isPlaying = false;
   let isMuted = localStorage.getItem('jellytube.playerMuted') === 'true';
@@ -180,6 +191,21 @@
     episodeSeasons.find((season) => season.season === selectedEpisodeSeason)?.items ??
     episodeSeasons[0]?.items ??
     [];
+  $: cinematicReady = cinematicMode && cinematicAvailability === 'dynamic';
+  $: cinematicControlLabel =
+    cinematicMode && cinematicAvailability === 'unavailable'
+      ? 'Cinematic glow unavailable for this stream'
+      : cinematicMode
+        ? 'Disable cinematic glow'
+        : 'Enable cinematic glow';
+  $: cinematicControlTitle =
+    cinematicMode && cinematicAvailability === 'unavailable'
+      ? 'Cinematic glow unavailable for this stream'
+      : cinematicMode && cinematicAvailability === 'dynamic'
+        ? 'Cinematic glow on'
+        : cinematicMode
+          ? 'Cinematic glow warming up'
+          : 'Cinematic glow off';
 
   onMount(() => {
     video?.setAttribute('webkit-playsinline', 'true');
@@ -753,13 +779,11 @@
   function toggleCinematicMode() {
     cinematicMode = !cinematicMode;
     localStorage.setItem('jellytube.cinematicMode', String(cinematicMode));
-    cinematicFailures = 0;
-    cinematicBlocked = false;
+    resetCinematicGlow();
     if (cinematicMode) {
       scheduleCinematicSample(0);
     } else {
       clearCinematicTimer();
-      cinematicStyle = CINEMATIC_FALLBACK_STYLE;
     }
   }
 
@@ -944,20 +968,30 @@
   }
 
   function resetCinematicGlow() {
+    clearCinematicTimer();
     cinematicStyle = CINEMATIC_FALLBACK_STYLE;
     cinematicFailures = 0;
     cinematicBlocked = false;
+    cinematicAvailability = 'idle';
+    cinematicPalette = null;
+    cinematicRenderedPalette = null;
     lastCinematicSampleTime = -1;
   }
 
   function clearCinematicTimer() {
     window.clearTimeout(cinematicTimer);
     cinematicTimer = 0;
+    if (cinematicAnimationFrame) {
+      window.cancelAnimationFrame(cinematicAnimationFrame);
+      cinematicAnimationFrame = 0;
+    }
   }
 
   function scheduleCinematicSample(delay = CINEMATIC_SAMPLE_INTERVAL_MS) {
     clearCinematicTimer();
-    if (!cinematicMode || cinematicBlocked || error) return;
+    if (!cinematicMode || cinematicBlocked || cinematicAvailability === 'unavailable' || error || loading || buffering) {
+      return;
+    }
     cinematicTimer = window.setTimeout(sampleCinematicGlow, delay);
   }
 
@@ -972,11 +1006,13 @@
       readyState: video.readyState,
       width: video.videoWidth,
       height: video.videoHeight,
-      blocked: cinematicBlocked
+      blocked: cinematicBlocked || cinematicAvailability === 'unavailable',
+      buffering,
+      loading
     };
 
     if (!shouldSampleCinematicGlow(state)) {
-      if (cinematicMode && isPlaying && !cinematicBlocked) scheduleCinematicSample();
+      if (cinematicMode && isPlaying && !cinematicBlocked && !buffering && !loading) scheduleCinematicSample();
       return;
     }
 
@@ -985,26 +1021,56 @@
       return;
     }
 
+    cinematicAnimationFrame = window.requestAnimationFrame(captureCinematicFrame);
+  }
+
+  function captureCinematicFrame() {
+    cinematicAnimationFrame = 0;
+    if (!video || cinematicBlocked || cinematicAvailability === 'unavailable') return;
+
     try {
-      const canvas = cinematicCanvas ?? document.createElement('canvas');
-      cinematicCanvas = canvas;
-      canvas.width = CINEMATIC_SAMPLE_WIDTH;
-      canvas.height = CINEMATIC_SAMPLE_HEIGHT;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
+      const context = getCinematicContext();
       if (!context) throw new Error('Canvas sampling is unavailable.');
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const frame = context.getImageData(0, 0, canvas.width, canvas.height);
-      cinematicStyle = cinematicGlowStyle(
-        cinematicColorsFromImageData(frame.data, canvas.width, canvas.height)
+      context.clearRect(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
+      context.drawImage(video, 0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
+      const frame = context.getImageData(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
+      const nextPalette = blendCinematicGlowPalette(
+        cinematicPalette,
+        cinematicPaletteFromImageData(frame.data, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT)
       );
+      cinematicPalette = nextPalette;
+      if (!cinematicPalettesAreClose(cinematicRenderedPalette, nextPalette)) {
+        cinematicStyle = cinematicGlowStyle(cinematicColorsFromPalette(nextPalette));
+        cinematicRenderedPalette = nextPalette;
+      }
+      cinematicAvailability = 'dynamic';
       lastCinematicSampleTime = video.currentTime;
       cinematicFailures = 0;
     } catch {
-      cinematicFailures += 1;
-      cinematicBlocked = cinematicFailures >= CINEMATIC_FAILURE_LIMIT;
+      handleCinematicSampleFailure();
     }
 
-    if (cinematicMode && isPlaying && !cinematicBlocked) scheduleCinematicSample();
+    if (cinematicMode && isPlaying && !cinematicBlocked && !buffering && !loading) scheduleCinematicSample();
+  }
+
+  function getCinematicContext() {
+    if (!cinematicCanvas) {
+      cinematicCanvas = document.createElement('canvas');
+      cinematicCanvas.width = CINEMATIC_SAMPLE_WIDTH;
+      cinematicCanvas.height = CINEMATIC_SAMPLE_HEIGHT;
+    }
+    cinematicContext ??= cinematicCanvas.getContext('2d', { willReadFrequently: true });
+    return cinematicContext;
+  }
+
+  function handleCinematicSampleFailure() {
+    cinematicFailures += 1;
+    if (cinematicFailures < CINEMATIC_FAILURE_LIMIT) return;
+    cinematicBlocked = true;
+    cinematicAvailability = 'unavailable';
+    cinematicPalette = null;
+    cinematicRenderedPalette = null;
+    cinematicStyle = CINEMATIC_FALLBACK_STYLE;
   }
 
   function ticksToSeconds(ticks?: number) {
@@ -1040,7 +1106,14 @@
     </button>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-    <div class="player-frame" class:cinematic={cinematicMode} class:ultrawide-crop={ultrawideCrop} style={cinematicStyle}>
+    <div
+      class="player-frame"
+      class:cinematic={cinematicMode}
+      class:cinematic-ready={cinematicReady}
+      class:cinematic-unavailable={cinematicAvailability === 'unavailable'}
+      class:ultrawide-crop={ultrawideCrop}
+      style={cinematicStyle}
+    >
       <div class="cinematic-glow" aria-hidden="true"></div>
 
       <div
@@ -1070,13 +1143,18 @@
           on:canplay={() => {
             loading = false;
             buffering = false;
+            if (cinematicMode) scheduleCinematicSample(120);
           }}
           on:playing={() => {
             loading = false;
             buffering = false;
+            if (cinematicMode) scheduleCinematicSample(120);
           }}
           on:waiting={() => {
-            if (!video.paused) buffering = true;
+            if (!video.paused) {
+              buffering = true;
+              clearCinematicTimer();
+            }
           }}
           on:timeupdate={syncPlaybackState}
           on:progress={syncBuffered}
@@ -1185,8 +1263,9 @@
               <button
                 class="player-control cinematic-control"
                 class:active={cinematicMode}
-                aria-label={cinematicMode ? 'Disable cinematic glow' : 'Enable cinematic glow'}
-                title={cinematicMode ? 'Cinematic glow on' : 'Cinematic glow off'}
+                class:unavailable={cinematicAvailability === 'unavailable'}
+                aria-label={cinematicControlLabel}
+                title={cinematicControlTitle}
                 on:click={toggleCinematicMode}
               >
                 <Sparkles size={21} />
