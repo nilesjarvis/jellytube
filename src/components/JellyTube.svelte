@@ -157,6 +157,7 @@
   let musicPool: JellyfinItem[] = [];
   let seriesPool: JellyfinItem[] = [];
   let seriesEpisodeCache: Record<string, JellyfinItem[]> = {};
+  const seriesEpisodeRequests = new Map<string, Promise<JellyfinItem[]>>();
   let channelLoading = false;
   let activity: PlaybackActivity[] = [];
   let recentPlaybackIds: string[] = [];
@@ -303,46 +304,43 @@
     error = '';
     try {
       const [
-        videoRecentByRelease,
-        videoRecentByAdded,
-        videoResume,
         videoFullByRelease,
         videoFullByAdded,
+        videoResume,
         videoSeries,
-        movieRecent,
-        movieResumeItems,
         movieFull,
+        movieResumeItems,
         musicRecentByRelease,
-        musicRecentByAdded,
-        musicFull,
+        musicFullByAdded,
         activityResponse
       ] =
         await Promise.all([
-          fetchSources(videoSources, { limit: 80, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-          fetchSources(videoSources, { limit: 80, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-          fetchSources(videoSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
           fetchSources(videoSources, { limit: 320, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
           fetchSources(videoSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+          fetchSources(videoSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
           fetchSeriesSources(videoSources),
-          fetchSources(movieSources, { limit: 80, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-          fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
           fetchSources(movieSources, { limit: 220, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+          fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
           fetchSources(musicSources, { limit: 100, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-          fetchSources(musicSources, { limit: 100, sortBy: 'DateCreated', sortOrder: 'Descending' }),
           fetchSources(musicSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
           client.getPlaybackActivity(365).catch(() => [])
         ]);
+
+      const videoRecentByRelease = videoFullByRelease.slice(0, 80);
+      const videoRecentByAdded = videoFullByAdded.slice(0, 80);
+      const movieRecent = movieFull.slice(0, 80);
+      const musicRecentByAdded = musicFullByAdded.slice(0, 100);
 
       activity = activityResponse;
       seriesPool = videoSeries;
       videoPool = mergeItems(videoRecentByRelease, videoRecentByAdded, videoResume, videoFullByRelease, videoFullByAdded);
       moviePool = mergeItems(movieRecent, movieResumeItems, movieFull);
-      musicPool = mergeItems(musicRecentByRelease, musicRecentByAdded, musicFull);
+      musicPool = mergeItems(musicRecentByRelease, musicRecentByAdded, musicFullByAdded);
       libraryPool = mergeItems(videoPool, moviePool, musicPool);
 
       recent = mergeItems(videoRecentByRelease, videoRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
       if (!recent.length) recent = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
-      latestAdded = mergeItems(videoFullByAdded, movieFull, musicFull)
+      latestAdded = mergeItems(videoFullByAdded, movieFull, musicFullByAdded)
         .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
         .slice(0, 48);
       resume = continueWatching(mergeItems(videoResume, videoPool, musicPool)).slice(0, 24);
@@ -738,6 +736,7 @@
     }
     session = { ...session, selectedLibraries };
     seriesEpisodeCache = {};
+    seriesEpisodeRequests.clear();
     seriesPool = [];
     saveSession(session);
     await loadAll();
@@ -749,13 +748,7 @@
     if (!info || !item.SeriesId || seriesEpisodeCache[info.seriesKey]) return;
 
     try {
-      const response = await client.getSeriesEpisodes(item.SeriesId);
-      const episodes = normalizeSeriesEpisodes(response.Items ?? [], item);
-      if (!episodes.length) return;
-      seriesEpisodeCache = {
-        ...seriesEpisodeCache,
-        [info.seriesKey]: mergeItems(seriesEpisodeCache[info.seriesKey] ?? [], episodes)
-      };
+      await fetchSeriesEpisodesById(item.SeriesId, sourceForItem(item), item);
     } catch {
       // The initial library pool still gives a usable queue if Jellyfin cannot return the full series.
     }
@@ -817,14 +810,48 @@
   }
 
   async function fetchSeriesEpisodes(series: JellyfinItem, source: SelectedLibrary | undefined) {
-    const response = await client.getSeriesEpisodes(series.Id);
-    const episodes = (response.Items ?? []).map((episode) => ({
+    return fetchSeriesEpisodesById(series.Id, source);
+  }
+
+  async function fetchSeriesEpisodesById(
+    seriesId: string,
+    source: SelectedLibrary | undefined,
+    currentItem?: JellyfinItem
+  ) {
+    if (seriesEpisodeCache[seriesId]) return seriesEpisodeCache[seriesId];
+
+    const pending = seriesEpisodeRequests.get(seriesId);
+    if (pending) return pending;
+
+    let request: Promise<JellyfinItem[]>;
+    request = client
+      .getSeriesEpisodes(seriesId)
+      .then((response) => {
+        const episodes = currentItem
+          ? normalizeSeriesEpisodes(response.Items ?? [], currentItem)
+          : annotateSeriesEpisodes(response.Items ?? [], source);
+        cacheSeriesEpisodes(episodes);
+        return episodes;
+      })
+      .finally(() => {
+        if (seriesEpisodeRequests.get(seriesId) === request) seriesEpisodeRequests.delete(seriesId);
+      });
+
+    seriesEpisodeRequests.set(seriesId, request);
+    return request;
+  }
+
+  function annotateSeriesEpisodes(episodes: JellyfinItem[], source: SelectedLibrary | undefined) {
+    return episodes.map((episode) => ({
       ...episode,
       sourceLibraryId: source?.id,
       sourceLibraryName: source?.name,
       sourceCollectionType: source?.collectionType,
       contentKind: source?.contentKind ?? 'video'
     }));
+  }
+
+  function cacheSeriesEpisodes(episodes: JellyfinItem[]) {
     const firstInfo = episodes.map(episodeInfo).find((info) => info !== null);
     if (firstInfo) {
       seriesEpisodeCache = {
@@ -832,7 +859,6 @@
         [firstInfo.seriesKey]: mergeItems(seriesEpisodeCache[firstInfo.seriesKey] ?? [], episodes)
       };
     }
-    return episodes;
   }
 
   function normalizeSeriesEpisodes(episodes: JellyfinItem[], currentItem: JellyfinItem) {
