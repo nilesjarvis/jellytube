@@ -102,10 +102,16 @@ The smoke script requires a browser exposing a WebDriver BiDi endpoint on `BIDI_
 
 ## Quick Setup On A Server
 
-From the JellyTube directory, run:
+From the JellyTube directory on Linux, macOS, or WSL, run:
 
 ```bash
 ./scripts/quick-setup.sh
+```
+
+From the JellyTube directory on Windows, run:
+
+```powershell
+npm run setup:windows
 ```
 
 The setup script installs dependencies, builds the production frontend, and starts JellyTube detached from the terminal.
@@ -124,10 +130,24 @@ Use a different port or host by setting environment variables:
 JELLYTUBE_PORT=8088 JELLYTUBE_HOST=127.0.0.1 ./scripts/quick-setup.sh
 ```
 
+On Windows:
+
+```powershell
+$env:JELLYTUBE_PORT = "8088"
+$env:JELLYTUBE_HOST = "127.0.0.1"
+npm run setup:windows
+```
+
 Stop the detached server with:
 
 ```bash
 ./scripts/stop.sh
+```
+
+On Windows:
+
+```powershell
+npm run stop:windows
 ```
 
 ## Production Commands
