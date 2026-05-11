@@ -14,6 +14,7 @@
     Search,
     Server,
     SlidersHorizontal,
+    Star,
     Sun,
     UserCircle
   } from 'lucide-svelte';
@@ -99,6 +100,7 @@
     { id: 'llm_rerank', name: 'AI Rerank', available: false, reason: 'Requires Ollama reranking in jellyGPT.' }
   ];
   const WATCH_RECOMMENDATION_LIMIT = 28;
+  const FAVORITE_MUSIC_MIXES_KEY = `jellytube.favoriteMusicMixes.${session.serverUrl}.${session.userId}`;
 
   const dispatch = createEventDispatcher<{ logout: void }>();
   const client = new JellyfinClient(session.serverUrl, session.accessToken, session.userId);
@@ -167,6 +169,7 @@
   let watchRecommendationContextKey = '';
   let watchRecommendationRequestId = 0;
   let indexedRecommendationCache: Record<string, JellyfinItem> = {};
+  let favoriteMixNames = loadFavoriteMixNames();
 
   function displayChannelSeasons(seasons: EpisodeSeason[]) {
     if (seasons.length < 10) return seasons;
@@ -216,7 +219,11 @@
     0;
   $: channelSeasonItems =
     channelDisplaySeasons.find((season) => season.season === activeChannelSeason)?.items ?? [];
-  $: musicMixes = groupByChannel(musicPool).filter((mix) => mix.items.length > 1).slice(0, 8);
+  $: musicMixes = groupByChannel(musicPool).filter((mix) => mix.items.length > 1);
+  $: favoriteMusicMixes = favoriteMixNames.flatMap((name) => {
+    const mix = musicMixes.find((candidate) => candidate.name === name);
+    return mix ? [mix] : [];
+  });
   $: episodePool = mergeItems(videoPool, ...Object.values(seriesEpisodeCache));
   $: searchPool = mergeItems(libraryPool, ...Object.values(seriesEpisodeCache));
   $: channelDirectoryPool = searchPool.filter((item) => item.contentKind !== 'movie' && item.Type !== 'Movie');
@@ -327,7 +334,7 @@
           fetchSources(movieSources, { limit: 220, sortBy: 'DateCreated', sortOrder: 'Descending' }),
           fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
           fetchSources(musicSources, { limit: 100, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-          fetchSources(musicSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+          fetchCompleteSources(musicSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
           client.getPlaybackActivity(365).catch(() => [])
         ]);
 
@@ -401,12 +408,54 @@
           .catch(() => []);
       })
     );
-    return mergeItems(...responses).sort((a, b) => {
-      if (queryOptions.sortBy === 'SortName') return a.Name.localeCompare(b.Name);
-      if (queryOptions.sortBy === 'DatePlayed') {
+    return sortItemsByQuery(mergeItems(...responses), queryOptions.sortBy);
+  }
+
+  async function fetchCompleteSources(
+    sources: SelectedLibrary[],
+    queryOptions: {
+      pageSize: number;
+      sortBy: string;
+      sortOrder: 'Ascending' | 'Descending';
+      itemTypes?: string;
+      filters?: string;
+      searchTerm?: string;
+    }
+  ) {
+    const responses = await Promise.all(
+      sources.map(async (source) => {
+        const items: JellyfinItem[] = [];
+        const { itemTypes, pageSize, ...itemQueryOptions } = queryOptions;
+        for (let startIndex = 0; ; startIndex += pageSize) {
+          try {
+            const response = await client.getItems({
+              parentId: source.id,
+              ...itemQueryOptions,
+              itemTypes: itemTypes ?? source.itemTypes,
+              limit: pageSize,
+              startIndex
+            });
+            const pageItems = response.Items ?? [];
+            items.push(...annotateItems(pageItems, source));
+            const total = response.TotalRecordCount ?? items.length;
+            if (items.length >= total || pageItems.length === 0) break;
+          } catch {
+            break;
+          }
+        }
+        return items;
+      })
+    );
+    return sortItemsByQuery(mergeItems(...responses), queryOptions.sortBy);
+  }
+
+  function sortItemsByQuery(items: JellyfinItem[], sortBy: string) {
+    return [...items].sort((a, b) => {
+      if (sortBy === 'SortName') return a.Name.localeCompare(b.Name);
+      if (sortBy === 'DatePlayed') {
         return dateValue(b.UserData?.LastPlayedDate) - dateValue(a.UserData?.LastPlayedDate);
       }
-      if (queryOptions.sortBy === 'DateCreated') {
+      if (sortBy === 'DateCreated') {
         return dateValue(b.DateCreated) - dateValue(a.DateCreated);
       }
       return contentDateValue(b) - contentDateValue(a);
@@ -636,6 +685,30 @@
     const first = queue[0];
     if (!first) return;
     openItem(first, queue, `${mix.name} Mix`, true);
+  }
+
+  function loadFavoriteMixNames() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FAVORITE_MUSIC_MIXES_KEY) ?? '[]');
+      return Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function persistFavoriteMixNames() {
+    localStorage.setItem(FAVORITE_MUSIC_MIXES_KEY, JSON.stringify(favoriteMixNames));
+  }
+
+  function isFavoriteMix(name: string) {
+    return favoriteMixNames.includes(name);
+  }
+
+  function toggleFavoriteMix(name: string) {
+    favoriteMixNames = isFavoriteMix(name)
+      ? favoriteMixNames.filter((favoriteName) => favoriteName !== name)
+      : [...favoriteMixNames, name];
+    persistFavoriteMixNames();
   }
 
   function playChannelMix() {
@@ -1824,6 +1897,39 @@
         </div>
       </section>
     {:else if route === 'music'}
+      {#if favoriteMusicMixes.length}
+        <section class="feed-section favorite-mixes-section">
+          <div class="section-heading">
+            <h2>Favorite mixes</h2>
+            <span>{favoriteMusicMixes.length} saved for quick access</span>
+          </div>
+          <div class="mix-grid">
+            {#each favoriteMusicMixes as mix (mix.name)}
+              <div class="mix-card-wrap">
+                <button class="mix-card" on:click={() => openMix(mix)}>
+                  {#if client.getImageUrl(mix.items[0], 320)}
+                    <img src={client.getImageUrl(mix.items[0], 320)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{mix.name.slice(0, 1)}</span>
+                  {/if}
+                  <strong>{mix.name} Mix</strong>
+                  <small>{mix.items.length} videos</small>
+                </button>
+                <button
+                  class:active={isFavoriteMix(mix.name)}
+                  class="mix-favorite-toggle"
+                  aria-label={`Remove ${mix.name} Mix from favorites`}
+                  title="Remove from favorites"
+                  on:click={() => toggleFavoriteMix(mix.name)}
+                >
+                  <Star size={18} fill="currentColor" />
+                </button>
+              </div>
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       <section class="feed-section hero-section">
         <div class="section-heading">
           <h2>Music Videos</h2>
@@ -1831,16 +1937,27 @@
         </div>
         {#if musicMixes.length}
           <div class="mix-grid">
-            {#each musicMixes.slice(0, 8) as mix (mix.name)}
-              <button class="mix-card" on:click={() => openMix(mix)}>
-                {#if client.getImageUrl(mix.items[0], 320)}
-                  <img src={client.getImageUrl(mix.items[0], 320)} alt="" loading="lazy" />
-                {:else}
-                  <span>{mix.name.slice(0, 1)}</span>
-                {/if}
-                <strong>{mix.name} Mix</strong>
-                <small>{mix.items.length} videos</small>
-              </button>
+            {#each musicMixes as mix (mix.name)}
+              <div class="mix-card-wrap">
+                <button class="mix-card" on:click={() => openMix(mix)}>
+                  {#if client.getImageUrl(mix.items[0], 320)}
+                    <img src={client.getImageUrl(mix.items[0], 320)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{mix.name.slice(0, 1)}</span>
+                  {/if}
+                  <strong>{mix.name} Mix</strong>
+                  <small>{mix.items.length} videos</small>
+                </button>
+                <button
+                  class:active={isFavoriteMix(mix.name)}
+                  class="mix-favorite-toggle"
+                  aria-label={`${isFavoriteMix(mix.name) ? 'Remove' : 'Add'} ${mix.name} Mix ${isFavoriteMix(mix.name) ? 'from' : 'to'} favorites`}
+                  title={isFavoriteMix(mix.name) ? 'Remove from favorites' : 'Add to favorites'}
+                  on:click={() => toggleFavoriteMix(mix.name)}
+                >
+                  <Star size={18} fill={isFavoriteMix(mix.name) ? 'currentColor' : 'none'} />
+                </button>
+              </div>
             {/each}
           </div>
         {/if}

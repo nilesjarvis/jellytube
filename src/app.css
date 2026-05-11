@@ -784,7 +784,13 @@ label {
   gap: 14px;
 }
 
+.mix-card-wrap {
+  position: relative;
+  min-width: 0;
+}
+
 .mix-card {
+  width: 100%;
   min-height: 198px;
   display: grid;
   align-content: start;
@@ -829,6 +835,44 @@ label {
 
 .mix-card small {
   color: var(--muted);
+}
+
+.mix-favorite-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.62);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+  z-index: 2;
+}
+
+.mix-card-wrap:hover .mix-favorite-toggle,
+.mix-favorite-toggle:focus-visible,
+.mix-favorite-toggle.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.mix-favorite-toggle:hover,
+.mix-favorite-toggle.active {
+  color: #facc15;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.favorite-mixes-section {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.08), transparent 42%), var(--surface);
 }
 
 .video-card {
