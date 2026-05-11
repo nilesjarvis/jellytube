@@ -10,6 +10,7 @@
     Pause,
     Play,
     Ratio,
+    Repeat,
     RotateCcw,
     RectangleHorizontal,
     Settings,
@@ -135,6 +136,7 @@
   let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
+  let loopMusicVideo = localStorage.getItem('jellytube.loopMusicVideo') === 'true';
 
   function toggleTheaterMode() {
     theaterMode = !theaterMode;
@@ -182,6 +184,7 @@
     recommendationAutoplayItem && !hasEpisodeShelf && queue.length <= 1
   );
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
+  $: isMusicVideo = detailedItem.Type === 'MusicVideo' || detailedItem.contentKind === 'musicVideo';
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
   $: title = displayTitle(detailedItem, {
     context: detailedItem.Type === 'Episode' ? 'series' : isMovie ? 'feed' : 'channel',
@@ -255,7 +258,13 @@
     await tick();
 
     try {
-      detailedItem = await client.getItem(item.Id);
+      detailedItem = {
+        ...(await client.getItem(item.Id)),
+        sourceLibraryId: item.sourceLibraryId,
+        sourceLibraryName: item.sourceLibraryName,
+        sourceCollectionType: item.sourceCollectionType,
+        contentKind: item.contentKind
+      };
       const startTicks = shouldStartFromBeginning(detailedItem)
         ? 0
         : detailedItem.UserData?.PlaybackPositionTicks ?? 0;
@@ -634,6 +643,11 @@
     clearCinematicTimer();
     dispatch('finished', detailedItem);
     void finishReporting();
+    if (isMusicVideo && loopMusicVideo) {
+      video.currentTime = 0;
+      void requestPlay();
+      return;
+    }
     if (!autoplayNext) return;
     if (hasNextQueued) {
       dispatch('next');
@@ -722,6 +736,11 @@
   function toggleAutoplayNext() {
     autoplayNext = !autoplayNext;
     localStorage.setItem('jellytube.autoplayNext', String(autoplayNext));
+  }
+
+  function toggleLoopMusicVideo() {
+    loopMusicVideo = !loopMusicVideo;
+    localStorage.setItem('jellytube.loopMusicVideo', String(loopMusicVideo));
   }
 
   function toggleQualityMenu(event: MouseEvent) {
@@ -1249,6 +1268,18 @@
 
               <span class="player-time">{formatClock(currentTime)} / {formatClock(durationSeconds)}</span>
               <span class="player-source-pill" title={activeAttempt?.detail}>{sourceLabel}</span>
+
+              {#if isMusicVideo}
+                <button
+                  class="player-control loop-control"
+                  class:active={loopMusicVideo}
+                  aria-label={loopMusicVideo ? 'Disable loop' : 'Loop this music video'}
+                  title={loopMusicVideo ? 'Loop on' : 'Loop off'}
+                  on:click={toggleLoopMusicVideo}
+                >
+                  <Repeat size={21} />
+                </button>
+              {/if}
 
               <button
                 class="player-control ultrawide-control"
