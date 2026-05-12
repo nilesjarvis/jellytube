@@ -161,7 +161,9 @@
   let duration = 0;
   let bufferedPercent = 0;
   let fullscreen = false;
-  let scrolledEpisodeId = '';
+  let episodeStrip: HTMLDivElement | null = null;
+  let scrolledEpisodeKey = '';
+  let episodeScrollFrame = 0;
 
   $: currentEpisodeCode = episodeCode(detailedItem);
   $: progress = playbackProgress(detailedItem);
@@ -229,19 +231,49 @@
 
   onDestroy(() => {
     clearCinematicTimer();
+    if (episodeScrollFrame) window.cancelAnimationFrame(episodeScrollFrame);
     void stopPlayback();
   });
 
   afterUpdate(() => {
-    if (!hasEpisodeShelf || scrolledEpisodeId === item.Id) return;
-    scrolledEpisodeId = item.Id;
-    window.setTimeout(() => {
-      playerShell
-        ?.closest('.watch-main')
-        ?.querySelector('.episode-tile.active')
-        ?.scrollIntoView({ block: 'nearest', inline: 'center' });
-    }, 0);
+    const episodeKey = `${item.Id}:${selectedEpisodeSeason}:${selectedEpisodeItems.length}`;
+    if (!hasEpisodeShelf || scrolledEpisodeKey === episodeKey) return;
+    void scrollActiveEpisodeIntoView(episodeKey);
   });
+
+  async function scrollActiveEpisodeIntoView(episodeKey: string) {
+    await tick();
+    if (episodeScrollFrame) window.cancelAnimationFrame(episodeScrollFrame);
+    episodeScrollFrame = window.requestAnimationFrame(() => {
+      episodeScrollFrame = 0;
+      if (!episodeStrip) return;
+      const activeTile = episodeStrip.querySelector<HTMLElement>('.episode-tile.active');
+      if (!activeTile) return;
+      const maxScroll = Math.max(0, episodeStrip.scrollWidth - episodeStrip.clientWidth);
+      const centeredLeft = activeTile.offsetLeft - (episodeStrip.clientWidth - activeTile.offsetWidth) / 2;
+      episodeStrip.scrollTo({
+        left: Math.max(0, Math.min(maxScroll, centeredLeft)),
+        behavior: 'auto'
+      });
+      scrolledEpisodeKey = episodeKey;
+    });
+  }
+
+  function handleEpisodeStripWheel(event: WheelEvent) {
+    const strip = event.currentTarget as HTMLDivElement | null;
+    if (!strip) return;
+    const maxScroll = strip.scrollWidth - strip.clientWidth;
+    if (maxScroll <= 0) return;
+
+    const deltaScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? strip.clientWidth : 1;
+    const delta = (event.deltaX || event.deltaY) * deltaScale;
+    if (!delta) return;
+
+    const nextLeft = Math.max(0, Math.min(maxScroll, strip.scrollLeft + delta));
+    if (nextLeft === strip.scrollLeft) return;
+    event.preventDefault();
+    strip.scrollLeft = nextLeft;
+  }
 
   async function loadPlayback(autoPlay = false) {
     loading = true;
@@ -1404,7 +1436,7 @@
           </div>
         </div>
 
-        <div class="episode-strip">
+        <div class="episode-strip" bind:this={episodeStrip} on:wheel|nonpassive={handleEpisodeStripWheel}>
           {#each selectedEpisodeItems as episode (episode.Id)}
             <button
               class:active={episode.Id === item.Id}
