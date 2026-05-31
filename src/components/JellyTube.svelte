@@ -33,6 +33,10 @@
     libraryToSelectedSource
   } from '../lib/jellyfin';
   import {
+    createSearchSuggestionScheduler,
+    suggestionNameLabel
+  } from '../lib/searchSuggestions';
+  import {
     episodeCode,
     episodeCollectionForItem,
     episodeInfo,
@@ -100,8 +104,7 @@
   let searchedFor = '';
   let searchSuggestions: SearchSuggestion[] = [];
   let searchSuggestionIndex = -1;
-  let searchSuggestionAbort: AbortController | null = null;
-  let searchSuggestionTimer: ReturnType<typeof setTimeout> | undefined;
+  const searchSuggestionScheduler = createSearchSuggestionScheduler<SearchSuggestion>();
   let selectedItem: JellyfinItem | null = null;
   let selectedQueue: JellyfinItem[] = [];
   let selectedQueueName = '';
@@ -555,72 +558,48 @@
   }
 
   function clearSearchSuggestions() {
+    searchSuggestionScheduler.cancel();
     searchSuggestions = [];
     searchSuggestionIndex = -1;
-    if (searchSuggestionAbort) {
-      searchSuggestionAbort.abort();
-      searchSuggestionAbort = null;
-    }
   }
 
-  $: {
-    void (async () => {
-      const trimmed = query.trim();
-      if (trimmed.length < 2 || route !== 'home' && route !== 'search') {
-        clearSearchSuggestions();
-        return;
+  function updateSearchSuggestions(
+    currentQuery: string,
+    currentRoute: string,
+    selectedLibraries: typeof session.selectedLibraries
+  ) {
+    searchSuggestionScheduler.schedule({
+      query: currentQuery,
+      route: currentRoute,
+      request: (trimmed, signal) => client.getSearchSuggestions(
+        selectedLibraries.map((lib) => ({
+          id: lib.id,
+          itemTypes: lib.itemTypes,
+          name: lib.name,
+          contentKind: lib.contentKind
+        })),
+        trimmed,
+        8,
+        signal
+      ),
+      onResults: (suggestions) => {
+        searchSuggestions = suggestions;
+        searchSuggestionIndex = -1;
+      },
+      onClear: () => {
+        searchSuggestions = [];
+        searchSuggestionIndex = -1;
       }
-      clearTimeout(searchSuggestionTimer);
-      searchSuggestionTimer = setTimeout(async () => {
-        if (searchSuggestionAbort) searchSuggestionAbort.abort();
-        const controller = new AbortController();
-        searchSuggestionAbort = controller;
-        try {
-          const suggestions = await client.getSearchSuggestions(
-            session.selectedLibraries.map((lib) => ({
-              id: lib.id,
-              itemTypes: lib.itemTypes,
-              name: lib.name,
-              contentKind: lib.contentKind
-            })),
-            trimmed
-          );
-          if (!controller.signal.aborted) {
-            searchSuggestions = suggestions;
-            searchSuggestionIndex = -1;
-          }
-        } catch {
-          if (!controller.signal.aborted) {
-            searchSuggestions = [];
-            searchSuggestionIndex = -1;
-          }
-        }
-      }, 180);
-    })();
+    });
   }
+
+  $: updateSearchSuggestions(query, route, session.selectedLibraries);
 
   function selectSuggestion(suggestion: SearchSuggestion) {
     query = suggestionNameLabel(suggestion);
     searchSuggestions = [];
     searchSuggestionIndex = -1;
     void submitSearch();
-  }
-
-  function suggestionNameLabel(suggestion: SearchSuggestion) {
-    const parts: string[] = [];
-    if (suggestion.seriesName && suggestion.type === 'Episode') {
-      parts.push(suggestion.seriesName);
-    }
-    parts.push(suggestion.name);
-    return parts.join(' — ');
-  }
-
-  function suggestionIcon(type: string) {
-    if (type === 'Movie') return 'clapperboard';
-    if (type === 'MusicVideo') return 'music';
-    if (type === 'Series') return 'tv';
-    if (type === 'Episode') return 'tv';
-    return 'video';
   }
 
   function navigateSearchSuggestions(event: KeyboardEvent) {
@@ -639,6 +618,9 @@
       } else {
         searchSuggestionIndex = searchSuggestions.length - 1;
       }
+    } else if (event.key === 'Enter' && searchSuggestionIndex >= 0) {
+      event.preventDefault();
+      selectSuggestion(searchSuggestions[searchSuggestionIndex]);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       clearSearchSuggestions();

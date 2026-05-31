@@ -43,6 +43,11 @@ import {
   episodePlayingNextItem,
   shouldShowPlayingNext
 } from '../src/lib/playingNext';
+import {
+  createSearchSuggestionScheduler,
+  shouldFetchSearchSuggestions,
+  suggestionNameLabel
+} from '../src/lib/searchSuggestions';
 import type { JellyfinItem } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
@@ -874,4 +879,64 @@ test('playing next stays hidden without autoplay, without a next episode, or aft
   assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: current, autoplayNext: false }), false);
   assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: null, autoplayNext: true }), false);
   assert.equal(shouldShowPlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
+});
+
+test('search suggestions only fetch for supported routes and useful queries', () => {
+  assert.equal(shouldFetchSearchSuggestions('a', 'home'), false);
+  assert.equal(shouldFetchSearchSuggestions('matrix', 'watch'), false);
+  assert.equal(shouldFetchSearchSuggestions('matrix', 'home'), true);
+  assert.equal(shouldFetchSearchSuggestions('matrix', 'search'), true);
+});
+
+test('search suggestion labels include series context for episodes only', () => {
+  assert.equal(suggestionNameLabel({ id: 'e1', name: 'Pilot', type: 'Episode', seriesName: 'The Show', parentId: 'p1' }), 'The Show — Pilot');
+  assert.equal(suggestionNameLabel({ id: 'm1', name: 'Pilot', type: 'Movie', seriesName: 'The Show', parentId: 'p1' }), 'Pilot');
+});
+
+test('search suggestion scheduler debounces stale queries and clears unsupported routes', async () => {
+  const scheduler = createSearchSuggestionScheduler<string>();
+  const requests: { query: string; aborted: boolean }[] = [];
+  const results: string[][] = [];
+  const clears: number[] = [];
+
+  scheduler.schedule({
+    query: 'ma',
+    route: 'home',
+    delayMs: 20,
+    request: async (query, signal) => {
+      requests.push({ query, aborted: signal.aborted });
+      return [query];
+    },
+    onResults: (items) => results.push(items),
+    onClear: () => clears.push(1)
+  });
+
+  scheduler.schedule({
+    query: 'matrix',
+    route: 'home',
+    delayMs: 0,
+    request: async (query, signal) => {
+      requests.push({ query, aborted: signal.aborted });
+      return [query];
+    },
+    onResults: (items) => results.push(items),
+    onClear: () => clears.push(1)
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.deepEqual(requests, [{ query: 'matrix', aborted: false }]);
+  assert.deepEqual(results, [['matrix']]);
+  assert.deepEqual(clears, []);
+
+  scheduler.schedule({
+    query: 'matrix',
+    route: 'watch',
+    delayMs: 0,
+    request: async () => ['never'],
+    onResults: (items) => results.push(items),
+    onClear: () => clears.push(1)
+  });
+
+  assert.deepEqual(clears, [1]);
 });

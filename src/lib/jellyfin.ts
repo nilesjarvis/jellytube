@@ -221,7 +221,8 @@ export class JellyfinClient {
   async getSearchSuggestions(
     sources: { id: string; itemTypes: string; name?: string; contentKind?: string }[],
     searchTerm: string,
-    limit = 8
+    limit = 8,
+    signal?: AbortSignal
   ): Promise<SearchSuggestion[]> {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     if (!searchTerm || searchTerm.length < 2) return [];
@@ -243,7 +244,7 @@ export class JellyfinClient {
           SortOrder: 'Ascending',
           Limit: String(limit),
           SearchTerm: searchTerm
-        })
+        }, true, signal)
       )
     );
 
@@ -412,18 +413,20 @@ export class JellyfinClient {
   private async get<T>(
     path: string,
     params?: Record<string, string>,
-    authenticated = true
+    authenticated = true,
+    signal?: AbortSignal
   ) {
-    return this.request<T>('GET', path, undefined, params, authenticated);
+    return this.request<T>('GET', path, undefined, params, authenticated, signal);
   }
 
   private async post<T>(
     path: string,
     body?: unknown,
     params?: Record<string, string>,
-    authenticated = true
+    authenticated = true,
+    signal?: AbortSignal
   ) {
-    return this.request<T>('POST', path, body, params, authenticated);
+    return this.request<T>('POST', path, body, params, authenticated, signal);
   }
 
   private async request<T>(
@@ -431,12 +434,14 @@ export class JellyfinClient {
     path: string,
     body?: unknown,
     params?: Record<string, string>,
-    authenticated = true
+    authenticated = true,
+    signal?: AbortSignal
   ) {
     const response = await fetch(this.url(path, params), {
       method,
       headers: this.headers(authenticated),
-      body: body === undefined ? undefined : JSON.stringify(body)
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal
     });
 
     if (!response.ok) {
