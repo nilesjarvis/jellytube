@@ -883,9 +883,10 @@ test('playing next stays hidden without autoplay, without a next episode, or aft
 
 test('search suggestions only fetch for supported routes and useful queries', () => {
   assert.equal(shouldFetchSearchSuggestions('a', 'home'), false);
-  assert.equal(shouldFetchSearchSuggestions('matrix', 'watch'), false);
   assert.equal(shouldFetchSearchSuggestions('matrix', 'home'), true);
   assert.equal(shouldFetchSearchSuggestions('matrix', 'search'), true);
+  assert.equal(shouldFetchSearchSuggestions('matrix', 'watch'), true);
+  assert.equal(shouldFetchSearchSuggestions('matrix', 'movies'), false);
 });
 
 test('search suggestion labels include series context for episodes only', () => {
@@ -931,7 +932,7 @@ test('search suggestion scheduler debounces stale queries and clears unsupported
 
   scheduler.schedule({
     query: 'matrix',
-    route: 'watch',
+    route: 'movies',
     delayMs: 0,
     request: async () => ['never'],
     onResults: (items) => results.push(items),

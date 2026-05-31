@@ -17,7 +17,7 @@ export type SearchSuggestionScheduleOptions<T> = {
 
 export function shouldFetchSearchSuggestions(query: string, route: SearchSuggestionRoute) {
   const trimmed = query.trim();
-  return trimmed.length >= 2 && (route === 'home' || route === 'search');
+  return trimmed.length >= 2 && (route === 'home' || route === 'search' || route === 'watch');
 }
 
 export function suggestionNameLabel(suggestion: Pick<SearchSuggestion, 'name' | 'type' | 'seriesName'>) {

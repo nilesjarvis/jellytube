@@ -552,9 +552,11 @@
     const trimmed = query.trim();
     if (!trimmed) {
       await navigateTo({ view: 'home' });
+      query = '';
       return;
     }
     await navigateTo({ view: 'search', query: trimmed });
+    query = '';
   }
 
   function clearSearchSuggestions() {
