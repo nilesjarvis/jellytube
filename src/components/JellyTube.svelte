@@ -1198,7 +1198,8 @@
       currentItem: item,
       mode: item?.contentKind === 'movie' ? 'movie' : 'watch',
       recentItemIds: recentPlaybackIds,
-      queueItems: queue
+      queueItems: queue,
+      randomSeed: item?.Id
     });
     if (!item) return ranked;
     const recommendationPool = episodeInfo(item)
