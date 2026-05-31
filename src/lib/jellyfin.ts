@@ -305,6 +305,13 @@ export class JellyfinClient {
     });
   }
 
+  getSubtitleStreamUrl(itemId: string, mediaSourceId: string, streamIndex: number, format = 'vtt') {
+    const extension = format.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'vtt';
+    return this.url(`/Videos/${itemId}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.${extension}`, {
+      api_key: this.accessToken ?? ''
+    });
+  }
+
   getHlsUrl(itemId: string, mediaSourceId: string, options: HlsStreamOptions = {}) {
     return this.url(`/Videos/${itemId}/master.m3u8`, {
       MediaSourceId: mediaSourceId,

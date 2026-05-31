@@ -9,6 +9,7 @@ export type ChannelDirectoryEntry = {
   name: string;
   kind: ChannelDirectoryKind;
   itemCount: number;
+  seriesItem: JellyfinItem | null;
   latestItem: JellyfinItem | null;
   sourceLibraryName: string;
   sortDate: number;
@@ -25,6 +26,7 @@ export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinI
       name,
       kind: 'show',
       itemCount: 0,
+      seriesItem: show,
       latestItem: null,
       sourceLibraryName: show.sourceLibraryName ?? '',
       sortDate: contentDateValue(show)
@@ -41,6 +43,7 @@ export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinI
       name: existing?.name ?? group.name,
       kind,
       itemCount: group.items.length,
+      seriesItem: existing?.seriesItem ?? null,
       latestItem,
       sourceLibraryName: existing?.sourceLibraryName || group.items[0]?.sourceLibraryName || '',
       sortDate: Math.max(existing?.sortDate ?? 0, latestItem ? contentDateValue(latestItem) : 0)

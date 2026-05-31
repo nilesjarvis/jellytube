@@ -25,6 +25,8 @@ export type RecommendationOptions = {
   recentlyWatchedDays?: number;
   maxPerChannel?: number;
   maxPerSeries?: number;
+  randomness?: number;
+  randomSeed?: string | number;
 };
 
 const SHORT_FORM_RESUME_TICKS = 8 * 60 * 10_000_000;
@@ -170,6 +172,8 @@ export function rankRecommendations(
       for (const token of itemTokens(item)) {
         score += Math.min(historyTokens.get(token) ?? 0, 8);
       }
+
+      score += recommendationRandomBoost(item, options);
 
       return {
         ...item,
@@ -322,22 +326,53 @@ function itemSimilarityTokens(item: JellyfinItem) {
 function recommendationOptions(
   input: PlaybackActivity[] | RecommendationOptions,
   currentItem?: JellyfinItem | null
-): Required<Pick<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays'>> &
-  Omit<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays'> & {
+): Required<Pick<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays' | 'randomness'>> &
+  Omit<RecommendationOptions, 'activity' | 'mode' | 'now' | 'recentlyWatchedDays' | 'randomness'> & {
     recentItemIds: Set<string>;
     queueItemIds: Set<string>;
   } {
   const options = Array.isArray(input) ? { activity: input, currentItem } : input;
+  const mode = options.mode ?? (options.currentItem ?? currentItem ? 'watch' : 'home');
   return {
     ...options,
     activity: options.activity ?? [],
     currentItem: options.currentItem ?? currentItem ?? null,
-    mode: options.mode ?? (options.currentItem ?? currentItem ? 'watch' : 'home'),
+    mode,
     recentItemIds: new Set(options.recentItemIds ?? []),
     queueItemIds: new Set((options.queueItems ?? []).map((item) => item.Id)),
     now: options.now ?? Date.now(),
-    recentlyWatchedDays: options.recentlyWatchedDays ?? RECENTLY_WATCHED_DAYS
+    recentlyWatchedDays: options.recentlyWatchedDays ?? RECENTLY_WATCHED_DAYS,
+    randomness: options.randomness ?? defaultRecommendationRandomness(mode)
   };
+}
+
+function defaultRecommendationRandomness(mode: RecommendationMode) {
+  if (mode === 'music') return 22;
+  if (mode === 'home') return 18;
+  if (mode === 'movie') return 14;
+  if (mode === 'watch') return 12;
+  return 10;
+}
+
+function recommendationRandomBoost(
+  item: JellyfinItem,
+  options: ReturnType<typeof recommendationOptions>
+) {
+  if (options.randomness <= 0) return 0;
+  const random =
+    options.randomSeed === undefined
+      ? Math.random()
+      : seededFraction(`${options.randomSeed}:${options.mode}:${item.Id}`);
+  return random * options.randomness;
+}
+
+function seededFraction(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
 }
 
 function isRecommendationCandidate(

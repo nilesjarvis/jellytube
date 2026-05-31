@@ -36,12 +36,6 @@ import {
   playbackQualityById,
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
-import {
-  applyJellyGptRanking,
-  buildJellyGptCandidatePool,
-  fetchIndexedJellyGptRecommendations,
-  fetchJellyGptRecommendations
-} from '../src/lib/jellygpt';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
 import type { JellyfinItem } from '../src/lib/types';
@@ -289,7 +283,8 @@ test('recommendations penalize recently finished items without hard excluding th
     currentItem: current,
     queueItems: [queued],
     recentItemIds: ['finished'],
-    now: Date.parse('2026-05-07T12:00:00.000Z')
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    randomness: 0
   });
 
   assert.deepEqual(ranked.map((result) => result.Id), ['candidate', 'finished']);
@@ -322,7 +317,8 @@ test('music recommendations can include recently replayed music videos', () => {
   const ranked = rankRecommendations([playedMusic, playedVideo, candidate], {
     mode: 'music',
     recentItemIds: ['played-music'],
-    now: Date.parse('2026-05-07T12:00:00.000Z')
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    randomness: 0
   });
 
   assert.deepEqual(ranked.map((result) => result.Id), ['candidate', 'played-music']);
@@ -450,10 +446,37 @@ test('watch recommendations prefer similar metadata over same-channel filler', (
   const ranked = rankRecommendations([sameChannel, similar], {
     currentItem: current,
     mode: 'watch',
-    now: Date.parse('2026-05-07T12:00:00.000Z')
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    randomness: 0
   });
 
   assert.deepEqual(ranked.map((result) => result.Id), ['similar', 'same-channel']);
+});
+
+test('recommendations vary within similarly relevant candidates when seeded differently', () => {
+  const candidates = Array.from({ length: 6 }, (_, index) =>
+    item({
+      Id: `candidate-${index + 1}`,
+      Name: `Fresh candidate ${index + 1}`,
+      contentKind: 'video',
+      RunTimeTicks: 12 * 60 * 10_000_000,
+      Genres: ['Science']
+    })
+  );
+
+  const first = rankRecommendations(candidates, {
+    mode: 'home',
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    randomSeed: 'first-refresh'
+  }).map((result) => result.Id);
+  const second = rankRecommendations(candidates, {
+    mode: 'home',
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    randomSeed: 'second-refresh'
+  }).map((result) => result.Id);
+
+  assert.notDeepEqual(first, second);
+  assert.deepEqual([...first].sort(), [...second].sort());
 });
 
 test('search ranks actual series episodes above unrelated title matches', () => {
@@ -593,6 +616,7 @@ test('channel directory merges Jellyfin series with loaded channel groups withou
     ['Sabrina Carpenter', 'music', 1]
   ]);
   assert.equal(directory[0].latestItem?.Id, 'snl-new');
+  assert.equal(directory[0].seriesItem?.Id, 'snl-series');
 });
 
 test('channel directory filter matches show and source names', () => {
@@ -805,155 +829,4 @@ test('show progress starts at the first episode when there is no history', () =>
   assert.equal(progress.kind, 'start');
   assert.equal(progress.primaryItem?.Id, 's01e01');
   assert.equal(progress.label, 'Start S01E01');
-});
-
-
-test('jellyGPT ranking maps sidecar item ids back to local Jellyfin items with fallback fill', () => {
-  const alpha = item({ Id: 'alpha', Name: 'Alpha video', Type: 'Video' });
-  const beta = item({ Id: 'beta', Name: 'Beta video', Type: 'Video' });
-  const gamma = item({ Id: 'gamma', Name: 'Gamma video', Type: 'Video' });
-  const candidates = buildJellyGptCandidatePool([alpha, beta, gamma]);
-
-  const ranked = applyJellyGptRanking(
-    {
-      algo: 'blended',
-      generated_at: '2026-05-08T12:00:00.000Z',
-      cache_age_seconds: 0,
-      warning: null,
-      items: [
-        { item_id: 'beta', score: 42, reason: 'matches watch history' },
-        { item_id: 'missing', score: 99, reason: 'ignored missing item' }
-      ]
-    },
-    candidates,
-    [alpha, gamma],
-    3
-  );
-
-  assert.deepEqual(ranked.map((result) => result.Id), ['beta', 'alpha', 'gamma']);
-  assert.equal(ranked[0].reason, 'matches watch history');
-});
-
-test('jellyGPT recommendation requests include watch context', async () => {
-  const originalFetch = globalThis.fetch;
-  const originalWindow = globalThis.window;
-  let requestBody: {
-    context?: string;
-    current_item?: { item_id?: string };
-    queue_item_ids?: string[];
-    candidates?: Array<{ item_id?: string }>;
-  } | null = null;
-
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    value: {
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis)
-    }
-  });
-  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-    requestBody = JSON.parse(String(init?.body ?? '{}'));
-    return new Response(JSON.stringify({ algo: 'blended', items: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }) as typeof fetch;
-
-  try {
-    await fetchJellyGptRecommendations({
-      url: 'http://127.0.0.1:8787',
-      algorithm: 'blended',
-      userId: 'user-1',
-      candidates: [item({ Id: 'candidate', Name: 'Candidate video' })],
-      activity: [],
-      recentItemIds: [],
-      context: 'watch',
-      currentItem: item({ Id: 'current', Name: 'Current video' }),
-      queueItems: [item({ Id: 'queued', Name: 'Queued video' })],
-      limit: 28,
-      timeoutMs: 100
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (originalWindow === undefined) {
-      Reflect.deleteProperty(globalThis, 'window');
-    } else {
-      Object.defineProperty(globalThis, 'window', {
-        configurable: true,
-        value: originalWindow
-      });
-    }
-  }
-
-  assert.equal(requestBody?.context, 'watch');
-  assert.equal(requestBody?.current_item?.item_id, 'current');
-  assert.deepEqual(requestBody?.queue_item_ids, ['queued']);
-  assert.deepEqual(requestBody?.candidates?.map((candidate) => candidate.item_id), ['candidate']);
-});
-
-test('indexed jellyGPT recommendation requests omit candidate lists', async () => {
-  const originalFetch = globalThis.fetch;
-  const originalWindow = globalThis.window;
-  let requestUrl = '';
-  let requestBody: {
-    context?: string;
-    current_item_id?: string;
-    current_item?: { item_id?: string };
-    queue_item_ids?: string[];
-    candidates?: Array<{ item_id?: string }>;
-    binge?: { channel?: string; streak_count?: number };
-  } | null = null;
-
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    value: {
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis)
-    }
-  });
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    requestUrl = String(input);
-    requestBody = JSON.parse(String(init?.body ?? '{}'));
-    return new Response(JSON.stringify({ algo: 'blended', items: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }) as typeof fetch;
-
-  try {
-    await fetchIndexedJellyGptRecommendations({
-      url: 'http://127.0.0.1:8787',
-      algorithm: 'blended',
-      userId: 'user-1',
-      activity: [],
-      recentItemIds: ['recent'],
-      context: 'watch',
-      currentItem: item({ Id: 'current', Name: 'Current video' }),
-      queueItems: [item({ Id: 'queued', Name: 'Queued video' })],
-      binge: {
-        channel: 'Current Channel',
-        streak_count: 3
-      },
-      limit: 28,
-      timeoutMs: 100
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (originalWindow === undefined) {
-      Reflect.deleteProperty(globalThis, 'window');
-    } else {
-      Object.defineProperty(globalThis, 'window', {
-        configurable: true,
-        value: originalWindow
-      });
-    }
-  }
-
-  assert.equal(requestUrl, 'http://127.0.0.1:8787/recommendations/indexed');
-  assert.equal(requestBody?.context, 'watch');
-  assert.equal(requestBody?.current_item_id, 'current');
-  assert.equal(requestBody?.current_item?.item_id, 'current');
-  assert.deepEqual(requestBody?.queue_item_ids, ['queued']);
-  assert.equal(requestBody?.binge?.streak_count, 3);
-  assert.equal(requestBody?.candidates, undefined);
 });

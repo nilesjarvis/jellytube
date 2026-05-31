@@ -3,6 +3,7 @@
   import type Hls from 'hls.js';
   import {
     ArrowLeft,
+    Captions,
     Check,
     Loader2,
     Maximize,
@@ -85,6 +86,15 @@
     playMethod: PlaybackEventPayload['PlayMethod'];
   };
 
+  type SubtitleOption = {
+    id: string;
+    label: string;
+    detail: string;
+    stream: JellyfinMediaStream | null;
+    index: number | null;
+    delivery: 'off' | 'track' | 'burn';
+  };
+
   type WebKitVideoElement = HTMLVideoElement & {
     webkitEnterFullscreen?: () => void;
     webkitExitFullscreen?: () => void;
@@ -133,6 +143,10 @@
   let selectedQualityId = preferredQualityId;
   let qualityOptions: PlaybackQualityOption[] = [];
   let qualityMenuOpen = false;
+  let subtitleOptions: SubtitleOption[] = [{ id: 'off', label: 'Off', detail: 'No captions', stream: null, index: null, delivery: 'off' }];
+  let selectedSubtitleId = 'off';
+  let subtitleMenuOpen = false;
+  let activeTextTrackUrl = '';
   let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
@@ -174,6 +188,9 @@
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
   $: selectedQuality = playbackQualityById(qualityOptions, selectedQualityId);
   $: qualityButtonLabel = selectedQuality?.label ?? 'Auto';
+  $: selectedSubtitle = subtitleOptions.find((option) => option.id === selectedSubtitleId) ?? subtitleOptions[0];
+  $: subtitleButtonLabel = selectedSubtitle?.label ?? 'Off';
+  $: subtitleActive = Boolean(selectedSubtitle?.index !== null && selectedSubtitle?.index !== undefined);
   $: queueIndex = queue.findIndex((queueItem) => queueItem.Id === item.Id);
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
@@ -281,6 +298,8 @@
     error = '';
     fallbackNotice = '';
     qualityMenuOpen = false;
+    subtitleMenuOpen = false;
+    activeTextTrackUrl = '';
     currentTime = 0;
     bufferedPercent = 0;
     duration = 0;
@@ -308,6 +327,9 @@
 
       qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
       selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
+      subtitleOptions = buildSubtitleOptions(mediaSource);
+      selectedSubtitleId = initialSubtitleId(mediaSource, subtitleOptions);
+      activeTextTrackUrl = textTrackUrlForSelection();
       attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
       if (!attempts.length) {
         throw new Error('Jellyfin did not return a browser-compatible direct stream or HLS transcode option.');
@@ -321,26 +343,31 @@
     }
   }
 
-  function buildPlaybackAttempts(source: JellyfinMediaSource, qualityId: string | null | undefined = selectedQualityId) {
+  function buildPlaybackAttempts(
+    source: JellyfinMediaSource,
+    qualityId: string | null | undefined = selectedQualityId,
+    subtitleOption: SubtitleOption | undefined = selectedSubtitleOption()
+  ) {
     const nextAttempts: PlaybackAttempt[] = [];
-    const directAttempt = getDirectAttempt(source);
+    const burnSubtitle = subtitleOption?.delivery === 'burn';
+    const directAttempt = burnSubtitle ? null : getDirectAttempt(source);
     const quality = playbackQualityById(qualityOptions, qualityId);
 
     if (quality?.mode === 'direct') {
       if (directAttempt) nextAttempts.push(directAttempt);
-      const fallbackHlsAttempt = getHlsAttempt(source);
+      const fallbackHlsAttempt = getHlsAttempt(source, undefined, subtitleOption);
       if (fallbackHlsAttempt) nextAttempts.push(fallbackHlsAttempt);
       return nextAttempts;
     }
 
     if (quality?.mode === 'hls') {
-      const hlsAttempt = getHlsAttempt(source, quality);
+      const hlsAttempt = getHlsAttempt(source, quality, subtitleOption);
       if (hlsAttempt) nextAttempts.push(hlsAttempt);
       return nextAttempts;
     }
 
     if (directAttempt) nextAttempts.push(directAttempt);
-    const hlsAttempt = getHlsAttempt(source);
+    const hlsAttempt = getHlsAttempt(source, undefined, subtitleOption);
     if (hlsAttempt) nextAttempts.push(hlsAttempt);
     return nextAttempts;
   }
@@ -362,7 +389,11 @@
     };
   }
 
-  function getHlsAttempt(source: JellyfinMediaSource, quality?: PlaybackQualityOption): PlaybackAttempt | null {
+  function getHlsAttempt(
+    source: JellyfinMediaSource,
+    quality?: PlaybackQualityOption,
+    subtitleOption: SubtitleOption | undefined = selectedSubtitleOption()
+  ): PlaybackAttempt | null {
     if (source.SupportsTranscoding === false) return null;
     const preferredSize = preferredHlsSize();
     const maxWidth = quality?.maxWidth ?? preferredSize.maxWidth;
@@ -372,7 +403,7 @@
         startTicks: 0,
         playSessionId,
         audioStreamIndex: source.DefaultAudioStreamIndex,
-        subtitleStreamIndex: source.DefaultSubtitleStreamIndex,
+        subtitleStreamIndex: subtitleOption?.delivery === 'burn' ? subtitleOption.index ?? undefined : undefined,
         maxWidth,
         maxHeight,
         videoBitrate: quality?.videoBitrate,
@@ -435,6 +466,7 @@
     }
 
     applySavedAudioState();
+    void syncTextTrackMode();
     if (autoPlay) void requestPlay();
     scheduleControls();
   }
@@ -488,6 +520,7 @@
     window.clearTimeout(controlsTimer);
     window.clearTimeout(clickTimer);
     qualityMenuOpen = false;
+    subtitleMenuOpen = false;
     await finishReporting();
     teardownHls();
     clearVideoSource();
@@ -527,7 +560,7 @@
       RepeatMode: 'RepeatNone',
       PlaybackStartTimeTicks: detailedItem.UserData?.PlaybackPositionTicks ?? 0,
       AudioStreamIndex: mediaSource?.DefaultAudioStreamIndex,
-      SubtitleStreamIndex: mediaSource?.DefaultSubtitleStreamIndex
+      SubtitleStreamIndex: selectedSubtitleOption()?.index ?? undefined
     };
   }
 
@@ -622,6 +655,118 @@
     return [source.Container, videoStream?.Codec, audioStream?.Codec, resolution].filter(Boolean).join(' · ');
   }
 
+  function buildSubtitleOptions(source: JellyfinMediaSource): SubtitleOption[] {
+    const options: SubtitleOption[] = [{ id: 'off', label: 'Off', detail: 'No captions', stream: null, index: null, delivery: 'off' }];
+    for (const stream of source.MediaStreams ?? []) {
+      if (stream.Type !== 'Subtitle' || stream.Index === undefined) continue;
+      const delivery = canUseTextTrack(stream) ? 'track' : 'burn';
+      options.push({
+        id: `subtitle-${stream.Index}`,
+        label: subtitleLabel(stream),
+        detail: subtitleDetail(stream, delivery),
+        stream,
+        index: stream.Index,
+        delivery
+      });
+    }
+    return options;
+  }
+
+  function initialSubtitleId(source: JellyfinMediaSource, options: SubtitleOption[]) {
+    const preference = localStorage.getItem('jellytube.subtitlePreference') ?? 'default';
+    if (preference === 'off') return 'off';
+
+    if (preference.startsWith('lang:')) {
+      const language = preference.slice(5);
+      const languageMatch = options.find((option) => option.stream?.Language === language);
+      if (languageMatch) return languageMatch.id;
+    }
+
+    const defaultIndex = source.DefaultSubtitleStreamIndex;
+    const defaultOption = options.find((option) => option.index === defaultIndex);
+    if (defaultOption) return defaultOption.id;
+
+    const forcedOption = options.find((option) => option.stream?.IsForced || /forced/i.test(option.stream?.Title ?? option.stream?.DisplayTitle ?? ''));
+    return forcedOption?.id ?? 'off';
+  }
+
+  function canUseTextTrack(stream: JellyfinMediaStream) {
+    if (stream.DeliveryMethod === 'Encode') return false;
+    if (stream.IsTextSubtitleStream === false) return false;
+    const codec = normalizeSubtitleCodec(stream.Codec);
+    return codec === 'subrip' || codec === 'srt' || codec === 'mov_text' || codec === 'vtt' || codec === 'webvtt' || codec === 'ass' || codec === 'ssa';
+  }
+
+  function selectedSubtitleOption() {
+    return subtitleOptions.find((option) => option.id === selectedSubtitleId) ?? subtitleOptions[0];
+  }
+
+  function selectedSubtitleRequiresHls() {
+    return selectedSubtitleOption()?.delivery === 'burn';
+  }
+
+  function textTrackUrlForSelection() {
+    return textTrackUrlForOption(selectedSubtitleOption());
+  }
+
+  function textTrackUrlForOption(option: SubtitleOption | undefined) {
+    if (!mediaSource || !option || option.delivery !== 'track' || option.index === null) return '';
+    return client.getSubtitleStreamUrl(item.Id, mediaSource.Id, option.index, 'vtt');
+  }
+
+  function subtitleLabel(stream: JellyfinMediaStream) {
+    const raw = stream.DisplayTitle || stream.Title || stream.Language || `Subtitle ${stream.Index}`;
+    return raw.replace(/\s+-\s+SUBRIP$/i, '').replace(/\s+-\s+MOV_TEXT$/i, '').replace(/\s+-\s+PGSSUB$/i, '').replace(/\s+-\s+DVDSUB$/i, '');
+  }
+
+  function subtitleDetail(stream: JellyfinMediaStream, delivery: SubtitleOption['delivery']) {
+    const parts = [
+      stream.Language ? stream.Language.toUpperCase() : '',
+      stream.IsDefault ? 'Default' : '',
+      stream.IsForced || /forced/i.test(stream.Title ?? stream.DisplayTitle ?? '') ? 'Forced' : '',
+      stream.IsExternal ? 'External' : 'Embedded',
+      normalizeSubtitleCodec(stream.Codec).toUpperCase(),
+      delivery === 'burn' ? 'Burn-in transcode' : 'Text track'
+    ];
+    return parts.filter(Boolean).join(' · ');
+  }
+
+  function normalizeSubtitleCodec(codec?: string) {
+    return (codec ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+  }
+
+  async function syncTextTrackMode() {
+    await tick();
+    if (!video) return;
+    const option = selectedSubtitleOption();
+    for (let index = 0; index < video.textTracks.length; index += 1) {
+      const track = video.textTracks[index];
+      track.mode = activeTextTrackUrl && option?.delivery === 'track' ? 'showing' : 'disabled';
+    }
+  }
+
+  async function handleSubtitleTrackError() {
+    const currentOption = selectedSubtitleOption();
+    if (!mediaSource || !currentOption || currentOption.delivery !== 'track' || currentOption.index === null) return;
+    const failedOption = currentOption;
+    const previousTime = video?.currentTime ?? currentTime;
+    const shouldResume = Boolean(video && !video.paused && !video.ended) || playRequested;
+    fallbackNotice = `${failedOption.label} could not load as text captions. Falling back to Jellyfin burn-in subtitles.`;
+    const burnedOption: SubtitleOption = { ...failedOption, delivery: 'burn', detail: subtitleDetail(failedOption.stream!, 'burn') };
+    subtitleOptions = subtitleOptions.map((option) => (option.id === failedOption.id ? burnedOption : option));
+    activeTextTrackUrl = '';
+    resumeSeconds = Number.isFinite(previousTime) ? previousTime : 0;
+    currentTime = resumeSeconds;
+    attempts = buildPlaybackAttempts(mediaSource, selectedQualityId, burnedOption);
+    if (!attempts.length) return;
+    try {
+      await startAttempt(0, shouldResume);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'Could not fall back to burned-in subtitles.';
+      controlsVisible = true;
+    }
+  }
+
   function mediaErrorMessage() {
     const code = video?.error?.code;
     const nativeMessage = video?.error?.message;
@@ -645,6 +790,7 @@
       seekApplied = true;
     }
     syncPlaybackState();
+    void syncTextTrackMode();
     loading = false;
     buffering = false;
     if (cinematicMode) scheduleCinematicSample(180);
@@ -746,8 +892,9 @@
   }
 
   function handlePlayerClick() {
-    if (qualityMenuOpen) {
+    if (qualityMenuOpen || subtitleMenuOpen) {
       qualityMenuOpen = false;
+      subtitleMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -778,6 +925,7 @@
   function toggleQualityMenu(event: MouseEvent) {
     event.stopPropagation();
     qualityMenuOpen = !qualityMenuOpen;
+    if (qualityMenuOpen) subtitleMenuOpen = false;
     controlsVisible = true;
     if (!qualityMenuOpen) scheduleControls();
   }
@@ -818,6 +966,70 @@
       selectedQualityId = previousQualityId;
       localStorage.setItem('jellytube.playerQuality', preferredQualityId);
       error = caught instanceof Error ? caught.message : 'Could not switch quality.';
+      controlsVisible = true;
+    }
+  }
+
+  function toggleSubtitleMenu(event: MouseEvent) {
+    event.stopPropagation();
+    subtitleMenuOpen = !subtitleMenuOpen;
+    if (subtitleMenuOpen) qualityMenuOpen = false;
+    controlsVisible = true;
+    if (!subtitleMenuOpen) scheduleControls();
+  }
+
+  async function selectSubtitle(event: MouseEvent, option: SubtitleOption) {
+    event.stopPropagation();
+    subtitleMenuOpen = false;
+    controlsVisible = true;
+    if (!mediaSource || option.id === selectedSubtitleId) {
+      scheduleControls();
+      return;
+    }
+
+    const previousSubtitleId = selectedSubtitleId;
+    const previousTrackUrl = activeTextTrackUrl;
+    const previousRequiresHls = selectedSubtitleRequiresHls();
+    const previousTime = video?.currentTime ?? currentTime;
+    const shouldResume = Boolean(video && !video.paused && !video.ended) || playRequested;
+
+    selectedSubtitleId = option.id;
+    activeTextTrackUrl = textTrackUrlForOption(option);
+    if (option.index === null || option.index === undefined) {
+      localStorage.setItem('jellytube.subtitlePreference', 'off');
+    } else if (option.stream?.Language) {
+      localStorage.setItem('jellytube.subtitlePreference', `lang:${option.stream.Language}`);
+    } else {
+      localStorage.setItem('jellytube.subtitlePreference', 'default');
+    }
+
+    const nextRequiresHls = option.delivery === 'burn';
+    const mustRestartStream = previousRequiresHls || nextRequiresHls;
+
+    if (!mustRestartStream) {
+      await syncTextTrackMode();
+      scheduleControls();
+      return;
+    }
+
+    resumeSeconds = Number.isFinite(previousTime) ? previousTime : 0;
+    currentTime = resumeSeconds;
+    attempts = buildPlaybackAttempts(mediaSource, selectedQualityId, option);
+
+    if (!attempts.length) {
+      selectedSubtitleId = previousSubtitleId;
+      activeTextTrackUrl = previousTrackUrl;
+      fallbackNotice = `${option.label} is not available for this stream.`;
+      scheduleControls();
+      return;
+    }
+
+    try {
+      await startAttempt(0, shouldResume);
+    } catch (caught) {
+      selectedSubtitleId = previousSubtitleId;
+      activeTextTrackUrl = previousTrackUrl;
+      error = caught instanceof Error ? caught.message : 'Could not switch subtitles.';
       controlsVisible = true;
     }
   }
@@ -972,9 +1184,10 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && qualityMenuOpen) {
+    if (event.key === 'Escape' && (qualityMenuOpen || subtitleMenuOpen)) {
       event.preventDefault();
       qualityMenuOpen = false;
+      subtitleMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -1012,7 +1225,7 @@
 
   function scheduleControls() {
     window.clearTimeout(controlsTimer);
-    if (!isPlaying || qualityMenuOpen) return;
+    if (!isPlaying || qualityMenuOpen || subtitleMenuOpen) return;
     controlsTimer = window.setTimeout(() => {
       controlsVisible = false;
     }, 2400);
@@ -1211,7 +1424,21 @@
           on:progress={syncBuffered}
           on:volumechange={handleVolumeChange}
           on:error={() => void handlePlaybackFailure()}
-        ></video>
+        >
+          {#if activeTextTrackUrl && selectedSubtitle?.delivery === 'track'}
+            {#key activeTextTrackUrl}
+              <track
+                kind="subtitles"
+                src={activeTextTrackUrl}
+                srclang={selectedSubtitle.stream?.Language ?? 'und'}
+                label={selectedSubtitle.label}
+                default
+                on:load={() => void syncTextTrackMode()}
+                on:error={() => void handleSubtitleTrackError()}
+              />
+            {/key}
+          {/if}
+        </video>
 
         {#if !error}
           <button
@@ -1343,6 +1570,45 @@
               >
                 <RectangleHorizontal size={21} />
               </button>
+
+              {#if subtitleOptions.length > 1}
+                <div class="quality-control subtitle-control">
+                  <button
+                    class="player-control subtitle-button"
+                    class:active={subtitleActive || subtitleMenuOpen}
+                    aria-label={`Captions: ${subtitleButtonLabel}`}
+                    aria-expanded={subtitleMenuOpen}
+                    aria-haspopup="menu"
+                    title={`Captions: ${subtitleButtonLabel}`}
+                    on:click={toggleSubtitleMenu}
+                  >
+                    <Captions size={21} />
+                  </button>
+
+                  {#if subtitleMenuOpen}
+                    <div class="quality-menu subtitle-menu" role="menu" aria-label="Captions">
+                      <div class="quality-menu-heading">Captions</div>
+                      {#each subtitleOptions as option (option.id)}
+                        <button
+                          class:active={option.id === selectedSubtitleId}
+                          class="quality-option subtitle-option"
+                          role="menuitemradio"
+                          aria-checked={option.id === selectedSubtitleId}
+                          on:click={(event) => void selectSubtitle(event, option)}
+                        >
+                          <span>
+                            <strong>{option.label}</strong>
+                            <small>{option.detail}</small>
+                          </span>
+                          {#if option.id === selectedSubtitleId}
+                            <Check size={16} />
+                          {/if}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
 
               <div class="quality-control">
                 <button

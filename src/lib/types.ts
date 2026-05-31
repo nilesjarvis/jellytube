@@ -67,6 +67,15 @@ export type JellyfinMediaStream = {
   BitRate?: number;
   Index?: number;
   IsDefault?: boolean;
+  Language?: string;
+  DisplayTitle?: string;
+  Title?: string;
+  IsExternal?: boolean;
+  IsTextSubtitleStream?: boolean;
+  SupportsExternalStream?: boolean;
+  IsForced?: boolean;
+  DeliveryMethod?: 'External' | 'Embed' | 'Encode' | string;
+  DeliveryUrl?: string;
 };
 
 export type JellyfinMediaSource = {
