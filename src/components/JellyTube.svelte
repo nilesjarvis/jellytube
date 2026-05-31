@@ -28,6 +28,7 @@
     contentKindForCollection,
     isEligibleLibrary,
     JellyfinClient,
+    type SearchSuggestion,
     libraryKindLabel,
     libraryToSelectedSource
   } from '../lib/jellyfin';
@@ -97,6 +98,10 @@
   let loadingLabel = 'Loading content';
   let query = '';
   let searchedFor = '';
+  let searchSuggestions: SearchSuggestion[] = [];
+  let searchSuggestionIndex = -1;
+  let searchSuggestionAbort: AbortController | null = null;
+  let searchSuggestionTimer: ReturnType<typeof setTimeout> | undefined;
   let selectedItem: JellyfinItem | null = null;
   let selectedQueue: JellyfinItem[] = [];
   let selectedQueueName = '';
@@ -540,12 +545,104 @@
   }
 
   async function submitSearch() {
+    clearSearchSuggestions();
     const trimmed = query.trim();
     if (!trimmed) {
       await navigateTo({ view: 'home' });
       return;
     }
     await navigateTo({ view: 'search', query: trimmed });
+  }
+
+  function clearSearchSuggestions() {
+    searchSuggestions = [];
+    searchSuggestionIndex = -1;
+    if (searchSuggestionAbort) {
+      searchSuggestionAbort.abort();
+      searchSuggestionAbort = null;
+    }
+  }
+
+  $: {
+    void (async () => {
+      const trimmed = query.trim();
+      if (trimmed.length < 2 || route !== 'home' && route !== 'search') {
+        clearSearchSuggestions();
+        return;
+      }
+      clearTimeout(searchSuggestionTimer);
+      searchSuggestionTimer = setTimeout(async () => {
+        if (searchSuggestionAbort) searchSuggestionAbort.abort();
+        const controller = new AbortController();
+        searchSuggestionAbort = controller;
+        try {
+          const suggestions = await client.getSearchSuggestions(
+            session.selectedLibraries.map((lib) => ({
+              id: lib.id,
+              itemTypes: lib.itemTypes,
+              name: lib.name,
+              contentKind: lib.contentKind
+            })),
+            trimmed
+          );
+          if (!controller.signal.aborted) {
+            searchSuggestions = suggestions;
+            searchSuggestionIndex = -1;
+          }
+        } catch {
+          if (!controller.signal.aborted) {
+            searchSuggestions = [];
+            searchSuggestionIndex = -1;
+          }
+        }
+      }, 180);
+    })();
+  }
+
+  function selectSuggestion(suggestion: SearchSuggestion) {
+    query = suggestionNameLabel(suggestion);
+    searchSuggestions = [];
+    searchSuggestionIndex = -1;
+    void submitSearch();
+  }
+
+  function suggestionNameLabel(suggestion: SearchSuggestion) {
+    const parts: string[] = [];
+    if (suggestion.seriesName && suggestion.type === 'Episode') {
+      parts.push(suggestion.seriesName);
+    }
+    parts.push(suggestion.name);
+    return parts.join(' — ');
+  }
+
+  function suggestionIcon(type: string) {
+    if (type === 'Movie') return 'clapperboard';
+    if (type === 'MusicVideo') return 'music';
+    if (type === 'Series') return 'tv';
+    if (type === 'Episode') return 'tv';
+    return 'video';
+  }
+
+  function navigateSearchSuggestions(event: KeyboardEvent) {
+    if (!searchSuggestions.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (searchSuggestionIndex < searchSuggestions.length - 1) {
+        searchSuggestionIndex += 1;
+      } else {
+        searchSuggestionIndex = 0;
+      }
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (searchSuggestionIndex > 0) {
+        searchSuggestionIndex -= 1;
+      } else {
+        searchSuggestionIndex = searchSuggestions.length - 1;
+      }
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      clearSearchSuggestions();
+    }
   }
 
   async function showSearch(trimmed: string) {
@@ -1407,7 +1504,41 @@
     </div>
 
     <form class="search-form" on:submit|preventDefault={submitSearch}>
-      <input bind:value={query} placeholder="Search" aria-label="Search videos" />
+      <div class="search-input-wrapper">
+        <input
+          bind:value={query}
+          placeholder="Search"
+          aria-label="Search videos"
+          autocomplete="off"
+          role="combobox"
+          aria-expanded={searchSuggestions.length > 0}
+          aria-controls="search-suggestions"
+          aria-activedescendant={searchSuggestionIndex >= 0 ? 'search-suggestion-' + searchSuggestionIndex : undefined}
+          on:keydown={navigateSearchSuggestions}
+        />
+        {#if searchSuggestions.length > 0}
+          <ul id="search-suggestions" class="search-suggestions" role="listbox">
+            {#each searchSuggestions as suggestion, index (suggestion.id + '|' + (suggestion.sourceId ?? ''))}
+              <li
+                class:active={index === searchSuggestionIndex}
+                role="option"
+                id="search-suggestion-{index}"
+                aria-selected={index === searchSuggestionIndex}
+              >
+                <button type="button" on:click={() => selectSuggestion(suggestion)} on:mouseenter={() => (searchSuggestionIndex = index)}>
+                  <span class="suggestion-icon">
+                    <Search size={16} />
+                  </span>
+                  <span class="suggestion-text">{suggestionNameLabel(suggestion)}</span>
+                  {#if suggestion.productionYear}
+                    <span class="suggestion-year">{suggestion.productionYear}</span>
+                  {/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
       <button aria-label="Search">
         <Search size={21} />
       </button>

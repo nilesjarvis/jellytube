@@ -385,6 +385,83 @@ label {
   background: var(--surface-2);
 }
 
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.search-input-wrapper input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: 20px 0 0 20px;
+  padding: 0 18px;
+  outline: 0;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.search-input-wrapper input:focus {
+  border-color: var(--focus);
+}
+
+.search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin: 6px 0 0;
+  padding: 6px 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.search-suggestions li button {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-suggestions li.active button,
+.search-suggestions li button:hover {
+  background: var(--soft);
+}
+
+.suggestion-icon {
+  display: grid;
+  place-items: center;
+  opacity: 0.6;
+}
+
+.suggestion-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-year {
+  opacity: 0.5;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .topbar-actions {
   justify-self: end;
   display: flex;

@@ -139,6 +139,18 @@ export type ItemQuery = {
   filters?: string;
 };
 
+export type SearchSuggestion = {
+  id: string;
+  name: string;
+  type: string;
+  seriesName?: string;
+  imageTag?: string;
+  productionYear?: number;
+  parentId: string;
+  sourceId?: string;
+  sourceName?: string;
+};
+
 export type HlsStreamOptions = {
   startTicks?: number;
   playSessionId?: string;
@@ -204,6 +216,64 @@ export class JellyfinClient {
       ...(query.searchTerm ? { SearchTerm: query.searchTerm } : {}),
       ...(query.filters ? { Filters: query.filters } : {})
     });
+  }
+
+  async getSearchSuggestions(
+    sources: { id: string; itemTypes: string; name?: string; contentKind?: string }[],
+    searchTerm: string,
+    limit = 8
+  ): Promise<SearchSuggestion[]> {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    if (!searchTerm || searchTerm.length < 2) return [];
+
+    const suggestionFields = [
+      'SeriesName',
+      'ProductionYear',
+      'ImageTags'
+    ].join(',');
+
+    const responses = await Promise.allSettled(
+      sources.map((source) =>
+        this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+          ParentId: source.id,
+          Recursive: 'true',
+          IncludeItemTypes: source.itemTypes,
+          Fields: suggestionFields,
+          SortBy: 'SortName',
+          SortOrder: 'Ascending',
+          Limit: String(limit),
+          SearchTerm: searchTerm
+        })
+      )
+    );
+
+    const seen = new Set<string>();
+    const suggestions: SearchSuggestion[] = [];
+
+    for (let i = 0; i < responses.length; i += 1) {
+      const result = responses[i];
+      if (result.status !== 'fulfilled') continue;
+      const source = sources[i];
+      for (const item of result.value.Items ?? []) {
+        const key = normalizeSuggestionKey(item.Name, item.SeriesName, item.Type);
+        if (suggestions.length >= limit * 2) break;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        suggestions.push({
+          id: item.Id,
+          name: item.Name,
+          type: item.Type,
+          seriesName: item.SeriesName,
+          imageTag: item.ImageTags?.Primary,
+          productionYear: item.ProductionYear,
+          parentId: item.ParentId ?? '',
+          sourceId: source.id,
+          sourceName: source.name
+        });
+      }
+    }
+
+    return suggestions.slice(0, limit);
   }
 
   async getItem(itemId: string) {
@@ -444,4 +514,12 @@ function browserDeviceProfile(maxStreamingBitrate = 140_000_000) {
     CodecProfiles: [],
     SubtitleProfiles: [{ Format: 'vtt', Method: 'External' }]
   };
+}
+
+function normalizeSuggestionKey(name: string, seriesName?: string, type?: string) {
+  return [
+    (name ?? '').toLowerCase().replace(/\[.*?\]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(),
+    (seriesName ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(),
+    type ?? ''
+  ].filter(Boolean).join('||');
 }
