@@ -32,6 +32,12 @@
     shouldStartFromBeginning
   } from '../lib/recommendations';
   import {
+    PLAYING_NEXT_COUNTDOWN_SECONDS,
+    countdownSecondsRemaining,
+    episodePlayingNextItem,
+    shouldShowPlayingNext
+  } from '../lib/playingNext';
+  import {
     CINEMATIC_FAILURE_LIMIT,
     CINEMATIC_FALLBACK_STYLE,
     CINEMATIC_SAMPLE_HEIGHT,
@@ -213,6 +219,21 @@
     episodeSeasons.find((season) => season.season === selectedEpisodeSeason)?.items ??
     episodeSeasons[0]?.items ??
     [];
+  $: nextEpisodeInSeason = episodePlayingNextItem(item, selectedEpisodeItems);
+  $: episodePlayingNext = nextEpisodeInSeason ?? (hasNextQueued ? queue[queueIndex + 1] : null);
+  $: playingNextCountdown = countdownSecondsRemaining(currentTime, durationSeconds);
+  $: showPlayingNextOverlay = shouldShowPlayingNext({
+    currentTime,
+    duration: durationSeconds,
+    nextItem: episodePlayingNext,
+    autoplayNext: autoplayNext && !loopMusicVideo
+  });
+  $: playingNextProgress = Math.max(0, Math.min(1, playingNextCountdown / PLAYING_NEXT_COUNTDOWN_SECONDS));
+  $: playingNextRingStyle = `--countdown-progress: ${playingNextProgress};`;
+  $: playingNextTitle = episodePlayingNext
+    ? displayTitle(episodePlayingNext, { context: 'series' })
+    : '';
+  $: playingNextCode = episodePlayingNext ? episodeCode(episodePlayingNext) : '';
   $: cinematicReady = cinematicMode && cinematicAvailability === 'dynamic';
   $: cinematicControlLabel =
     cinematicMode && cinematicAvailability === 'unavailable'
@@ -917,6 +938,21 @@
     localStorage.setItem('jellytube.autoplayNext', String(autoplayNext));
   }
 
+  function dismissPlayingNext() {
+    autoplayNext = false;
+    controlsVisible = true;
+    localStorage.setItem('jellytube.autoplayNext', 'false');
+  }
+
+  function playNextEpisodeNow() {
+    if (!episodePlayingNext) return;
+    if (hasNextQueued && queue[queueIndex + 1]?.Id === episodePlayingNext.Id) {
+      dispatch('next');
+      return;
+    }
+    dispatch('episodeSelect', episodePlayingNext);
+  }
+
   function toggleLoopMusicVideo() {
     loopMusicVideo = !loopMusicVideo;
     localStorage.setItem('jellytube.loopMusicVideo', String(loopMusicVideo));
@@ -1474,6 +1510,37 @@
 
           {#if fallbackNotice}
             <div class="player-status-toast">{fallbackNotice}</div>
+          {/if}
+
+          {#if showPlayingNextOverlay && episodePlayingNext}
+            <div class="playing-next-card" aria-live="polite">
+              <div class="playing-next-copy">
+                <span class="playing-next-eyebrow">Playing next in</span>
+                <strong>{playingNextTitle}</strong>
+                <small>
+                  {#if playingNextCode}
+                    {playingNextCode} ·
+                  {/if}
+                  {episodeSeriesTitle || queueTitle || episodePlayingNext.SeriesName || 'Next episode'}
+                </small>
+              </div>
+              <button
+                class="playing-next-countdown"
+                style={playingNextRingStyle}
+                aria-label={`Play next episode now, ${playingNextCountdown} seconds remaining`}
+                on:click|stopPropagation={playNextEpisodeNow}
+              >
+                <span>{playingNextCountdown}</span>
+              </button>
+              <button class="playing-next-now" on:click|stopPropagation={playNextEpisodeNow}>Play now</button>
+              <button
+                class="playing-next-dismiss"
+                aria-label="Turn off autoplay"
+                on:click|stopPropagation={dismissPlayingNext}
+              >
+                Not now
+              </button>
+            </div>
           {/if}
 
           <div class="player-controls-layer" aria-label="Playback controls">

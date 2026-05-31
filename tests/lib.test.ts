@@ -38,6 +38,11 @@ import {
 } from '../src/lib/playbackQuality';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
+import {
+  countdownSecondsRemaining,
+  episodePlayingNextItem,
+  shouldShowPlayingNext
+} from '../src/lib/playingNext';
 import type { JellyfinItem } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
@@ -829,4 +834,44 @@ test('show progress starts at the first episode when there is no history', () =>
   assert.equal(progress.kind, 'start');
   assert.equal(progress.primaryItem?.Id, 's01e01');
   assert.equal(progress.label, 'Start S01E01');
+});
+
+test('playing next selects the next episode from the active season before the countdown appears', () => {
+  const current = item({
+    Id: 's01e02',
+    Name: 'Show S01E02 - Second',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 2
+  });
+  const next = item({
+    Id: 's01e03',
+    Name: 'Show S01E03 - Third',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 3
+  });
+
+  assert.equal(episodePlayingNextItem(current, [current, next])?.Id, 's01e03');
+  assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: next, autoplayNext: true }), true);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1080, duration: 1200, nextItem: next, autoplayNext: true }), false);
+  assert.equal(countdownSecondsRemaining(1170, 1200), 30);
+});
+
+test('playing next stays hidden without autoplay, without a next episode, or after the video ended', () => {
+  const current = item({
+    Id: 's01e01',
+    Name: 'Show S01E01 - Pilot',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 1
+  });
+
+  assert.equal(episodePlayingNextItem(current, [current]), null);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: current, autoplayNext: false }), false);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: null, autoplayNext: true }), false);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
 });

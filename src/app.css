@@ -1610,6 +1610,97 @@ label {
   font-weight: 700;
 }
 
+.playing-next-card {
+  position: absolute;
+  right: 18px;
+  bottom: 88px;
+  z-index: 12;
+  width: min(430px, calc(100% - 36px));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(9, 9, 12, 0.92), rgba(24, 24, 28, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.playing-next-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.playing-next-eyebrow,
+.playing-next-copy small {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.playing-next-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.playing-next-countdown {
+  --countdown-size: 58px;
+  --countdown-progress: 1;
+  width: var(--countdown-size);
+  height: var(--countdown-size);
+  display: grid;
+  place-items: center;
+  grid-row: span 2;
+  color: #fff;
+  background:
+    linear-gradient(rgba(10, 10, 12, 0.88), rgba(10, 10, 12, 0.88)) padding-box,
+    conic-gradient(var(--brand) calc(var(--countdown-progress) * 1turn), rgba(255, 255, 255, 0.22) 0) border-box;
+  border: 4px solid transparent;
+  border-radius: 50%;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.playing-next-countdown:hover,
+.playing-next-countdown:focus-visible {
+  transform: scale(1.04);
+}
+
+.playing-next-now,
+.playing-next-dismiss {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.playing-next-now {
+  justify-self: start;
+  color: #111;
+  background: #fff;
+}
+
+.playing-next-dismiss {
+  justify-self: start;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.playing-next-now:hover,
+.playing-next-dismiss:hover,
+.playing-next-now:focus-visible,
+.playing-next-dismiss:focus-visible {
+  transform: translateY(-1px);
+}
+
 .player-controls-layer {
   position: absolute;
   left: 0;
@@ -2660,6 +2751,34 @@ label {
 
   .player-controls-layer {
     padding: 28px 10px max(9px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .playing-next-card {
+    right: 10px;
+    bottom: 74px;
+    width: min(360px, calc(100% - 20px));
+    padding: 11px;
+    gap: 8px;
+  }
+
+  .playing-next-copy strong {
+    font-size: 0.92rem;
+  }
+
+  .playing-next-copy small {
+    display: none;
+  }
+
+  .playing-next-countdown {
+    --countdown-size: 48px;
+    font-size: 0.94rem;
+  }
+
+  .playing-next-now,
+  .playing-next-dismiss {
+    min-height: 29px;
+    padding: 0 10px;
+    font-size: 0.76rem;
   }
 
   .player-shell:fullscreen .player-controls-layer,
