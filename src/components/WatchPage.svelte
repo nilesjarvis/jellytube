@@ -1397,7 +1397,7 @@
   }
 </script>
 
-<section class="watch-layout" class:theater-mode={theaterMode}>
+<section class="watch-layout" class:theater-mode={theaterMode} class:cinematic-watch={cinematicMode}>
   <div class="watch-left">
     <div class="watch-player-area">
       <button class="back-button" on:click={() => dispatch('back')}>

@@ -32,15 +32,15 @@ export type CinematicSampleState = {
 };
 
 const SAMPLE_READY_STATE = 2;
-const MIN_LUMA = 18;
-const MAX_LUMA = 186;
-const LOW_SATURATION_CUTOFF = 0.07;
-const SATURATION_BOOST = 1.14;
+const MIN_LUMA = 24;
+const MAX_LUMA = 212;
+const LOW_SATURATION_CUTOFF = 0.035;
+const SATURATION_BOOST = 1.75;
 const FALLBACK_PALETTE: CinematicGlowPalette = {
-  left: { red: 20, green: 22, blue: 28, alpha: 0.16 },
-  right: { red: 20, green: 22, blue: 28, alpha: 0.16 },
-  center: { red: 34, green: 36, blue: 42, alpha: 0.1 },
-  floor: { red: 4, green: 5, blue: 7, alpha: 0.22 }
+  left: { red: 20, green: 22, blue: 30, alpha: 0.42 },
+  right: { red: 20, green: 22, blue: 30, alpha: 0.42 },
+  center: { red: 34, green: 36, blue: 44, alpha: 0.26 },
+  floor: { red: 4, green: 5, blue: 8, alpha: 0.54 }
 };
 
 type Region = {
@@ -60,10 +60,10 @@ const REGIONS: Record<keyof CinematicGlowPalette, Region> = {
 
 export const CINEMATIC_SAMPLE_WIDTH = 32;
 export const CINEMATIC_SAMPLE_HEIGHT = 18;
-export const CINEMATIC_SAMPLE_INTERVAL_MS = 1800;
+export const CINEMATIC_SAMPLE_INTERVAL_MS = 900;
 export const CINEMATIC_FAILURE_LIMIT = 3;
-export const CINEMATIC_BLEND_AMOUNT = 0.32;
-export const CINEMATIC_STYLE_EPSILON = 2.5;
+export const CINEMATIC_BLEND_AMOUNT = 0.55;
+export const CINEMATIC_STYLE_EPSILON = 1.2;
 export const CINEMATIC_FALLBACK_COLORS = cinematicColorsFromPalette(FALLBACK_PALETTE);
 export const CINEMATIC_FALLBACK_STYLE = cinematicGlowStyle(CINEMATIC_FALLBACK_COLORS);
 
@@ -89,8 +89,8 @@ export function cinematicPaletteFromImageData(
   return {
     left: regionColor(data, width, height, REGIONS.left),
     right: regionColor(data, width, height, REGIONS.right),
-    center: scaleAlpha(regionColor(data, width, height, REGIONS.center), 0.68),
-    floor: scaleAlpha(regionColor(data, width, height, REGIONS.floor), 0.82)
+    center: scaleAlpha(regionColor(data, width, height, REGIONS.center), 0.92),
+    floor: scaleAlpha(regionColor(data, width, height, REGIONS.floor), 1.25)
   };
 }
 
@@ -187,28 +187,28 @@ function regionColor(data: Uint8ClampedArray, width: number, height: number, reg
 
 function rgbToGlow(red: number, green: number, blue: number) {
   const { h, s, l } = rgbToHsl(red, green, blue);
-  const boostedSaturation = s < LOW_SATURATION_CUTOFF ? 0 : Math.min(1, Math.max(0.24, s * SATURATION_BOOST));
+  const boostedSaturation = s < LOW_SATURATION_CUTOFF ? 0 : Math.min(1, Math.max(0.38, s * SATURATION_BOOST));
   const boundedLightness = Math.min(MAX_LUMA / 255, Math.max(MIN_LUMA / 255, l));
   const [r, g, b] = hslToRgb(h, boostedSaturation, boundedLightness);
-  const extremeLightnessPenalty = l < 0.08 || l > 0.92 ? 0.04 : 0;
+  const extremeLightnessPenalty = l < 0.06 || l > 0.94 ? 0.02 : 0;
   const alpha =
     boostedSaturation === 0
-      ? 0.14 - extremeLightnessPenalty
-      : 0.2 + Math.min(0.18, boostedSaturation * 0.14) - extremeLightnessPenalty;
+      ? 0.28 - extremeLightnessPenalty
+      : 0.34 + Math.min(0.3, boostedSaturation * 0.24) - extremeLightnessPenalty;
   return {
     red: r,
     green: g,
     blue: b,
-    alpha: Math.min(0.38, Math.max(0.1, alpha))
+    alpha: Math.min(0.68, Math.max(0.18, alpha))
   };
 }
 
 function pixelWeight(red: number, green: number, blue: number, alpha: number) {
   const { s, l } = rgbToHsl(red, green, blue);
-  const saturationWeight = 0.2 + Math.min(1, s * 1.4) * 0.8;
+  const saturationWeight = 0.12 + Math.min(1, s * 2) * 0.88;
   const middleDistance = Math.min(1, Math.abs(l - 0.52) / 0.52);
-  const midtoneWeight = 0.32 + (1 - middleDistance) * 0.68;
-  const extremeWeight = l < 0.04 || l > 0.96 ? 0.3 : l < 0.08 || l > 0.9 ? 0.55 : 1;
+  const midtoneWeight = 0.26 + (1 - middleDistance) * 0.74;
+  const extremeWeight = l < 0.035 || l > 0.965 ? 0.42 : l < 0.08 || l > 0.9 ? 0.68 : 1;
   return alpha * saturationWeight * midtoneWeight * extremeWeight;
 }
 

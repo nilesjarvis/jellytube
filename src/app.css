@@ -1423,6 +1423,28 @@ label {
   padding-top: 24px;
 }
 
+.watch-layout.cinematic-watch {
+  position: relative;
+  isolation: isolate;
+}
+
+.watch-layout.cinematic-watch::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 43% 25%, rgba(255, 255, 255, 0.03) 0 10%, transparent 34%),
+    rgba(0, 0, 0, 0.58);
+  transition: opacity 0.28s ease;
+}
+
+.watch-layout.cinematic-watch > * {
+  position: relative;
+  z-index: 1;
+}
+
 .back-button {
   display: none;
   align-items: center;
@@ -1438,10 +1460,10 @@ label {
   isolation: isolate;
   --player-aspect-padding: 56.25%;
   --player-video-fit: contain;
-  --cinematic-left: rgba(20, 22, 28, 0.16);
-  --cinematic-right: rgba(20, 22, 28, 0.16);
-  --cinematic-center: rgba(34, 36, 42, 0.1);
-  --cinematic-floor: rgba(4, 5, 7, 0.22);
+  --cinematic-left: rgba(20, 22, 30, 0.42);
+  --cinematic-right: rgba(20, 22, 30, 0.42);
+  --cinematic-center: rgba(34, 36, 44, 0.26);
+  --cinematic-floor: rgba(4, 5, 8, 0.54);
 }
 
 .player-frame.ultrawide-crop {
@@ -1450,42 +1472,34 @@ label {
 }
 
 .cinematic-glow {
-  position: absolute;
-  inset: -46px -58px -72px;
+  position: fixed;
+  inset: -18vmax;
   z-index: -1;
   pointer-events: none;
   opacity: 0;
-  border-radius: 54px;
+  border-radius: 0;
   background:
-    radial-gradient(ellipse at 9% 48%, var(--cinematic-left) 0 16%, transparent 46%),
-    radial-gradient(ellipse at 91% 48%, var(--cinematic-right) 0 16%, transparent 46%),
-    radial-gradient(ellipse at 50% 38%, var(--cinematic-center) 0 10%, transparent 38%),
-    radial-gradient(ellipse at 50% 90%, var(--cinematic-floor) 0 18%, transparent 54%);
-  filter: blur(28px) saturate(1.14);
+    radial-gradient(ellipse at 18% 42%, var(--cinematic-left) 0 12%, transparent 42%),
+    radial-gradient(ellipse at 82% 42%, var(--cinematic-right) 0 12%, transparent 42%),
+    radial-gradient(ellipse at 50% 30%, var(--cinematic-center) 0 16%, transparent 48%),
+    radial-gradient(ellipse at 50% 80%, var(--cinematic-floor) 0 20%, transparent 56%);
+  filter: blur(70px) saturate(1.75) brightness(1.12);
   transform: translate3d(0, 0, 0) scale(1.02);
   transition:
-    opacity 0.28s ease,
-    background 0.9s ease;
-  -webkit-mask-image: radial-gradient(
-    ellipse at 50% 54%,
-    #000 0 30%,
-    rgba(0, 0, 0, 0.78) 49%,
-    transparent 72%
-  );
-  mask-image: radial-gradient(
-    ellipse at 50% 54%,
-    #000 0 30%,
-    rgba(0, 0, 0, 0.78) 49%,
-    transparent 72%
-  );
+    opacity 0.22s ease,
+    background 0.55s ease;
+}
+
+.player-frame.cinematic.cinematic-ready {
+  filter: drop-shadow(0 32px 90px rgba(0, 0, 0, 0.72));
 }
 
 .player-frame.cinematic.cinematic-ready .cinematic-glow {
-  opacity: 0.66;
+  opacity: 0.96;
 }
 
 :root[data-theme='light'] .player-frame.cinematic.cinematic-ready .cinematic-glow {
-  opacity: 0.42;
+  opacity: 0.82;
 }
 
 .player-shell {

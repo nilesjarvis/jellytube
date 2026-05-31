@@ -699,8 +699,8 @@ test('cinematic glow bounds very dark and bright frames', () => {
   const blackFrame = new Uint8ClampedArray([0, 0, 0, 255, 0, 0, 0, 255]);
   const whiteFrame = new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255]);
 
-  assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(18, 18, 18, 0\.07\)/);
-  assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(186, 186, 186, 0\.07\)/);
+  assert.match(cinematicColorsFromImageData(blackFrame, 2, 1).center, /rgba\(24, 24, 24, 0\.24\)/);
+  assert.match(cinematicColorsFromImageData(whiteFrame, 2, 1).center, /rgba\(212, 212, 212, 0\.24\)/);
 });
 
 test('cinematic glow blends large color changes and skips tiny style updates', () => {
@@ -724,7 +724,7 @@ test('cinematic glow blends large color changes and skips tiny style updates', (
   assert.equal(
     cinematicPalettesAreClose(previous, {
       ...previous,
-      left: { ...previous.left, red: previous.left.red + 1.5, alpha: previous.left.alpha + 0.004 }
+      left: { ...previous.left, red: previous.left.red + 0.8, alpha: previous.left.alpha + 0.003 }
     }),
     true
   );
