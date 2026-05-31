@@ -1469,7 +1469,8 @@
       <Library size={21} />
       <span>{session.selectedLibraries.length} libs</span>
     </button>
-    <button on:click={() => dispatch('logout')}>
+    <div class="sidebar-spacer"></div>
+    <button class="logout-btn" on:click={() => dispatch('logout')}>
       <LogOut size={20} />
       <span>Sign out</span>
     </button>
