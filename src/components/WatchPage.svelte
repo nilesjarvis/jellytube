@@ -35,6 +35,7 @@
     PLAYING_NEXT_COUNTDOWN_SECONDS,
     countdownSecondsRemaining,
     episodePlayingNextItem,
+    shouldAdvancePlayingNext,
     shouldShowPlayingNext
   } from '../lib/playingNext';
   import {
@@ -184,6 +185,7 @@
   let episodeStrip: HTMLDivElement | null = null;
   let scrolledEpisodeKey = '';
   let episodeScrollFrame = 0;
+  let playingNextAdvanceKey = '';
 
   $: currentEpisodeCode = episodeCode(detailedItem);
   $: progress = playbackProgress(detailedItem);
@@ -324,6 +326,7 @@
     currentTime = 0;
     bufferedPercent = 0;
     duration = 0;
+    playingNextAdvanceKey = '';
     resetCinematicGlow();
     await stopPlayback();
     playRequested = autoPlay;
@@ -861,6 +864,7 @@
     isMuted = video?.muted ?? false;
     volume = video?.volume ?? volume;
     syncBuffered();
+    maybeAdvancePlayingNextBeforeEnd();
   }
 
   function handleVolumeChange() {
@@ -945,6 +949,30 @@
   }
 
   function playNextEpisodeNow() {
+    advanceToPlayingNext();
+  }
+
+  function maybeAdvancePlayingNextBeforeEnd() {
+    if (
+      !shouldAdvancePlayingNext({
+        currentTime,
+        duration: durationSeconds,
+        nextItem: episodePlayingNext,
+        autoplayNext: autoplayNext && !loopMusicVideo
+      }) ||
+      !episodePlayingNext
+    ) {
+      return;
+    }
+
+    const advanceKey = `${item.Id}:${episodePlayingNext.Id}`;
+    if (playingNextAdvanceKey === advanceKey) return;
+    playingNextAdvanceKey = advanceKey;
+    dispatch('finished', detailedItem);
+    advanceToPlayingNext();
+  }
+
+  function advanceToPlayingNext() {
     if (!episodePlayingNext) return;
     if (hasNextQueued && queue[queueIndex + 1]?.Id === episodePlayingNext.Id) {
       dispatch('next');

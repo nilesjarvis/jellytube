@@ -41,6 +41,7 @@ import { showProgressForEpisodes } from '../src/lib/showProgress';
 import {
   countdownSecondsRemaining,
   episodePlayingNextItem,
+  shouldAdvancePlayingNext,
   shouldShowPlayingNext
 } from '../src/lib/playingNext';
 import {
@@ -860,9 +861,13 @@ test('playing next selects the next episode from the active season before the co
   });
 
   assert.equal(episodePlayingNextItem(current, [current, next])?.Id, 's01e03');
-  assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: next, autoplayNext: true }), true);
-  assert.equal(shouldShowPlayingNext({ currentTime: 1080, duration: 1200, nextItem: next, autoplayNext: true }), false);
-  assert.equal(countdownSecondsRemaining(1170, 1200), 30);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1160, duration: 1200, nextItem: next, autoplayNext: true }), true);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1159, duration: 1200, nextItem: next, autoplayNext: true }), false);
+  assert.equal(shouldShowPlayingNext({ currentTime: 1190, duration: 1200, nextItem: next, autoplayNext: true }), false);
+  assert.equal(countdownSecondsRemaining(1160, 1200), 30);
+  assert.equal(countdownSecondsRemaining(1170, 1200), 20);
+  assert.equal(shouldAdvancePlayingNext({ currentTime: 1189, duration: 1200, nextItem: next, autoplayNext: true }), false);
+  assert.equal(shouldAdvancePlayingNext({ currentTime: 1190, duration: 1200, nextItem: next, autoplayNext: true }), true);
 });
 
 test('playing next stays hidden without autoplay, without a next episode, or after the video ended', () => {
@@ -879,6 +884,9 @@ test('playing next stays hidden without autoplay, without a next episode, or aft
   assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: current, autoplayNext: false }), false);
   assert.equal(shouldShowPlayingNext({ currentTime: 1170, duration: 1200, nextItem: null, autoplayNext: true }), false);
   assert.equal(shouldShowPlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
+  assert.equal(shouldAdvancePlayingNext({ currentTime: 1190, duration: 1200, nextItem: current, autoplayNext: false }), false);
+  assert.equal(shouldAdvancePlayingNext({ currentTime: 1190, duration: 1200, nextItem: null, autoplayNext: true }), false);
+  assert.equal(shouldAdvancePlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
 });
 
 test('search suggestions only fetch for supported routes and useful queries', () => {
