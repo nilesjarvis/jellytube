@@ -236,6 +236,7 @@
     ? displayTitle(episodePlayingNext, { context: 'series' })
     : '';
   $: playingNextCode = episodePlayingNext ? episodeCode(episodePlayingNext) : '';
+  $: playingNextThumbnailUrl = episodePlayingNext ? client.getImageUrl(episodePlayingNext, 320) : '';
   $: cinematicReady = cinematicMode && cinematicAvailability === 'dynamic';
   $: cinematicControlLabel =
     cinematicMode && cinematicAvailability === 'unavailable'
@@ -1542,15 +1543,28 @@
 
           {#if showPlayingNextOverlay && episodePlayingNext}
             <div class="playing-next-card" aria-live="polite">
-              <div class="playing-next-copy">
-                <span class="playing-next-eyebrow">Playing next in</span>
-                <strong>{playingNextTitle}</strong>
-                <small>
-                  {#if playingNextCode}
-                    {playingNextCode} ·
+              <div class="playing-next-info">
+                <button
+                  class="playing-next-thumb"
+                  aria-label={`Play ${playingNextTitle || 'next episode'} now`}
+                  on:click|stopPropagation={playNextEpisodeNow}
+                >
+                  {#if playingNextThumbnailUrl}
+                    <img src={playingNextThumbnailUrl} alt="" loading="lazy" />
+                  {:else}
+                    <span>{playingNextTitle.slice(0, 1) || '▶'}</span>
                   {/if}
-                  {episodeSeriesTitle || queueTitle || episodePlayingNext.SeriesName || 'Next episode'}
-                </small>
+                </button>
+                <div class="playing-next-copy">
+                  <span class="playing-next-eyebrow">Playing next in</span>
+                  <strong>{playingNextTitle}</strong>
+                  <small>
+                    {#if playingNextCode}
+                      {playingNextCode} ·
+                    {/if}
+                    {episodeSeriesTitle || queueTitle || episodePlayingNext.SeriesName || 'Next episode'}
+                  </small>
+                </div>
               </div>
               <button
                 class="playing-next-countdown"
