@@ -2,7 +2,7 @@
 
 ## Current Feature Surface
 
-- Onboarding authenticates with Jellyfin, checks for an admin user, verifies the Playback Reporting plugin, and lets the user select supported libraries.
+- Onboarding authenticates with Jellyfin, checks that media playback is allowed, and lets the user select supported libraries without requiring the Playback Reporting plugin.
 - Home loads a bounded Jellyfin item pool for fast startup, then builds continue-watching, recommended, new, and replay sections.
 - Search combines Jellyfin item search, Jellyfin series search, cached full-series episodes, and local metadata ranking.
 - Watch uses Jellyfin playback info, direct play when the browser can support it, HLS fallback when needed, Jellyfin playback reporting events, resume points, scrubbing, volume persistence, fullscreen, autoplay-next, and keyboard shortcuts.

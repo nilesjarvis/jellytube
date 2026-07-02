@@ -11,6 +11,7 @@
     TriangleAlert
   } from 'lucide-svelte';
   import {
+    assertUserCanPlayMedia,
     JellyfinClient,
     JellyfinError,
     isEligibleLibrary,
@@ -48,17 +49,9 @@
       info = await anonymousClient.getPublicInfo();
       const auth = await anonymousClient.authenticate(username.trim(), password);
 
-      if (!auth.User.Policy?.IsAdministrator) {
-        throw new JellyfinError('JellyTube requires a Jellyfin admin account so Playback Reporting history is available.');
-      }
+      assertUserCanPlayMedia(auth.User);
 
       const client = anonymousClient.withAuth(auth.AccessToken, auth.User.Id);
-      const plugins = await client.getPlugins();
-      const playbackReporting = plugins.find((plugin) => plugin.Name === 'Playback Reporting');
-      if (!playbackReporting || playbackReporting.Status !== 'Active') {
-        throw new JellyfinError('Playback Reporting must be installed and active on this Jellyfin server.');
-      }
-
       const views = await client.getViews(auth.User.Id);
       libraries = views.Items.filter(isEligibleLibrary);
       if (libraries.length === 0) {
@@ -168,8 +161,8 @@
       </form>
 
       <div class="requirements">
-        <div><CheckCircle2 size={17} /> Admin Jellyfin account required</div>
-        <div><CheckCircle2 size={17} /> Playback Reporting plugin required</div>
+        <div><CheckCircle2 size={17} /> Jellyfin account with media playback access</div>
+        <div><CheckCircle2 size={17} /> Playback Reporting plugin optional</div>
         <div><CheckCircle2 size={17} /> Select video, movie, or music video libraries</div>
       </div>
     {:else}

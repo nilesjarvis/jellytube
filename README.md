@@ -80,7 +80,7 @@ npm run dev
 BIDI_PORT=9226 \
 JELLYTUBE_APP_URL=http://127.0.0.1:5173/ \
 JELLYTUBE_SERVER_URL=http://your-jellyfin.example \
-JELLYTUBE_USERNAME=your-admin-user \
+JELLYTUBE_USERNAME=your-jellyfin-user \
 JELLYTUBE_PASSWORD=your-password \
 SCREENSHOT_DIR=./screenshots \
 node scripts/bidi-smoke.mjs
@@ -92,8 +92,8 @@ The smoke script requires a browser exposing a WebDriver BiDi endpoint on `BIDI_
 
 - Node.js 20+
 - A Jellyfin server reachable from the browser running JellyTube
-- An admin Jellyfin account for onboarding validation
-- Jellyfin Playback Reporting plugin installed and active
+- A Jellyfin account with media playback access
+- Jellyfin Playback Reporting plugin optional; JellyTube falls back to Jellyfin item resume/watched data without it
 - At least one supported Jellyfin library:
   - **Shows** for episodic YouTube archives
   - **Home Videos & Photos** for general video archives
@@ -180,7 +180,7 @@ npm test
 ## First-Run Flow
 
 1. Enter the Jellyfin server URL, username, and password.
-2. JellyTube validates that the account can administer the server and that Playback Reporting is available.
+2. JellyTube validates that the account can play media and can access at least one supported library.
 3. Select one or more supported Jellyfin libraries.
 4. JellyTube saves the server URL, access token, user ID, selected libraries, and theme preference in browser local storage.
 5. After onboarding, media and API requests are made directly from the browser to Jellyfin.

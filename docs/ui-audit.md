@@ -74,7 +74,7 @@ The audit uses the user stories in `docs/ui-user-stories.md`, current Jellyfin A
 
 ## Library Settings And Onboarding
 
-- Onboarding fields: Keep server URL, username, password, admin/plugin validation, and library selection.
+- Onboarding fields: Keep server URL, username, password, media playback validation, optional Playback Reporting history, and library selection.
 - Library cards: Keep library type and item-type metadata.
 - Settings page: Keep multi-library selection and save action.
 - Production readiness: Removed the hardcoded test server default from onboarding.

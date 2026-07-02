@@ -4,7 +4,7 @@ import type {
   JellyfinItem,
   JellyfinLibrary,
   JellyfinMediaSource,
-  JellyfinPlugin,
+  JellyfinUser,
   LibraryResponse,
   PlaybackActivity,
   PlaybackInfo,
@@ -31,6 +31,12 @@ export function normalizeServerUrl(input: string) {
     ? input.trim()
     : `http://${input.trim()}`;
   return withProtocol.replace(/\/+$/, '');
+}
+
+export function assertUserCanPlayMedia(user: JellyfinUser) {
+  if (user.Policy?.EnableMediaPlayback === false) {
+    throw new JellyfinError('This Jellyfin account is not allowed to play media.');
+  }
 }
 
 export function getDeviceId() {
@@ -192,10 +198,6 @@ export class JellyfinClient {
       undefined,
       false
     );
-  }
-
-  async getPlugins() {
-    return this.get<JellyfinPlugin[]>('/Plugins');
   }
 
   async getViews(userId: string) {

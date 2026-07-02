@@ -24,12 +24,6 @@ export type PublicServerInfo = {
   StartupWizardCompleted?: boolean;
 };
 
-export type JellyfinPlugin = {
-  Name: string;
-  Version?: string;
-  Status?: string;
-};
-
 export type JellyfinLibrary = {
   Id: string;
   Name: string;

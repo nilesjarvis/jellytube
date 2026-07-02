@@ -13,6 +13,7 @@ import {
   isHoverPreviewEligible,
   previewHlsOptions
 } from '../src/lib/hoverPreview';
+import { assertUserCanPlayMedia } from '../src/lib/jellyfin';
 import {
   channelName,
   compactMeta,
@@ -49,7 +50,7 @@ import {
   shouldFetchSearchSuggestions,
   suggestionNameLabel
 } from '../src/lib/searchSuggestions';
-import type { JellyfinItem } from '../src/lib/types';
+import type { JellyfinItem, JellyfinUser } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
   return {
@@ -57,6 +58,29 @@ function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name
     ...overrides
   };
 }
+
+test('Jellyfin user playback guard allows non-admin users when playback is not disabled', () => {
+  const allowedUsers: JellyfinUser[] = [
+    { Id: 'allowed', Name: 'Allowed viewer', Policy: { IsAdministrator: false, EnableMediaPlayback: true } },
+    { Id: 'unspecified', Name: 'Default viewer', Policy: { IsAdministrator: false } }
+  ];
+
+  for (const user of allowedUsers) {
+    assert.doesNotThrow(() => assertUserCanPlayMedia(user));
+  }
+});
+
+test('Jellyfin user playback guard rejects users with media playback disabled', () => {
+  assert.throws(
+    () => assertUserCanPlayMedia({
+      Id: 'disabled',
+      Name: 'Disabled viewer',
+      Policy: { IsAdministrator: true, EnableMediaPlayback: false }
+    }),
+    (error) => error instanceof Error
+      && error.message === 'This Jellyfin account is not allowed to play media.'
+  );
+});
 
 test('content dates prefer Jellyfin PremiereDate over import DateCreated', () => {
   const snl = item({
