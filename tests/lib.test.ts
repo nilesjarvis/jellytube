@@ -13,7 +13,8 @@ import {
   isHoverPreviewEligible,
   previewHlsOptions
 } from '../src/lib/hoverPreview';
-import { assertUserCanPlayMedia } from '../src/lib/jellyfin';
+import { assertUserCanPlayMedia, browserDeviceProfile } from '../src/lib/jellyfin';
+import { canDirectPlaySource, detectDirectPlayCodecs } from '../src/lib/codecSupport';
 import {
   channelName,
   compactMeta,
@@ -972,4 +973,69 @@ test('search suggestion scheduler debounces stale queries and clears unsupported
   });
 
   assert.deepEqual(clears, [1]);
+});
+
+test('detectDirectPlayCodecs reflects what the browser can decode', () => {
+  const modern = {
+    canPlayType: (mime: string) => (/av01|avc1|vp09|vp9|vp8|hvc1|hev1/.test(mime) ? 'probably' : '')
+  };
+  const legacy = {
+    canPlayType: (mime: string) =>
+      /avc1|vp09|vp9|vp8/.test(mime) && !/av01|hvc1|hev1/.test(mime) ? 'probably' : ''
+  };
+
+  assert.deepEqual(detectDirectPlayCodecs(modern), {
+    h264: true,
+    hevc: true,
+    vp8: true,
+    vp9: true,
+    av1: true
+  });
+  assert.deepEqual(detectDirectPlayCodecs(legacy), {
+    h264: true,
+    hevc: false,
+    vp8: true,
+    vp9: true,
+    av1: false
+  });
+});
+
+test('device profile advertises av1/hevc direct play only when the browser supports them', () => {
+  const modernCodecs = { h264: true, hevc: true, vp8: true, vp9: true, av1: true };
+  const legacyCodecs = { h264: true, hevc: false, vp8: true, vp9: true, av1: false };
+
+  const modernVideoCodecs = browserDeviceProfile(140_000_000, modernCodecs)
+    .DirectPlayProfiles.map((profile) => profile.VideoCodec)
+    .join('|');
+  assert.ok(modernVideoCodecs.includes('av1'), 'av1 should be advertised for a capable browser');
+  assert.ok(modernVideoCodecs.includes('hevc'), 'hevc should be advertised for a capable browser');
+
+  const legacyProfile = browserDeviceProfile(140_000_000, legacyCodecs);
+  const legacyVideoCodecs = legacyProfile.DirectPlayProfiles.map((profile) => profile.VideoCodec).join('|');
+  assert.ok(!legacyVideoCodecs.includes('av1'), 'av1 must not be advertised without decode support');
+  assert.ok(!legacyVideoCodecs.includes('hevc'), 'hevc must not be advertised without decode support');
+  // Transcoding stays available as the fallback for anything not direct-playable.
+  assert.ok(legacyProfile.TranscodingProfiles.length > 0);
+});
+
+test('canDirectPlaySource direct-plays av1 only on browsers that decode it', () => {
+  const av1Webm = {
+    Id: 'source',
+    Container: 'webm',
+    SupportsDirectPlay: true,
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      { Type: 'Video' as const, Codec: 'av1' },
+      { Type: 'Audio' as const, Codec: 'opus', Index: 1 }
+    ]
+  };
+  const av1Capable = { canPlayType: (mime: string) => (mime.includes('av01') ? 'probably' : '') };
+  const av1Incapable = {
+    canPlayType: (mime: string) => (mime.includes('webm') && !mime.includes('av01') ? 'probably' : '')
+  };
+
+  assert.equal(canDirectPlaySource(av1Webm, av1Capable), true);
+  assert.equal(canDirectPlaySource(av1Webm, av1Incapable), false);
+  // A source Jellyfin already refused for direct play is never forced.
+  assert.equal(canDirectPlaySource({ ...av1Webm, SupportsDirectPlay: false }, av1Capable), false);
 });

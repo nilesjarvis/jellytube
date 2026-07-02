@@ -11,6 +11,7 @@ import type {
   PublicServerInfo
 } from './types';
 import type { ContentKind, SelectedLibrary } from './types';
+import { detectDirectPlayCodecs, type DirectPlayCodecs } from './codecSupport';
 
 const CLIENT_NAME = 'JellyTube';
 const CLIENT_VERSION = '0.1.0';
@@ -497,13 +498,44 @@ export type PlaybackEventPayload = {
   SubtitleStreamIndex?: number;
 };
 
-function browserDeviceProfile(maxStreamingBitrate = 140_000_000) {
-  return {
-    MaxStreamingBitrate: maxStreamingBitrate,
-    DirectPlayProfiles: [
+function directPlayProfilesFor(codecs: DirectPlayCodecs) {
+  const profiles: Array<{ Container: string; Type: 'Video'; VideoCodec: string; AudioCodec: string }> = [];
+
+  const mp4Codecs = [codecs.h264 ? 'h264' : '', codecs.hevc ? 'hevc' : ''].filter(Boolean).join(',');
+  if (mp4Codecs) {
+    profiles.push({ Container: 'mp4,m4v', Type: 'Video', VideoCodec: mp4Codecs, AudioCodec: 'aac,mp3' });
+  }
+  // AV1 in mp4 may carry opus/flac audio in addition to the usual aac/mp3.
+  if (codecs.av1) {
+    profiles.push({ Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'av1', AudioCodec: 'aac,mp3,opus,flac' });
+  }
+
+  const webmCodecs = [codecs.vp8 ? 'vp8' : '', codecs.vp9 ? 'vp9' : '', codecs.av1 ? 'av1' : '']
+    .filter(Boolean)
+    .join(',');
+  if (webmCodecs) {
+    profiles.push({ Container: 'webm', Type: 'Video', VideoCodec: webmCodecs, AudioCodec: 'vorbis,opus' });
+  }
+
+  // If capability detection yields nothing (e.g. no DOM), fall back to the historically
+  // safe baseline so playback still works via direct play or the transcode profile.
+  if (profiles.length === 0) {
+    profiles.push(
       { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3' },
       { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9', AudioCodec: 'vorbis,opus' }
-    ],
+    );
+  }
+
+  return profiles;
+}
+
+export function browserDeviceProfile(
+  maxStreamingBitrate = 140_000_000,
+  codecs: DirectPlayCodecs = detectDirectPlayCodecs()
+) {
+  return {
+    MaxStreamingBitrate: maxStreamingBitrate,
+    DirectPlayProfiles: directPlayProfilesFor(codecs),
     TranscodingProfiles: [
       {
         Container: 'ts',

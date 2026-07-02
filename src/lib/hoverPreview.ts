@@ -1,5 +1,8 @@
+import { canDirectPlaySource, directStreamExtension, type VideoProbe } from './codecSupport';
 import type { JellyfinClient } from './jellyfin';
 import type { JellyfinItem, JellyfinMediaSource } from './types';
+
+export { directStreamExtension };
 
 export const HOVER_PREVIEW_DELAY_MS = 300;
 export const HOVER_PREVIEW_MAX_CACHE = 48;
@@ -54,47 +57,12 @@ export function getCachedPreviewPlaybackInfo(client: JellyfinClient, itemId: str
   return request;
 }
 
-export function directStreamExtension(source: JellyfinMediaSource) {
-  const tokens = `${source.Container ?? ''}`
-    .toLowerCase()
-    .split(',')
-    .map((token) => token.trim());
-  if (tokens.includes('mp4') || tokens.includes('m4v')) return 'mp4';
-  if (tokens.includes('webm')) return 'webm';
-  return '';
-}
-
 export function canDirectPreview(
   source: JellyfinMediaSource,
-  video: Pick<HTMLVideoElement, 'canPlayType'>,
+  video: VideoProbe,
   extension = directStreamExtension(source)
 ) {
-  if (source.SupportsDirectPlay === false || !extension) return false;
-  const videoCodec = normalizeCodec(source.MediaStreams?.find((stream) => stream.Type === 'Video')?.Codec);
-  const audioCodec = normalizeCodec(source.MediaStreams?.find((stream) => stream.Type === 'Audio')?.Codec);
-
-  if (extension === 'mp4') {
-    if (videoCodec === 'h264' && isMp4Audio(audioCodec)) {
-      return Boolean(
-        video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"') || video.canPlayType('video/mp4')
-      );
-    }
-    if (videoCodec === 'hevc' && isMp4Audio(audioCodec)) {
-      return Boolean(video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"'));
-    }
-    return !videoCodec && Boolean(video.canPlayType('video/mp4'));
-  }
-
-  if (extension === 'webm') {
-    if (videoCodec !== 'vp8' && videoCodec !== 'vp9' && videoCodec !== 'av1') return false;
-    if (audioCodec && audioCodec !== 'opus' && audioCodec !== 'vorbis') return false;
-    if (!videoCodec) return Boolean(video.canPlayType('video/webm'));
-    const videoCodecString = videoCodec === 'av1' ? 'av01.0.05M.08' : videoCodec;
-    const codecString = `${videoCodecString}, ${audioCodec || 'opus'}`;
-    return Boolean(video.canPlayType(`video/webm; codecs="${codecString}"`));
-  }
-
-  return false;
+  return canDirectPlaySource(source, video, extension);
 }
 
 export function isDirectPreviewLightweight(source: JellyfinMediaSource) {
@@ -134,23 +102,4 @@ function trimPreviewCache() {
     if (!oldest) return;
     previewPlaybackInfoCache.delete(oldest);
   }
-}
-
-function normalizeCodec(codec?: string) {
-  const value = (codec ?? '').toLowerCase();
-  if (!value) return '';
-  if (value.includes('h264') || value.includes('avc')) return 'h264';
-  if (value.includes('h265') || value.includes('hevc')) return 'hevc';
-  if (value.includes('vp9')) return 'vp9';
-  if (value.includes('vp8')) return 'vp8';
-  if (value.includes('av1') || value.includes('av01')) return 'av1';
-  if (value.includes('aac') || value.includes('mp4a')) return 'aac';
-  if (value.includes('mp3')) return 'mp3';
-  if (value.includes('opus')) return 'opus';
-  if (value.includes('vorbis')) return 'vorbis';
-  return value;
-}
-
-function isMp4Audio(codec: string) {
-  return !codec || codec === 'aac' || codec === 'mp3';
 }
