@@ -2304,6 +2304,27 @@ label {
   font-size: 3rem;
   font-weight: 800;
 }
+.actor-page,
+.actor-work-section {
+  min-width: 0;
+}
+
+.actor-hero {
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  min-height: 320px;
+  align-items: center;
+}
+
+.actor-artwork {
+  align-self: center;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.actor-hero-copy {
+  align-content: center;
+}
+
 
 .show-hero-copy {
   min-width: 0;
@@ -2834,6 +2855,18 @@ label {
   .show-artwork {
     width: min(46vw, 152px);
   }
+  .actor-hero {
+    align-items: start;
+  }
+
+  .actor-artwork {
+    width: min(52vw, 168px);
+  }
+
+  .actor-hero-copy {
+    align-content: start;
+  }
+
 
   .show-hero-copy h1 {
     font-size: 2rem;

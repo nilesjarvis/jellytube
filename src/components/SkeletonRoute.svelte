@@ -87,6 +87,19 @@
         </div>
         <SkeletonLibraryGrid count={6} />
       </section>
+    {:else if route === 'actor'}
+      <section class="show-hero actor-hero skeleton-show-hero">
+        <span class="skeleton-box skeleton-show-artwork actor-artwork"></span>
+        <span class="show-hero-copy skeleton-show-copy">
+          <span class="skeleton-line skeleton-pill-line"></span>
+          <span class="skeleton-line skeleton-feature-title"></span>
+          <span class="skeleton-line skeleton-line-short"></span>
+          <span class="skeleton-line skeleton-line-wide"></span>
+        </span>
+      </section>
+      <SkeletonFeedSection poster grid="movie" count={8} />
+      <SkeletonFeedSection poster grid="movie" count={6} />
+      <SkeletonFeedSection count={8} />
     {:else if route === 'channel'}
       <section class="show-hero skeleton-show-hero">
         <span class="skeleton-box skeleton-show-artwork"></span>

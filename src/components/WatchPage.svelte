@@ -59,8 +59,10 @@
     type PlaybackQualityId,
     type PlaybackQualityOption
   } from '../lib/playbackQuality';
-  import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream } from '../lib/types';
+  import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
   import { canDirectPlaySource, directStreamExtension } from '../lib/codecSupport';
+  import { actorsForItem } from '../lib/people';
+  import ActorCast from './ActorCast.svelte';
   import VideoCard from './VideoCard.svelte';
 
   export let client: JellyfinClient;
@@ -80,6 +82,7 @@
     episodeSeason: number;
     back: void;
     channel: string;
+    actor: JellyfinPerson;
     movies: void;
     next: void;
     finished: JellyfinItem;
@@ -213,6 +216,7 @@
   );
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
   $: isMusicVideo = detailedItem.Type === 'MusicVideo' || detailedItem.contentKind === 'musicVideo';
+  $: cast = detailedItem.Type === 'Movie' || detailedItem.Type === 'Episode' ? actorsForItem(detailedItem) : [];
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
   $: title = displayTitle(detailedItem, {
     context: detailedItem.Type === 'Episode' ? 'series' : isMovie ? 'feed' : 'channel',
@@ -1792,6 +1796,8 @@
         </div>
       </section>
     {/if}
+
+    <ActorCast {client} actors={cast} on:select={(event) => dispatch('actor', event.detail.actor)} />
   </div>
   </div>
 

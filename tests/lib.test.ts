@@ -13,8 +13,9 @@ import {
   isHoverPreviewEligible,
   previewHlsOptions
 } from '../src/lib/hoverPreview';
-import { assertUserCanPlayMedia, browserDeviceProfile } from '../src/lib/jellyfin';
+import { assertUserCanPlayMedia, browserDeviceProfile, JellyfinClient } from '../src/lib/jellyfin';
 import { canDirectPlaySource, detectDirectPlayCodecs } from '../src/lib/codecSupport';
+import { actorsForItem } from '../src/lib/people';
 import {
   channelName,
   compactMeta,
@@ -1038,4 +1039,92 @@ test('canDirectPlaySource direct-plays av1 only on browsers that decode it', () 
   assert.equal(canDirectPlaySource(av1Webm, av1Incapable), false);
   // A source Jellyfin already refused for direct play is never forced.
   assert.equal(canDirectPlaySource({ ...av1Webm, SupportsDirectPlay: false }, av1Capable), false);
+});
+
+test('actor extraction keeps valid cast in server order and deduplicates people', () => {
+  const lead = { Id: 'actor-1', Name: 'Avery Example', Type: 'Actor', Role: 'Lead' };
+  assert.deepEqual(
+    actorsForItem(item({
+      Id: 'movie',
+      Name: 'Movie',
+      Type: 'Movie',
+      People: [
+        lead,
+        { Id: 'director-1', Name: 'Drew Director', Type: 'Director' },
+        { ...lead, Role: 'Duplicate credit' },
+        { Id: 'actor-2', Name: '', Type: 'Actor' },
+        { Name: 'Missing identifier', Type: 'Actor' },
+        { Id: 'actor-3', Name: 'Morgan Guest', Type: 'Actor' }
+      ]
+    })),
+    [lead, { Id: 'actor-3', Name: 'Morgan Guest', Type: 'Actor' }]
+  );
+  assert.deepEqual(actorsForItem(item({ Id: 'empty', Name: 'Empty' })), []);
+});
+
+test('Jellyfin actor requests keep People detail-only and encode PersonIds', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  const requests: string[] = [];
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: () => 'test-device',
+      setItem: () => undefined
+    }
+  });
+  globalThis.fetch = async (input) => {
+    requests.push(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+    return new Response(JSON.stringify({ Items: [], TotalRecordCount: 0, Id: 'item', Name: 'Item', Type: 'Movie' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+
+  try {
+    const client = new JellyfinClient('http://jellyfin.test', 'access-token', 'user-1');
+    await client.getItems({
+      parentId: 'library-1',
+      itemTypes: 'Movie,Series,Episode',
+      personIds: 'person-1',
+      limit: 240,
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending'
+    });
+    await client.getItems({ parentId: 'library-1' });
+    await client.getItem('movie-1');
+
+    const actorWorkUrl = new URL(requests[0]);
+    assert.equal(actorWorkUrl.searchParams.get('ParentId'), 'library-1');
+    assert.equal(actorWorkUrl.searchParams.get('Recursive'), 'true');
+    assert.equal(actorWorkUrl.searchParams.get('IncludeItemTypes'), 'Movie,Series,Episode');
+    assert.equal(actorWorkUrl.searchParams.get('PersonIds'), 'person-1');
+    assert.equal(actorWorkUrl.searchParams.get('Limit'), '240');
+    assert.equal(actorWorkUrl.searchParams.get('SortBy'), 'PremiereDate');
+    assert.ok(!actorWorkUrl.searchParams.get('Fields')?.split(',').includes('People'));
+
+    const normalListUrl = new URL(requests[1]);
+    assert.equal(normalListUrl.searchParams.has('PersonIds'), false);
+    assert.ok(!normalListUrl.searchParams.get('Fields')?.split(',').includes('People'));
+
+    const detailUrl = new URL(requests[2]);
+    assert.equal(detailUrl.pathname, '/Users/user-1/Items/movie-1');
+    assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('People'));
+    assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('MediaSources'));
+
+    assert.equal(client.getPersonImageUrl({ Id: 'person-1', Name: 'No image' }), '');
+    assert.equal(client.getPersonImageUrl({ Name: 'No id', PrimaryImageTag: 'tag' }), '');
+    const imageUrl = new URL(client.getPersonImageUrl({ Id: 'person-1', PrimaryImageTag: 'tag' }, 320));
+    assert.equal(imageUrl.pathname, '/Items/person-1/Images/Primary');
+    assert.equal(imageUrl.searchParams.get('fillWidth'), '320');
+    assert.equal(imageUrl.searchParams.get('quality'), '90');
+    assert.equal(imageUrl.searchParams.get('api_key'), 'access-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLocalStorage === undefined) {
+      delete (globalThis as { localStorage?: Storage }).localStorage;
+    } else {
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: originalLocalStorage });
+    }
+  }
 });

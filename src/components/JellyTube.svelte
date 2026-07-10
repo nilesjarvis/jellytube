@@ -64,6 +64,7 @@
     AppSession,
     ContentKind,
     JellyfinItem,
+    JellyfinPerson,
     PlaybackActivity,
     SelectedLibrary
   } from '../lib/types';
@@ -74,7 +75,7 @@
 
   export let session: AppSession;
 
-  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'shows' | 'subscriptions' | 'channel' | 'libraries';
+  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
   type UrlRoute =
@@ -86,6 +87,7 @@
     | { view: 'libraries' }
     | { view: 'search'; query: string }
     | { view: 'channel'; channel: string }
+    | { view: 'actor'; personId: string }
     | { view: 'watch'; itemId: string; list?: 'mix'; channel?: string };
   type HistoryMode = 'push' | 'replace' | 'none';
   const WATCH_RECOMMENDATION_LIMIT = 28;
@@ -112,12 +114,15 @@
   let selectedChannelSeason = 0;
   let shouldAutoplay = false;
   let selectedChannel = '';
+  let selectedActor: JellyfinItem | null = null;
+  let actorWork: JellyfinItem[] = [];
   let channelDirectoryQuery = '';
   let availableLibraries: SelectedLibrary[] = [];
   let librarySelectionIds: string[] = [];
   let librarySettingsLoading = false;
   let librarySettingsError = '';
   let routeHistoryIndex = Number(window.history.state?.jellytubeIndex ?? 0) || 0;
+  let navigationGeneration = 0;
   let themeMode: ThemeMode =
     (localStorage.getItem('jellytube.theme') as ThemeMode | null) ?? session.themeMode ?? 'system';
   let effectiveTheme: EffectiveTheme = resolveEffectiveTheme(themeMode);
@@ -218,6 +223,9 @@
       ? selectedEpisodeSeason
       : episodeCollection?.currentSeason ?? 0;
   $: featuredMovie = movieResume[0] ?? moviePopular[0] ?? movies[0] ?? null;
+  $: actorMovies = actorWork.filter((item) => item.Type === 'Movie');
+  $: actorSeries = actorWork.filter((item) => item.Type === 'Series');
+  $: actorEpisodes = actorWork.filter((item) => item.Type === 'Episode');
   $: {
     const item = selectedItem;
     const queue = watchQueue;
@@ -239,6 +247,8 @@
       document.title = `${displayTitle(selectedItem)} - JellyTube`;
     } else if (route === 'channel' && selectedChannel) {
       document.title = `${selectedChannel} - JellyTube`;
+    } else if (route === 'actor' && selectedActor) {
+      document.title = `${selectedActor.Name} - JellyTube`;
     } else if (route === 'search' && searchedFor) {
       document.title = `${searchedFor} - JellyTube`;
     } else if (route === 'movies') {
@@ -471,10 +481,15 @@
     nextRoute: UrlRoute,
     options: { history?: HistoryMode; scroll?: boolean; autoplay?: boolean } = {}
   ) {
+    const generation = ++navigationGeneration;
+    error = '';
+    loading = false;
     const appliedRoute = await applyRoute(nextRoute, {
       scroll: options.scroll ?? true,
-      autoplay: options.autoplay ?? false
+      autoplay: options.autoplay ?? false,
+      generation
     });
+    if (generation !== navigationGeneration) return;
     if (options.history !== 'none') {
       writeUrl(appliedRoute, options.history ?? 'push');
     }
@@ -482,7 +497,7 @@
 
   async function applyRoute(
     nextRoute: UrlRoute,
-    options: { scroll: boolean; autoplay: boolean }
+    options: { scroll: boolean; autoplay: boolean; generation: number }
   ): Promise<UrlRoute> {
     menuOpen = false;
 
@@ -526,6 +541,18 @@
       await showSearch(trimmed);
       scrollToTop(options.scroll);
       return { view: 'search', query: trimmed };
+    }
+
+    if (nextRoute.view === 'actor') {
+      const personId = nextRoute.personId.trim();
+      if (!personId) {
+        showHome();
+        scrollToTop(options.scroll);
+        return { view: 'home' };
+      }
+      await showActor(personId, options.generation);
+      scrollToTop(options.scroll);
+      return { view: 'actor', personId };
     }
 
     const item = await resolveRoutedItem(nextRoute.itemId);
@@ -637,6 +664,8 @@
     selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
     route = 'search';
     query = trimmed;
     searchedFor = trimmed;
@@ -661,6 +690,81 @@
     } finally {
       loading = false;
     }
+  }
+
+  function openActor(person: JellyfinPerson) {
+    const personId = person.Id?.trim();
+    if (!personId) return;
+    void navigateTo({ view: 'actor', personId });
+  }
+
+  async function showActor(personId: string, generation: number) {
+    selectedItem = null;
+    selectedQueue = [];
+    selectedQueueName = '';
+    selectedEpisodeSeason = 0;
+    selectedChannelSeason = 0;
+    shouldAutoplay = false;
+    selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
+    route = 'actor';
+    loadingRoute = 'actor';
+    loadingLabel = 'Loading actor';
+    loading = true;
+    error = '';
+
+    try {
+      const [actor, work] = await Promise.all([
+        client.getItem(personId),
+        fetchActorWork(personId)
+      ]);
+      if (generation !== navigationGeneration) return;
+      if (!actor.Id || !actor.Name?.trim() || (actor.Type && actor.Type !== 'Person')) {
+        throw new Error('Actor not found.');
+      }
+      selectedActor = actor;
+      actorWork = work;
+    } catch (caught) {
+      if (generation !== navigationGeneration) return;
+      error = caught instanceof Error ? caught.message : 'Could not load actor.';
+    } finally {
+      if (generation === navigationGeneration) loading = false;
+    }
+  }
+
+  async function fetchActorWork(personId: string) {
+    const pageSize = 240;
+    const sources = [...videoSources, ...movieSources];
+    const groups = await Promise.all(
+      sources.map(async (source) => {
+        const items: JellyfinItem[] = [];
+        try {
+          for (let startIndex = 0; ; startIndex += pageSize) {
+            const response = await client.getItems({
+              parentId: source.id,
+              personIds: personId,
+              itemTypes: 'Movie,Series,Episode',
+              limit: pageSize,
+              startIndex,
+              sortBy: 'PremiereDate',
+              sortOrder: 'Descending'
+            });
+            const pageItems = response.Items ?? [];
+            items.push(...annotateItems(pageItems, source));
+            const total = response.TotalRecordCount ?? items.length;
+            if (items.length >= total || pageItems.length === 0) break;
+          }
+          return { items, failed: false };
+        } catch {
+          return { items, failed: items.length === 0 };
+        }
+      })
+    );
+    if (sources.length > 0 && groups.every((group) => group.failed)) {
+      throw new Error('Could not load this actor’s work from the selected libraries.');
+    }
+    return mergeItems(...groups.map((group) => group.items)).sort(compareByContentDateDesc);
   }
 
   function openItem(item: JellyfinItem, queue: JellyfinItem[] = [], queueName = '', preserveQueueOrder = false) {
@@ -691,6 +795,8 @@
     selectedChannelSeason = 0;
     shouldAutoplay = autoplay;
     selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
     route = 'watch';
   }
 
@@ -710,6 +816,8 @@
     selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
     shouldAutoplay = false;
+    selectedActor = null;
+    actorWork = [];
     route = 'channel';
     await ensureChannelSeries(channel);
   }
@@ -788,6 +896,8 @@
     selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
     query = '';
   }
 
@@ -820,6 +930,8 @@
     selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
   }
 
   async function openLibrarySettings() {
@@ -835,6 +947,8 @@
     selectedChannelSeason = 0;
     shouldAutoplay = false;
     selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
     librarySettingsError = '';
     librarySelectionIds = session.selectedLibraries.map((source) => source.id);
     if (availableLibraries.length > 0) return;
@@ -1373,6 +1487,14 @@
     if (!scroll) return;
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
+  function retryLoadingRoute() {
+    if (loadingRoute === 'actor') {
+      void navigateTo(readUrlRoute(), { history: 'none', scroll: false });
+      return;
+    }
+    void loadAll(loadingRoute, loadingLabel);
+  }
+
 
   function readUrlRoute(): UrlRoute {
     const url = new URL(window.location.href);
@@ -1387,6 +1509,7 @@
         ...(list === 'mix' ? { list: 'mix' as const, channel: url.searchParams.get('channel') ?? '' } : {})
       };
     }
+    if (section === 'actor' && parts[1]) return { view: 'actor', personId: parts[1] };
 
     if (section === 'search') return { view: 'search', query: url.searchParams.get('q') ?? '' };
     if (section === 'movies') return { view: 'movies' };
@@ -1424,6 +1547,7 @@
       return `/search?${params.toString()}`;
     }
     if (nextRoute.view === 'channel') return `/channel/${encodeURIComponent(nextRoute.channel)}`;
+    if (nextRoute.view === 'actor') return `/actor/${encodeURIComponent(nextRoute.personId)}`;
 
     const params = new URLSearchParams();
     if (nextRoute.list === 'mix' && nextRoute.channel) {
@@ -1441,6 +1565,7 @@
   function loadingLabelForUrlRoute(nextRoute: UrlRoute) {
     if (nextRoute.view === 'search') return nextRoute.query.trim() ? `Searching ${nextRoute.query.trim()}` : 'Loading search';
     if (nextRoute.view === 'channel') return nextRoute.channel.trim() ? `Loading ${nextRoute.channel.trim()}` : 'Loading channel';
+    if (nextRoute.view === 'actor') return 'Loading actor';
     if (nextRoute.view === 'watch') return 'Loading video';
     return loadingLabelForRoute(routeForUrlRoute(nextRoute));
   }
@@ -1452,6 +1577,7 @@
     if (nextRoute === 'subscriptions') return 'Loading subscriptions';
     if (nextRoute === 'libraries') return 'Loading libraries';
     if (nextRoute === 'channel') return 'Loading channel';
+    if (nextRoute === 'actor') return 'Loading actor';
     if (nextRoute === 'search') return 'Loading search';
     if (nextRoute === 'watch') return 'Loading video';
     return 'Loading home feed';
@@ -1611,6 +1737,7 @@
           on:episodeSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}
           on:episodeSeason={(event) => (selectedEpisodeSeason = event.detail)}
           on:channel={(event) => openChannel(event.detail)}
+          on:actor={(event) => openActor(event.detail)}
           on:movies={() => navigateTo({ view: 'movies' })}
           on:finished={(event) => rememberFinishedItem(event.detail)}
           on:next={playNextQueued}
@@ -1619,10 +1746,79 @@
     {:else if error}
       <div class="empty-state">
         <p>{error}</p>
-        <button class="secondary-action" on:click={() => loadAll(loadingRoute, loadingLabel)}>Try again</button>
+        <button class="secondary-action" on:click={retryLoadingRoute}>Try again</button>
       </div>
     {:else if loading}
       <SkeletonRoute route={loadingRoute} label={loadingLabel} />
+    {:else if route === 'actor' && selectedActor}
+      <div class="actor-page">
+        <section class="show-hero actor-hero">
+          <div class="show-artwork actor-artwork">
+            {#if client.getImageUrl(selectedActor, 420)}
+              <img src={client.getImageUrl(selectedActor, 420)} alt="" loading="lazy" />
+            {:else}
+              <span aria-hidden="true">{selectedActor.Name.slice(0, 1).toUpperCase()}</span>
+            {/if}
+          </div>
+          <div class="show-hero-copy actor-hero-copy">
+            <span class="content-pill">Actor</span>
+            <h1>{selectedActor.Name}</h1>
+            <div class="show-meta-line">
+              <span>{actorWork.length} {actorWork.length === 1 ? 'title' : 'titles'}</span>
+              <span>{videoSources.length + movieSources.length} selected {videoSources.length + movieSources.length === 1 ? 'library' : 'libraries'}</span>
+            </div>
+            {#if selectedActor.Overview}
+              <p class="show-overview">{selectedActor.Overview}</p>
+            {/if}
+          </div>
+        </section>
+
+        {#if actorMovies.length}
+          <section class="feed-section actor-work-section">
+            <div class="section-heading">
+              <h2>Movies</h2>
+              <span>{actorMovies.length} {actorMovies.length === 1 ? 'movie' : 'movies'}</span>
+            </div>
+            <div class="movie-grid">
+              {#each actorMovies as item (item.Id)}
+                <VideoCard {client} {item} poster on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        {#if actorSeries.length}
+          <section class="feed-section actor-work-section">
+            <div class="section-heading">
+              <h2>Shows</h2>
+              <span>{actorSeries.length} {actorSeries.length === 1 ? 'show' : 'shows'}</span>
+            </div>
+            <div class="movie-grid">
+              {#each actorSeries as item (item.Id)}
+                <VideoCard {client} {item} poster on:select={() => openChannel(item.Name)} on:channel={() => openChannel(item.Name)} />
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        {#if actorEpisodes.length}
+          <section class="feed-section actor-work-section">
+            <div class="section-heading">
+              <h2>Episodes</h2>
+              <span>{actorEpisodes.length} {actorEpisodes.length === 1 ? 'episode' : 'episodes'}</span>
+            </div>
+            <div class="video-grid">
+              {#each actorEpisodes as item (item.Id)}
+                <VideoCard {client} {item} titleContext="series" titleChannel={item.SeriesName ?? ''} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        {#if actorWork.length === 0}
+          <div class="empty-state compact">No movies, shows, or episodes found in the selected libraries.</div>
+        {/if}
+      </div>
     {:else if route === 'search'}
       <section class="feed-section">
         <div class="section-heading">

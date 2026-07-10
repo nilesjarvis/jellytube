@@ -2,6 +2,7 @@ import type {
   AuthResult,
   ItemResponse,
   JellyfinItem,
+  JellyfinPerson,
   JellyfinLibrary,
   JellyfinMediaSource,
   JellyfinUser,
@@ -144,6 +145,7 @@ export type ItemQuery = {
   sortOrder?: 'Ascending' | 'Descending';
   searchTerm?: string;
   filters?: string;
+  personIds?: string;
 };
 
 export type SearchSuggestion = {
@@ -217,7 +219,8 @@ export class JellyfinClient {
       Limit: String(query.limit ?? 60),
       StartIndex: String(query.startIndex ?? 0),
       ...(query.searchTerm ? { SearchTerm: query.searchTerm } : {}),
-      ...(query.filters ? { Filters: query.filters } : {})
+      ...(query.filters ? { Filters: query.filters } : {}),
+      ...(query.personIds ? { PersonIds: query.personIds } : {})
     });
   }
 
@@ -283,7 +286,7 @@ export class JellyfinClient {
   async getItem(itemId: string) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<JellyfinItem>(`/Users/${this.userId}/Items/${itemId}`, {
-      Fields: `${itemFields},MediaSources`
+      Fields: `${itemFields},People,MediaSources`
     });
   }
 
@@ -355,6 +358,15 @@ export class JellyfinClient {
   getImageUrl(item: Pick<JellyfinItem, 'Id' | 'ImageTags'>, width = 640) {
     if (!item.ImageTags?.Primary) return '';
     return this.url('/Items/' + item.Id + '/Images/Primary', {
+      fillWidth: String(width),
+      quality: '90',
+      api_key: this.accessToken ?? ''
+    });
+  }
+
+  getPersonImageUrl(person: JellyfinPerson, width = 640) {
+    if (!person.Id || !person.PrimaryImageTag) return '';
+    return this.url('/Items/' + person.Id + '/Images/Primary', {
       fillWidth: String(width),
       quality: '90',
       api_key: this.accessToken ?? ''

@@ -85,6 +85,14 @@ export type JellyfinMediaSource = {
   MediaStreams?: JellyfinMediaStream[];
 };
 
+export type JellyfinPerson = {
+  Id?: string;
+  Name?: string;
+  Role?: string;
+  Type?: 'Actor' | string;
+  PrimaryImageTag?: string;
+};
+
 export type JellyfinItem = {
   Id: string;
   Name: string;
@@ -118,6 +126,7 @@ export type JellyfinItem = {
   PrimaryImageAspectRatio?: number;
   UserData?: JellyfinUserData;
   MediaSources?: JellyfinMediaSource[];
+  People?: JellyfinPerson[];
   sourceLibraryId?: string;
   sourceLibraryName?: string;
   sourceCollectionType?: string;
