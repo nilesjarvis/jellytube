@@ -1043,6 +1043,23 @@ label {
   background: var(--brand);
 }
 
+.show-recommendation-card {
+  max-width: 100%;
+}
+
+.show-recommendation-pill {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.show-recommendation-copy {
+  overflow: hidden;
+}
+
 .video-copy {
   min-width: 0;
   padding-top: 10px;
@@ -1079,6 +1096,20 @@ label {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.45;
+}
+
+.video-recommendation-reason {
+  min-width: 0;
+  margin: 5px 0 2px;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: color-mix(in srgb, var(--text) 76%, var(--muted));
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .video-card.poster .video-meta {

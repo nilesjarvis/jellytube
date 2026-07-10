@@ -116,6 +116,7 @@ const itemFields = [
   'Genres',
   'Tags',
   'Studios',
+  'ProviderIds',
   'Artists',
   'ArtistItems',
   'SeriesName',
@@ -287,6 +288,15 @@ export class JellyfinClient {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<JellyfinItem>(`/Users/${this.userId}/Items/${itemId}`, {
       Fields: `${itemFields},People,MediaSources`
+    });
+  }
+
+  async getSimilarItems(itemId: string, limit = 48): Promise<ItemResponse> {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Items/${itemId}/Similar`, {
+      userId: this.userId,
+      Fields: itemFields,
+      Limit: String(limit)
     });
   }
 

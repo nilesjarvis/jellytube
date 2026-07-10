@@ -121,6 +121,7 @@ export type JellyfinItem = {
   Artists?: string[];
   ArtistItems?: Array<{ Id?: string; Name: string }>;
   Studios?: Array<{ Id?: string; Name: string }>;
+  ProviderIds?: Record<string, string>;
   ImageTags?: Record<string, string>;
   BackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;

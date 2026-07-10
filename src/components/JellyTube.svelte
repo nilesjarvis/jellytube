@@ -40,7 +40,6 @@
     episodeCode,
     episodeCollectionForItem,
     episodeInfo,
-    sameEpisodeSeries,
     type EpisodeSeason
   } from '../lib/episodes';
   import { compareByContentDateDesc, contentDate, contentDateValue, dateValue, relativeDate } from '../lib/dates';
@@ -49,14 +48,27 @@
     channelName,
     compactMeta,
     continueWatching,
+    dailyRecommendationSeed,
     displayTitle,
     formatDuration,
     groupByChannel,
     mergeItems,
     popularItems,
+    personalPlaybackActivity,
     playbackProgress,
-    rankRecommendations
+    rankRecommendations,
+    watchRecommendationCandidates,
+    type RankedItem
   } from '../lib/recommendations';
+  import {
+    recommendationQualityReport,
+    type RecommendationQualityReport
+  } from '../lib/recommendationQuality';
+  import {
+    projectRecommendations,
+    type ProjectedRecommendation,
+    type ShowRecommendation
+  } from '../lib/showRecommendations';
   import { normalizeSearch, rankSearchResults, searchLoadedItems } from '../lib/search';
   import { saveSession } from '../lib/session';
   import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
@@ -70,6 +82,7 @@
   } from '../lib/types';
   import SkeletonLibraryGrid from './SkeletonLibraryGrid.svelte';
   import SkeletonRoute from './SkeletonRoute.svelte';
+  import ShowRecommendationCard from './ShowRecommendationCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import WatchPage from './WatchPage.svelte';
 
@@ -90,7 +103,13 @@
     | { view: 'actor'; personId: string }
     | { view: 'watch'; itemId: string; list?: 'mix'; channel?: string };
   type HistoryMode = 'push' | 'replace' | 'none';
+  type RecommendationDiagnosticsWindow = Window & {
+    __jellytubeQualityReport?: RecommendationQualityReport;
+    __jellytubeQualityReportStatus?: 'running' | 'ready' | 'failed';
+    __jellytubeQualityReportError?: string;
+  };
   const WATCH_RECOMMENDATION_LIMIT = 28;
+  const RECOMMENDATION_DIAGNOSTICS_REPORT_KEY = 'jellytube.recommendationDiagnostics.latest';
   const FAVORITE_MUSIC_MIXES_KEY = `jellytube.favoriteMusicMixes.${session.serverUrl}.${session.userId}`;
 
   const dispatch = createEventDispatcher<{ logout: void }>();
@@ -129,13 +148,13 @@
   let recent: JellyfinItem[] = [];
   let resume: JellyfinItem[] = [];
   let latestAdded: JellyfinItem[] = [];
-  let recommended: JellyfinItem[] = [];
+  let recommended: ProjectedRecommendation[] = [];
   let popular: JellyfinItem[] = [];
   let movies: JellyfinItem[] = [];
   let movieResume: JellyfinItem[] = [];
-  let moviePopular: JellyfinItem[] = [];
+  let moviePopular: RankedItem[] = [];
   let musicVideos: JellyfinItem[] = [];
-  let musicRecommended: JellyfinItem[] = [];
+  let musicRecommended: RankedItem[] = [];
   let searchResults: JellyfinItem[] = [];
   let libraryPool: JellyfinItem[] = [];
   let videoPool: JellyfinItem[] = [];
@@ -147,8 +166,14 @@
   let channelLoading = false;
   let activity: PlaybackActivity[] = [];
   let recentPlaybackIds: string[] = [];
-  let watchRecommendations: JellyfinItem[] = [];
+  let watchRecommendations: ProjectedRecommendation[] = [];
   let watchRecommendationContextKey = '';
+  let catalogSimilarityGeneration = 0;
+  let homeRelatedItemScores: ReadonlyMap<string, number> = new Map();
+  let movieRelatedItemScores: ReadonlyMap<string, number> = new Map();
+  let musicRelatedItemScores: ReadonlyMap<string, number> = new Map();
+  const watchRelatedItemScores = new Map<string, ReadonlyMap<string, number>>();
+  const watchRelatedItemRequests = new Map<string, Promise<ReadonlyMap<string, number>>>();
   let favoriteMixNames = loadFavoriteMixNames();
 
   function displayChannelSeasons(seasons: EpisodeSeason[]) {
@@ -235,6 +260,7 @@
       itemIdsKey(videoPool),
       itemIdsKey(moviePool),
       itemIdsKey(musicPool),
+      itemIdsKey(seriesPool),
       playbackActivityKey(activity),
       recentPlaybackIds.join(',')
     ].join('|');
@@ -294,67 +320,74 @@
     loadingLabel = label;
     loading = true;
     error = '';
+    const similarityGeneration = ++catalogSimilarityGeneration;
+    homeRelatedItemScores = new Map();
+    movieRelatedItemScores = new Map();
+    musicRelatedItemScores = new Map();
+    watchRelatedItemScores.clear();
+    watchRelatedItemRequests.clear();
     try {
       const [
-        videoFullByRelease,
+        videoByRelease,
+        videoLegacyByAdded,
         videoFullByAdded,
         videoResume,
         videoSeries,
-        movieFull,
+        movieLegacyByAdded,
+        movieFullByAdded,
         movieResumeItems,
         musicRecentByRelease,
         musicFullByAdded,
         activityResponse
-      ] =
-        await Promise.all([
-          fetchSources(videoSources, { limit: 320, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-          fetchSources(videoSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-          fetchSources(videoSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
-          fetchSeriesSources(videoSources),
-          fetchSources(movieSources, { limit: 220, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-          fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
-          fetchSources(musicSources, { limit: 100, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-          fetchCompleteSources(musicSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-          client.getPlaybackActivity(365).catch(() => [])
-        ]);
+      ] = await Promise.all([
+        fetchSources(videoSources, { limit: 320, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
+        fetchSources(videoSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+        fetchCompleteSources(videoSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+        fetchSources(videoSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
+        fetchSeriesSources(videoSources),
+        fetchSources(movieSources, { limit: 220, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+        fetchCompleteSources(movieSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+        fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
+        fetchSources(musicSources, { limit: 100, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
+        fetchCompleteSources(musicSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
+        client.getPlaybackActivity(365).catch(() => [])
+      ]);
 
-      const videoRecentByRelease = videoFullByRelease.slice(0, 80);
-      const videoRecentByAdded = videoFullByAdded.slice(0, 80);
-      const movieRecent = movieFull.slice(0, 80);
+      const videoRecentByRelease = videoByRelease.slice(0, 80);
+      const videoRecentByAdded = videoLegacyByAdded.slice(0, 80);
+      const movieRecent = movieLegacyByAdded.slice(0, 80);
       const musicRecentByAdded = musicFullByAdded.slice(0, 100);
 
-      activity = activityResponse;
+      activity = personalPlaybackActivity(activityResponse, session.userId, session.userName);
       seriesPool = videoSeries;
-      videoPool = mergeItems(videoRecentByRelease, videoRecentByAdded, videoResume, videoFullByRelease, videoFullByAdded);
-      moviePool = mergeItems(movieRecent, movieResumeItems, movieFull);
-      musicPool = mergeItems(musicRecentByRelease, musicRecentByAdded, musicFullByAdded);
+      videoPool = mergeItems(videoFullByAdded, videoResume);
+      moviePool = mergeItems(movieFullByAdded, movieResumeItems);
+      musicPool = mergeItems(musicFullByAdded, musicRecentByRelease);
       libraryPool = mergeItems(videoPool, moviePool, musicPool);
 
       recent = mergeItems(videoRecentByRelease, videoRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
       if (!recent.length) recent = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
-      latestAdded = mergeItems(videoFullByAdded, movieFull, musicFullByAdded)
+      latestAdded = mergeItems(videoLegacyByAdded, movieLegacyByAdded, musicFullByAdded)
         .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
         .slice(0, 48);
-      resume = continueWatching(mergeItems(videoResume, videoPool, musicPool)).slice(0, 24);
-      recommended = rankRecommendations(mergeItems(videoPool, musicPool), {
-        activity,
-        mode: 'home',
-        recentItemIds: recentPlaybackIds
-      }).slice(0, 48);
-      popular = popularItems(mergeItems(videoPool, musicPool)).slice(0, 24);
+      resume = continueWatching(videoResume).slice(0, 24);
       movies = movieRecent;
-      movieResume = continueWatching(mergeItems(movieResumeItems, moviePool)).slice(0, 18);
-      moviePopular = rankRecommendations(moviePool, {
-        activity,
-        mode: 'movie',
-        recentItemIds: recentPlaybackIds
-      }).slice(0, 36);
+      movieResume = continueWatching(movieResumeItems).slice(0, 18);
       musicVideos = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 100);
-      musicRecommended = rankRecommendations(musicPool, {
-        activity,
-        mode: 'music',
-        recentItemIds: recentPlaybackIds
-      }).slice(0, 36);
+      refreshRecommendations();
+      popular = popularItems(mergeItems(videoPool, musicPool)).slice(0, 24);
+
+      const legacyCatalog = mergeItems(
+        videoByRelease,
+        videoLegacyByAdded,
+        videoResume,
+        movieLegacyByAdded,
+        movieResumeItems,
+        musicRecentByRelease,
+        musicFullByAdded
+      );
+      reportRecommendationDiagnostics(libraryPool, legacyCatalog);
+      void loadCatalogSimilaritySignals(libraryPool, legacyCatalog, similarityGeneration);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
     } finally {
@@ -426,6 +459,127 @@
       })
     );
     return sortItemsByQuery(mergeItems(...responses), queryOptions.sortBy);
+  }
+
+  async function loadCatalogSimilaritySignals(
+    catalog: JellyfinItem[],
+    legacyCatalog: JellyfinItem[],
+    generation: number
+  ) {
+    const seeds = similaritySeedItems(catalog);
+    const similarGroups = await Promise.all(
+      seeds.map((seed) =>
+        client
+          .getSimilarItems(seed.Id, 36)
+          .then((response) => response.Items ?? [])
+          .catch(() => [])
+      )
+    );
+    if (generation !== catalogSimilarityGeneration) return;
+
+    homeRelatedItemScores = relatedScoresForCatalog(
+      similarGroups,
+      mergeItems(videoPool, musicPool),
+      36
+    );
+    movieRelatedItemScores = relatedScoresForCatalog(similarGroups, moviePool, 36);
+    musicRelatedItemScores = relatedScoresForCatalog(similarGroups, musicPool, 36);
+    refreshRecommendations();
+    reportRecommendationDiagnostics(catalog, legacyCatalog, homeRelatedItemScores);
+  }
+
+  function reportRecommendationDiagnostics(
+    catalog: JellyfinItem[],
+    legacyCatalog: JellyfinItem[],
+    relatedItemScores?: ReadonlyMap<string, number>
+  ) {
+    if (localStorage.getItem('jellytube.recommendationDiagnostics.v1') !== 'true') return;
+    const diagnosticsWindow = window as RecommendationDiagnosticsWindow;
+    diagnosticsWindow.__jellytubeQualityReportStatus = 'running';
+    diagnosticsWindow.__jellytubeQualityReportError = undefined;
+    sessionStorage.removeItem(RECOMMENDATION_DIAGNOSTICS_REPORT_KEY);
+    try {
+      const report = recommendationQualityReport({
+        catalog,
+        legacyCatalog,
+        seriesItems: seriesPool,
+        activity,
+        relatedItemScores,
+        seed: dailyRecommendationSeed(session.userId, 'home')
+      });
+      diagnosticsWindow.__jellytubeQualityReport = report;
+      diagnosticsWindow.__jellytubeQualityReportStatus = 'ready';
+      sessionStorage.setItem(RECOMMENDATION_DIAGNOSTICS_REPORT_KEY, JSON.stringify(report));
+      console.info(report);
+    } catch (caught) {
+      diagnosticsWindow.__jellytubeQualityReportStatus = 'failed';
+      diagnosticsWindow.__jellytubeQualityReportError =
+        caught instanceof Error ? caught.message : 'Unknown diagnostics error.';
+      console.warn(
+        'Recommendation diagnostics could not run.',
+        caught instanceof Error ? caught.message : 'Unknown diagnostics error.'
+      );
+    }
+  }
+
+  function similaritySeedItems(catalog: JellyfinItem[]) {
+    const ranked = catalog
+      .filter(
+        (item) =>
+          item.UserData?.IsFavorite ||
+          Boolean(item.UserData?.LastPlayedDate) ||
+          (item.UserData?.PlayCount ?? 0) > 0
+      )
+      .sort((a, b) => {
+        const favoriteDifference = Number(Boolean(b.UserData?.IsFavorite)) - Number(Boolean(a.UserData?.IsFavorite));
+        if (favoriteDifference) return favoriteDifference;
+        const playedDifference =
+          dateValue(b.UserData?.LastPlayedDate) - dateValue(a.UserData?.LastPlayedDate);
+        if (playedDifference) return playedDifference;
+        const playCountDifference = (b.UserData?.PlayCount ?? 0) - (a.UserData?.PlayCount ?? 0);
+        return playCountDifference || a.Id.localeCompare(b.Id);
+      });
+    const seedBucket = (item: JellyfinItem) => {
+      if (item.contentKind === 'movie' || item.Type === 'Movie') return 'movie';
+      if (item.contentKind === 'musicVideo' || item.Type === 'MusicVideo') return 'musicVideo';
+      return item.Type === 'Episode' ? 'episode' : 'video';
+    };
+    const selected: JellyfinItem[] = [];
+    const selectedIds = new Set<string>();
+    for (const bucket of ['video', 'episode', 'movie', 'musicVideo']) {
+      let bucketCount = 0;
+      for (const item of ranked) {
+        if (seedBucket(item) !== bucket || selectedIds.has(item.Id)) continue;
+        selected.push(item);
+        selectedIds.add(item.Id);
+        bucketCount += 1;
+        if (bucketCount >= 2) break;
+      }
+    }
+    for (const item of ranked) {
+      if (selected.length >= 8) break;
+      if (selectedIds.has(item.Id)) continue;
+      selected.push(item);
+      selectedIds.add(item.Id);
+    }
+    return selected;
+  }
+
+  function relatedScoresForCatalog(
+    similarGroups: JellyfinItem[][],
+    catalog: JellyfinItem[],
+    requestedLimit: number
+  ): ReadonlyMap<string, number> {
+    const catalogIds = new Set(catalog.map((item) => item.Id));
+    const scores = new Map<string, number>();
+    for (const group of similarGroups) {
+      group.slice(0, requestedLimit).forEach((item, index) => {
+        if (!catalogIds.has(item.Id)) return;
+        const rankWeight = (requestedLimit - index) / requestedLimit;
+        scores.set(item.Id, Math.max(scores.get(item.Id) ?? 0, rankWeight));
+      });
+    }
+    return scores;
   }
 
   function sortItemsByQuery(items: JellyfinItem[], sortBy: string) {
@@ -1412,16 +1566,11 @@
       mode: item?.contentKind === 'movie' ? 'movie' : 'watch',
       recentItemIds: recentPlaybackIds,
       queueItems: queue,
-      randomSeed: item?.Id
+      randomSeed: item?.Id,
+      relatedItemScores: item ? watchRelatedItemScores.get(item.Id) : undefined
     });
-    if (!item) return ranked;
-    const recommendationPool = episodeInfo(item)
-      ? ranked.filter((candidate) => !sameEpisodeSeries(candidate, item))
-      : ranked;
-    const currentChannel = channelName(item).toLowerCase();
-    const sameChannel = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() === currentChannel);
-    const other = recommendationPool.filter((candidate) => channelName(candidate).toLowerCase() !== currentChannel);
-    return [...sameChannel, ...other];
+    const filteredRanks = item ? watchRecommendationCandidates(ranked, item) : ranked;
+    return projectRecommendations(filteredRanks, videoPool, seriesPool);
   }
 
   function syncWatchRecommendations(
@@ -1441,6 +1590,38 @@
 
     watchRecommendationContextKey = contextKey;
     watchRecommendations = relatedCandidatesFor(item, queue).slice(0, WATCH_RECOMMENDATION_LIMIT);
+    void loadWatchRelatedItemScores(item, queue, contextKey);
+  }
+
+  async function loadWatchRelatedItemScores(
+    item: JellyfinItem,
+    queue: JellyfinItem[],
+    contextKey: string
+  ) {
+    const generation = catalogSimilarityGeneration;
+    let request = watchRelatedItemRequests.get(item.Id);
+    if (!request) {
+      request = client
+        .getSimilarItems(item.Id, 48)
+        .then((response) => relatedScoresForCatalog([response.Items ?? []], libraryPool, 48))
+        .catch(() => new Map<string, number>());
+      watchRelatedItemRequests.set(item.Id, request);
+    }
+    const scores = await request;
+    if (
+      generation !== catalogSimilarityGeneration ||
+      watchRelatedItemRequests.get(item.Id) !== request
+    ) {
+      return;
+    }
+    watchRelatedItemScores.set(item.Id, scores);
+    if (
+      activePlaybackItem?.Id !== item.Id ||
+      watchRecommendationContextKey !== contextKey
+    ) {
+      return;
+    }
+    watchRecommendations = relatedCandidatesFor(item, queue).slice(0, WATCH_RECOMMENDATION_LIMIT);
   }
 
   function itemIdsKey(items: JellyfinItem[]) {
@@ -1458,21 +1639,51 @@
     refreshRecommendations();
   }
 
+  function projectedRecommendationKey(recommendation: ProjectedRecommendation) {
+    return recommendation.kind === 'item'
+      ? `item:${recommendation.item.Id}`
+      : `show:${recommendation.seriesKey}`;
+  }
+
+  function playShowRecommendation(recommendation: ShowRecommendation) {
+    const primaryItem = recommendation.progress.primaryItem;
+    if (!primaryItem) return;
+    openItem(primaryItem, recommendation.episodes, recommendation.title, true);
+  }
+
+  function handleRecommendationSelect(recommendation: ProjectedRecommendation) {
+    if (recommendation.kind === 'show') {
+      playShowRecommendation(recommendation);
+      return;
+    }
+    playItemFromPlayer(recommendation.item);
+  }
+
   function refreshRecommendations() {
-    recommended = rankRecommendations(mergeItems(videoPool, musicPool), {
-      activity,
-      mode: 'home',
-      recentItemIds: recentPlaybackIds
-    }).slice(0, 48);
+    recommended = projectRecommendations(
+      rankRecommendations(mergeItems(videoPool, musicPool), {
+        activity,
+        mode: 'home',
+        recentItemIds: recentPlaybackIds,
+        randomSeed: dailyRecommendationSeed(session.userId, 'home'),
+        relatedItemScores: homeRelatedItemScores
+      }),
+      videoPool,
+      seriesPool
+    ).slice(0, 48);
     moviePopular = rankRecommendations(moviePool, {
       activity,
       mode: 'movie',
-      recentItemIds: recentPlaybackIds
+      recentItemIds: recentPlaybackIds,
+      randomSeed: dailyRecommendationSeed(session.userId, 'movie'),
+      relatedItemScores: movieRelatedItemScores
     }).slice(0, 36);
     musicRecommended = rankRecommendations(musicPool, {
       activity,
       mode: 'music',
-      recentItemIds: recentPlaybackIds
+      recentItemIds: recentPlaybackIds,
+      randomSeed: dailyRecommendationSeed(session.userId, 'music'),
+      relatedItemScores: musicRelatedItemScores
     }).slice(0, 36);
   }
 
@@ -1750,7 +1961,7 @@
           episodeSeriesTitle={episodeCollection?.seriesName ?? ''}
           recommendations={watchRecommendations}
           on:back={goBackOrHome}
-          on:select={(event) => playItemFromPlayer(event.detail)}
+          on:recommendationSelect={(event) => handleRecommendationSelect(event.detail)}
           on:queueSelect={(event) => playItemFromPlayer(event.detail, watchQueue, watchQueueTitle, true)}
           on:episodeSelect={(event) => playItemFromPlayer(event.detail, watchQueue, watchQueueTitle, true)}
           on:episodeSeason={(event) => (activePlaybackEpisodeSeason = event.detail)}
@@ -1905,7 +2116,7 @@
         <h2>Recommended movies</h2>
         <div class="movie-grid">
           {#each moviePopular as item (item.Id)}
-            <VideoCard {client} {item} poster on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            <VideoCard {client} {item} poster recommendationReason={item.reason} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
           {/each}
         </div>
       </section>
@@ -1989,7 +2200,7 @@
         <h2>Recommended music videos</h2>
         <div class="video-grid">
           {#each musicRecommended.slice(0, 12) as item (item.Id)}
-            <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            <VideoCard {client} {item} recommendationReason={item.reason} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
           {/each}
         </div>
       </section>
@@ -2392,8 +2603,17 @@
           </div>
         </div>
         <div class="video-grid">
-          {#each recommended as item (item.Id)}
-            <VideoCard {client} {item} titleContext="recommendation" titleChannel={channelName(item)} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+          {#each recommended as recommendation (projectedRecommendationKey(recommendation))}
+            {#if recommendation.kind === 'item'}
+              <VideoCard {client} item={recommendation.item} recommendationReason={recommendation.item.reason} titleContext="recommendation" titleChannel={channelName(recommendation.item)} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            {:else}
+              <ShowRecommendationCard
+                {client}
+                {recommendation}
+                on:play={(event) => playShowRecommendation(event.detail)}
+                on:show={(event) => openChannel(event.detail)}
+              />
+            {/if}
           {/each}
         </div>
       </section>

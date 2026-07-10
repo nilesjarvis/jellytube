@@ -34,6 +34,7 @@
   export let poster = false;
   export let titleContext: 'feed' | 'series' | 'channel' | 'recommendation' = 'feed';
   export let titleChannel = '';
+  export let recommendationReason = '';
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem; channel: string }>();
 
@@ -70,6 +71,7 @@
     titleContext === 'recommendation' && contextualEpisodeCode
       ? `${contextualEpisodeCode} · ${channel}`
       : channel;
+  $: readableRecommendationReason = recommendationReason?.trim() ?? '';
 
   onDestroy(() => stopPreview());
 
@@ -249,6 +251,9 @@
       <div class="video-kicker">{contextualEpisodeCode}</div>
     {:else if titleContext === 'feed'}
       <button class="video-channel" on:click={() => dispatch('channel', channel)}>{channel}</button>
+    {/if}
+    {#if readableRecommendationReason}
+      <div class="video-recommendation-reason">{readableRecommendationReason}</div>
     {/if}
     <div class="video-meta">{compactMeta(item)}</div>
   </div>

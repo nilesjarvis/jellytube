@@ -23,7 +23,12 @@ export type EpisodeCollection = {
 };
 
 const seasonEpisodePattern = /(?:^|[\s._-])S(\d{1,3})E(\d{1,4})(?=$|[\s._-])/i;
+const leadingSeasonEpisodePattern = /^S(\d{1,3})E(\d{1,4})(?=$|[\s._-])/i;
 const trailingSeasonPattern = /\s+S\d{1,3}$/i;
+
+export function hasLeadingEpisodeCode(item: JellyfinItem) {
+  return leadingSeasonEpisodePattern.test(item.Name);
+}
 
 export function episodeInfo(item: JellyfinItem): EpisodeInfo | null {
   const parsed = parseEpisodeName(item.Name);

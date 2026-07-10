@@ -190,7 +190,9 @@ npm test
 
 ### Home
 
-The Home route is optimized for return visits. Continue watching appears first when Jellyfin has resume data, followed by recommendations, latest uploads sorted by content/release date where possible, and replay picks based on play count.
+The Home route is optimized for return visits. Continue watching appears first when Jellyfin has resume data, followed by latest additions, stable daily recommendations, new videos, and replay picks based on play count. Recommendations rank the complete selected video, movie, and music-video catalogs client-side, use per-user playback/favorite metadata and the optional Playback Reporting history, blend bounded results from Jellyfin's read-only Similar endpoint, diversify channels and series, and show a plain-language reason on each recommended card.
+
+Ordered episodic series are represented once in both Home Recommended and the Watch page's Recommended rail as a show card rather than as an arbitrary episode. The card uses complete series progress to offer the correct `Start`, `Next`, `Resume`, or `Replay` episode and opens playback with the ordered episode queue. Sequence classification accepts canonical Jellyfin TV identities (`Tvdb`, `Tmdb`, or `Imdb`) as well as explicit leading episode-code conventions, while retaining catalog-completeness, index-coverage, identity-consistency, and duplicate-slot guards. Jellyfin series that behave like unordered YouTube or clip archives remain individual video cards; ambiguous metadata always falls back to item-level recommendations.
 
 ### Movies
 
@@ -214,7 +216,35 @@ Search works across selected libraries and ranks likely show/episode matches abo
 
 ### Watch
 
-The Watch page prepares a direct stream when the browser can play it and falls back to Jellyfin HLS when needed. It reports progress to Jellyfin, resumes from saved playback position, persists volume/mute state, supports seeking and fullscreen, and can continue through episode shelves or mix queues.
+The Watch page prepares a direct stream when the browser can play it and falls back to Jellyfin HLS when needed. It reports progress to Jellyfin, resumes from saved playback position, persists volume/mute state, supports seeking and fullscreen, and can continue through episode shelves or mix queues. Its recommendation rail projects ranked items only after excluding the current series, so an ordered show appears once with the user's progress action and cannot reappear beside one of its own episodes.
+
+### Recommendation Quality Diagnostics
+
+Recommendation diagnostics are opt-in and run entirely in the browser against the signed-in user's selected Jellyfin libraries. They report aggregate catalog coverage, metadata/history coverage, duplicate and eligibility violations, channel/series concentration, explanation coverage, Similar-signal coverage, and a deterministic latest-play proxy backtest at ranks 12 and 28. The proxy compares the complete catalog with the former bounded recent-item pool and reports results per content kind; it is not a click-through-rate or satisfaction measurement because Jellyfin exposes aggregate/latest play state rather than recommendation impressions.
+
+Top-12 and top-28 list metrics are calculated after the same ordered-show projection used by the rendered Home shelf. Each report includes `itemCards` and `showCards`, so collapsing several ranked episodes into one show card cannot make diagnostic concentration, duplication, or list-size measurements describe a different list than the user sees.
+
+Enable diagnostics in the browser console, then reload:
+
+```js
+localStorage.setItem('jellytube.recommendationDiagnostics.v1', 'true');
+location.reload();
+```
+
+The aggregate report is printed to the console and stored for the current tab at `jellytube.recommendationDiagnostics.latest` in session storage. It contains no item IDs, titles, user identifiers, library names, tokens, server URLs, or raw dates:
+
+```js
+JSON.parse(sessionStorage.getItem('jellytube.recommendationDiagnostics.latest'));
+```
+
+Disable and clear the report with:
+
+```js
+localStorage.removeItem('jellytube.recommendationDiagnostics.v1');
+sessionStorage.removeItem('jellytube.recommendationDiagnostics.latest');
+```
+
+Diagnostics perform the same complete metadata paging as normal recommendation loading and up to 60 local backtest events. Jellyfin is only read; playback state, server configuration, and media are not modified or downloaded by the evaluator.
 
 ### Library Settings
 

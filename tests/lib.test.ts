@@ -19,12 +19,20 @@ import { actorsForItem } from '../src/lib/people';
 import {
   channelName,
   compactMeta,
+  dailyRecommendationSeed,
   continueWatching,
   displayTitle,
   groupByChannel,
+  personalPlaybackActivity,
   rankRecommendations,
-  shouldStartFromBeginning
+  shouldStartFromBeginning,
+  watchRecommendationCandidates
 } from '../src/lib/recommendations';
+import { recommendationQualityReport } from '../src/lib/recommendationQuality';
+import {
+  isOrderedEpisodicSeries,
+  projectRecommendations
+} from '../src/lib/showRecommendations';
 import {
   blendCinematicGlowPalette,
   cinematicColorsFromImageData,
@@ -59,6 +67,25 @@ function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name
     Type: 'Video',
     ...overrides
   };
+}
+
+function episodeItem(
+  seriesId: string,
+  season: number,
+  index: number,
+  overrides: Partial<JellyfinItem> = {}
+) {
+  const code = `S${String(season).padStart(2, '0')}E${String(index).padStart(2, '0')}`;
+  return item({
+    Id: overrides.Id ?? `${seriesId}-${code}`,
+    Name: overrides.Name ?? `${code} - Episode ${index}`,
+    Type: 'Episode',
+    SeriesId: seriesId,
+    SeriesName: overrides.SeriesName ?? `Series ${seriesId}`,
+    ParentIndexNumber: season,
+    IndexNumber: index,
+    ...overrides
+  });
 }
 
 test('Jellyfin user playback guard allows non-admin users when playback is not disabled', () => {
@@ -488,6 +515,10 @@ test('watch recommendations prefer similar metadata over same-channel filler', (
   });
 
   assert.deepEqual(ranked.map((result) => result.Id), ['similar', 'same-channel']);
+  assert.deepEqual(
+    watchRecommendationCandidates(ranked, current).map((result) => result.Id),
+    ['similar', 'same-channel']
+  );
 });
 
 test('recommendations vary within similarly relevant candidates when seeded differently', () => {
@@ -514,6 +545,350 @@ test('recommendations vary within similarly relevant candidates when seeded diff
 
   assert.notDeepEqual(first, second);
   assert.deepEqual([...first].sort(), [...second].sort());
+});
+
+test('daily recommendation seeds are stable within a UTC day', () => {
+  const morning = Date.parse('2026-05-07T00:00:01.000Z');
+  const evening = Date.parse('2026-05-07T23:59:59.000Z');
+  const nextDay = Date.parse('2026-05-08T00:00:00.000Z');
+
+  assert.equal(
+    dailyRecommendationSeed('user-1', 'home', morning),
+    dailyRecommendationSeed('user-1', 'home', evening)
+  );
+  assert.notEqual(
+    dailyRecommendationSeed('user-1', 'home', evening),
+    dailyRecommendationSeed('user-1', 'home', nextDay)
+  );
+  assert.notEqual(
+    dailyRecommendationSeed('user-1', 'home', morning),
+    dailyRecommendationSeed('user-1', 'music', morning)
+  );
+});
+
+test('Jellyfin similarity signals improve order without bypassing eligibility', () => {
+  const related = item({ Id: 'related', Name: 'Related discovery', contentKind: 'video' });
+  const plain = item({ Id: 'plain', Name: 'Plain discovery', contentKind: 'video' });
+  const resumable = item({
+    Id: 'resumable-related',
+    Name: 'Unfinished related video',
+    contentKind: 'video',
+    RunTimeTicks: 30 * 60 * 10_000_000,
+    UserData: { PlaybackPositionTicks: 10 * 60 * 10_000_000, PlayedPercentage: 33 }
+  });
+  const completed = item({
+    Id: 'completed-related',
+    Name: 'Completed related video',
+    contentKind: 'video',
+    UserData: { Played: true, PlayCount: 1 }
+  });
+  const ranked = rankRecommendations([plain, related, resumable, completed], {
+    mode: 'home',
+    randomness: 0,
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    relatedItemScores: new Map([
+      ['related', 1],
+      ['resumable-related', 1],
+      ['completed-related', 1]
+    ])
+  });
+
+  assert.deepEqual(ranked.map((result) => result.Id), ['related', 'plain']);
+  assert.equal(ranked[0].reason, 'matches what you watch');
+  assert.ok(ranked.every((result) => !result.reason?.toLowerCase().includes('jellyfin')));
+});
+
+test('recommendation reasons never present a recent-play penalty as positive evidence', () => {
+  const recent = item({ Id: 'recent', Name: 'Recently sampled', contentKind: 'video' });
+  const [ranked] = rankRecommendations([recent], {
+    mode: 'home',
+    recentItemIds: ['recent'],
+    randomness: 0,
+    now: Date.parse('2026-05-07T12:00:00.000Z')
+  });
+
+  assert.equal(ranked.reason, 'library discovery');
+  assert.ok(!ranked.reasons?.some((reason) => reason.includes('recent')));
+});
+
+test('watch recommendation composition removes current-series episodes without reordering discovery', () => {
+  const current = item({
+    Id: 'show-current',
+    Name: 'Current episode',
+    Type: 'Episode',
+    SeriesId: 'show-1',
+    SeriesName: 'Show One'
+  });
+  const ranked = [
+    item({ Id: 'external-first', Name: 'External first', SeriesId: 'show-2', SeriesName: 'Show Two' }),
+    item({
+      Id: 'same-series',
+      Name: 'Next episode',
+      Type: 'Episode',
+      SeriesId: 'show-1',
+      SeriesName: 'Show One',
+      ParentIndexNumber: 1,
+      IndexNumber: 2
+    }),
+    item({ Id: 'external-second', Name: 'External second' })
+  ];
+
+  assert.deepEqual(
+    watchRecommendationCandidates(ranked, current).map((result) => result.Id),
+    ['external-first', 'external-second']
+  );
+});
+
+test('playback activity uses only anonymous or current-user rows', () => {
+  const rows = [
+    { item_name: 'By id', user_id: 'user-1', user_name: 'Other label' },
+    { item_name: 'By name', user_id: 'plugin-7', user_name: 'Viewer' },
+    { item_name: 'Anonymous aggregate' },
+    { item_name: 'Other user', user_id: 'user-2', user_name: 'Someone else' }
+  ];
+
+  assert.deepEqual(
+    personalPlaybackActivity(rows, 'USER-1', 'viewer').map((row) => row.item_name),
+    ['By id', 'By name', 'Anonymous aggregate']
+  );
+});
+
+test('recommendation quality report is deterministic and separates legacy coverage misses', () => {
+  const target = item({
+    Id: 'held-out-movie',
+    Name: 'Held out movie',
+    Type: 'Movie',
+    contentKind: 'movie',
+    DateCreated: '2026-05-01T00:00:00.000Z',
+    UserData: { Played: true, PlayCount: 1, LastPlayedDate: '2026-05-06T12:00:00.000Z' }
+  });
+  const movieCandidate = item({
+    Id: 'movie-candidate',
+    Name: 'Movie candidate',
+    Type: 'Movie',
+    contentKind: 'movie',
+    DateCreated: '2026-04-01T00:00:00.000Z'
+  });
+  const replay = item({
+    Id: 'music-replay',
+    Name: 'Music replay',
+    Type: 'MusicVideo',
+    contentKind: 'musicVideo',
+    DateCreated: '2026-04-01T00:00:00.000Z',
+    UserData: { Played: true, PlayCount: 2 }
+  });
+  const input = {
+    catalog: [target, movieCandidate, replay],
+    legacyCatalog: [movieCandidate, replay],
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    seed: 'quality-test',
+    relatedItemScores: new Map([['music-replay', 1]])
+  };
+
+  const first = recommendationQualityReport(input);
+  const second = recommendationQualityReport(input);
+  assert.deepEqual(first, second);
+  assert.equal(first.method, 'latest-play-proxy');
+  assert.equal(first.backtest.signalMode, 'local-only');
+  assert.equal(first.backtest.events, 1);
+  assert.equal(first.backtest.full.targetPresent, 1);
+  assert.equal(first.backtest.legacy.targetAbsent, 1);
+  assert.equal(first.lists.top12.resumeLeakage.clear, true);
+  assert.equal(first.lists.top12.completedLeakage.clear, true);
+  assert.equal(first.lists.top12.replayExposure.count, 1);
+  assert.equal(first.lists.top12.reasons.complete, true);
+  assert.equal(first.lists.top12.relatedSignals.covered, 1);
+});
+
+test('ordered show classification requires sequence evidence and tolerates real duplicate rates', () => {
+  const ordered = Array.from({ length: 7 }, (_, index) => episodeItem('ordered', 1, index + 1));
+  const toleratedDuplicate = episodeItem('ordered', 1, 7, { Id: 'ordered-copy' });
+  const clips = Array.from({ length: 8 }, (_, index) =>
+    episodeItem('clips', 1, index + 1, {
+      Name: `Weekly upload ${String(index + 1)}`
+    })
+  );
+  const excessiveDuplicates = [
+    ...Array.from({ length: 5 }, (_, index) => episodeItem('duplicate-heavy', 1, index + 1)),
+    episodeItem('duplicate-heavy', 1, 5, { Id: 'duplicate-heavy-copy' })
+  ];
+
+  assert.equal(
+    isOrderedEpisodicSeries([...ordered, toleratedDuplicate], {
+      Id: 'ordered',
+      Name: 'Ordered show',
+      Type: 'Series',
+      RecursiveItemCount: 8
+    }),
+    true
+  );
+  assert.equal(
+    isOrderedEpisodicSeries(clips, {
+      Id: 'clips',
+      Name: 'Ordinary title archive',
+      Type: 'Series',
+      RecursiveItemCount: 8
+    }),
+    false
+  );
+  assert.equal(
+    isOrderedEpisodicSeries(clips, {
+      Id: 'clips',
+      Name: 'Ordinary title archive',
+      Type: 'Series',
+      RecursiveItemCount: 8,
+      ProviderIds: { Tvdb: '   ' }
+    }),
+    false
+  );
+  assert.equal(isOrderedEpisodicSeries(excessiveDuplicates), false);
+  assert.equal(
+    isOrderedEpisodicSeries(ordered, {
+      Id: 'ordered',
+      Name: 'Incomplete show',
+      Type: 'Series',
+      RecursiveItemCount: 8
+    }),
+    false
+  );
+});
+
+test('recommendations collapse ordered episodes into one progress-aware show card', () => {
+  const first = episodeItem('ordered', 1, 1, { UserData: { Played: true } });
+  const second = episodeItem('ordered', 1, 2);
+  const third = episodeItem('ordered', 1, 3);
+  const clipFirst = {
+    ...episodeItem('clips', 1, 1, { Id: 'clip-first', Name: 'Weekly clip S01E01' }),
+    score: 100,
+    reason: 'matches what you watch'
+  };
+  const clipSecond = {
+    ...episodeItem('clips', 1, 2, { Id: 'clip-second', Name: 'Another clip S01E02' }),
+    score: 70,
+    reason: 'library discovery'
+  };
+  const representative = {
+    ...third,
+    score: 90,
+    reason: 'more from a series you watch'
+  };
+  const unrelated = { ...item({ Id: 'plain-video', Name: 'Plain video' }), score: 80, reason: 'library discovery' };
+  const rankedSecond = { ...second, score: 60, reason: 'more from a series you watch' };
+
+  const projected = projectRecommendations(
+    [clipFirst, representative, unrelated, rankedSecond, clipSecond],
+    [clipFirst, clipSecond, third, first, second],
+    [{ Id: 'ordered', Name: 'Ordered show', Type: 'Series', RecursiveItemCount: 3 }]
+  );
+
+  assert.deepEqual(projected.map((recommendation) => recommendation.kind), [
+    'item',
+    'show',
+    'item',
+    'item'
+  ]);
+  const firstRecommendation = projected[0];
+  assert.equal(firstRecommendation.kind, 'item');
+  if (firstRecommendation.kind !== 'item') assert.fail('Expected the clip recommendation to remain an item.');
+  assert.strictEqual(firstRecommendation.item, clipFirst);
+  const show = projected[1];
+  assert.equal(show.kind, 'show');
+  if (show.kind !== 'show') assert.fail('Expected ordered episodes to collapse into a show.');
+  assert.equal(show.title, 'Ordered show');
+  assert.equal(show.representative.Id, third.Id);
+  assert.equal(show.reason, 'more from a series you watch');
+  assert.deepEqual(show.episodes.map((episode) => episode.Id), [first.Id, second.Id, third.Id]);
+  assert.equal(show.progress.kind, 'next');
+  assert.equal(show.progress.primaryItem?.Id, second.Id);
+  assert.equal(show.progress.label, 'Next S01E02');
+  const lastRecommendation = projected[3];
+  assert.equal(lastRecommendation.kind, 'item');
+  if (lastRecommendation.kind !== 'item') assert.fail('Expected the second clip to remain an item.');
+  assert.strictEqual(lastRecommendation.item, clipSecond);
+  const quality = recommendationQualityReport({
+    catalog: [first, second, third],
+    seriesItems: [
+      { Id: 'ordered', Name: 'Ordered show', Type: 'Series', RecursiveItemCount: 3 }
+    ],
+    now: Date.parse('2026-05-07T12:00:00.000Z'),
+    seed: 'projected-quality'
+  });
+  assert.equal(quality.lists.presentation, 'home-projected');
+  assert.equal(quality.lists.top12.size, 1);
+  assert.equal(quality.lists.top12.showCards, 1);
+  assert.equal(quality.lists.top12.itemCards, 0);
+});
+
+test('standard series metadata projects ordinary episode titles with resume progress', () => {
+  const pilot = episodeItem('gossip-girl', 1, 1, {
+    Name: 'Pilot',
+    UserData: { Played: true }
+  });
+  const wildBrunch = episodeItem('gossip-girl', 1, 2, {
+    Name: 'The Wild Brunch',
+    UserData: { PlayedPercentage: 37, LastPlayedDate: '2026-05-06T12:00:00.000Z' }
+  });
+  const poisonIvy = episodeItem('gossip-girl', 1, 3, { Name: 'Poison Ivy' });
+  const representative = {
+    ...poisonIvy,
+    score: 90,
+    reason: 'more from a series you watch'
+  };
+
+  const projected = projectRecommendations(
+    [representative, { ...wildBrunch, score: 80, reason: 'continue a series' }],
+    [poisonIvy, pilot, wildBrunch],
+    [{
+      Id: 'gossip-girl',
+      Name: 'Gossip Girl',
+      Type: 'Series',
+      RecursiveItemCount: 3,
+      ProviderIds: { tVdB: ' 80547 ' }
+    }]
+  );
+
+  assert.equal(projected.length, 1);
+  const [show] = projected;
+  assert.equal(show.kind, 'show');
+  if (show.kind !== 'show') assert.fail('Expected canonical TV metadata to identify an ordered show.');
+  assert.equal(show.title, 'Gossip Girl');
+  assert.deepEqual(show.episodes.map((episode) => episode.Name), [
+    'Pilot',
+    'The Wild Brunch',
+    'Poison Ivy'
+  ]);
+  assert.equal(show.progress.kind, 'resume');
+  assert.equal(show.progress.primaryItem?.Id, wildBrunch.Id);
+  assert.equal(show.progress.label, 'Resume S01E02');
+});
+
+test('ordered show projection deduplicates episode slots using the strongest playback state', () => {
+  const original = episodeItem('duplicates', 1, 1, { Id: 'original-copy' });
+  const watchedCopy = episodeItem('duplicates', 1, 1, {
+    Id: 'watched-copy',
+    UserData: { Played: true, PlayCount: 1, LastPlayedDate: '2026-05-06T12:00:00.000Z' }
+  });
+  const remaining = Array.from({ length: 6 }, (_, index) =>
+    episodeItem('duplicates', 1, index + 2)
+  );
+  const representative = {
+    ...remaining[0],
+    score: 80,
+    reason: 'more from a series you watch'
+  };
+
+  const [projected] = projectRecommendations(
+    [representative],
+    [original, watchedCopy, ...remaining],
+    [{ Id: 'duplicates', Name: 'Duplicate show', Type: 'Series', RecursiveItemCount: 8 }]
+  );
+
+  assert.equal(projected.kind, 'show');
+  if (projected.kind !== 'show') assert.fail('Expected tolerated duplicates to remain an ordered show.');
+  assert.equal(projected.episodes.length, 7);
+  assert.equal(projected.episodes[0].Id, 'watched-copy');
+  assert.equal(projected.progress.kind, 'next');
+  assert.equal(projected.progress.primaryItem?.IndexNumber, 2);
 });
 
 test('search ranks actual series episodes above unrelated title matches', () => {
@@ -1062,7 +1437,7 @@ test('actor extraction keeps valid cast in server order and deduplicates people'
   assert.deepEqual(actorsForItem(item({ Id: 'empty', Name: 'Empty' })), []);
 });
 
-test('Jellyfin actor requests keep People detail-only and encode PersonIds', async () => {
+test('Jellyfin discovery requests keep detail fields isolated and tokens out of query strings', async () => {
   const originalFetch = globalThis.fetch;
   const originalLocalStorage = globalThis.localStorage;
   const requests: string[] = [];
@@ -1093,6 +1468,7 @@ test('Jellyfin actor requests keep People detail-only and encode PersonIds', asy
     });
     await client.getItems({ parentId: 'library-1' });
     await client.getItem('movie-1');
+    await client.getSimilarItems('movie-1', 36);
 
     const actorWorkUrl = new URL(requests[0]);
     assert.equal(actorWorkUrl.searchParams.get('ParentId'), 'library-1');
@@ -1111,6 +1487,13 @@ test('Jellyfin actor requests keep People detail-only and encode PersonIds', asy
     assert.equal(detailUrl.pathname, '/Users/user-1/Items/movie-1');
     assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('People'));
     assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('MediaSources'));
+
+    const similarUrl = new URL(requests[3]);
+    assert.equal(similarUrl.pathname, '/Items/movie-1/Similar');
+    assert.equal(similarUrl.searchParams.get('userId'), 'user-1');
+    assert.equal(similarUrl.searchParams.get('Limit'), '36');
+    assert.ok(!similarUrl.searchParams.get('Fields')?.split(',').includes('People'));
+    assert.equal(similarUrl.searchParams.has('api_key'), false);
 
     assert.equal(client.getPersonImageUrl({ Id: 'person-1', Name: 'No image' }), '');
     assert.equal(client.getPersonImageUrl({ Name: 'No id', PrimaryImageTag: 'tag' }), '');

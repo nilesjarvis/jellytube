@@ -32,6 +32,7 @@
     playbackProgress,
     shouldStartFromBeginning
   } from '../lib/recommendations';
+  import type { ProjectedRecommendation } from '../lib/showRecommendations';
   import {
     PLAYING_NEXT_COUNTDOWN_SECONDS,
     countdownSecondsRemaining,
@@ -64,6 +65,7 @@
   import { canDirectPlaySource, directStreamExtension } from '../lib/codecSupport';
   import { actorsForItem } from '../lib/people';
   import ActorCast from './ActorCast.svelte';
+  import ShowRecommendationCard from './ShowRecommendationCard.svelte';
   import VideoCard from './VideoCard.svelte';
 
   export let client: JellyfinClient;
@@ -74,11 +76,11 @@
   export let episodeSeasons: EpisodeSeason[] = [];
   export let selectedEpisodeSeason = 0;
   export let episodeSeriesTitle = '';
-  export let recommendations: JellyfinItem[] = [];
+  export let recommendations: ProjectedRecommendation[] = [];
   export let minimized = false;
 
   const dispatch = createEventDispatcher<{
-    select: JellyfinItem;
+    recommendationSelect: ProjectedRecommendation;
     queueSelect: JellyfinItem;
     episodeSelect: JellyfinItem;
     episodeSeason: number;
@@ -142,6 +144,16 @@
   const MIN_MINI_PLAYER_WIDTH = 280;
   const MAX_MINI_PLAYER_WIDTH = 720;
   const MINI_PLAYER_KEYBOARD_STEP = 24;
+
+  function recommendationKey(recommendation: ProjectedRecommendation) {
+    return recommendation.kind === 'item'
+      ? `item:${recommendation.item.Id}`
+      : `show:${recommendation.seriesKey}`;
+  }
+
+  function recommendationPlayableItem(recommendation: ProjectedRecommendation): JellyfinItem | null {
+    return recommendation.kind === 'item' ? recommendation.item : recommendation.progress.primaryItem;
+  }
 
   let video: WebKitVideoElement;
   let playerShell: WebKitFullscreenElement;
@@ -228,12 +240,16 @@
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
   $: hasEpisodeShelf = episodeSeasons.length > 0;
-  $: recommendationAutoplayItem = recommendations.find(
-    (recommendation) =>
-      recommendation.Id !== item.Id && !queue.some((queueItem) => queueItem.Id === recommendation.Id)
-  );
+  $: recommendationAutoplayEntry = recommendations.find((recommendation) => {
+    const playableItem = recommendationPlayableItem(recommendation);
+    return (
+      playableItem !== null &&
+      playableItem.Id !== item.Id &&
+      !queue.some((queueItem) => queueItem.Id === playableItem.Id)
+    );
+  });
   $: showRecommendationAutoplayToggle = Boolean(
-    recommendationAutoplayItem && !hasEpisodeShelf && queue.length <= 1
+    recommendationAutoplayEntry && !hasEpisodeShelf && queue.length <= 1
   );
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
   $: isMusicVideo = detailedItem.Type === 'MusicVideo' || detailedItem.contentKind === 'musicVideo';
@@ -834,7 +850,7 @@
       dispatch('next');
       return;
     }
-    if (recommendationAutoplayItem) dispatch('select', recommendationAutoplayItem);
+    if (recommendationAutoplayEntry) dispatch('recommendationSelect', recommendationAutoplayEntry);
   }
 
   function syncPlaybackState() {
@@ -2010,14 +2026,25 @@
           {/if}
         </div>
         <div class="movie-recommendation-grid">
-          {#each recommendations as recommendation (recommendation.Id)}
-            <VideoCard
-              {client}
-              item={recommendation}
-              poster
-              on:select={(event) => dispatch('select', event.detail)}
-              on:channel={() => dispatch('movies')}
-            />
+          {#each recommendations as recommendation (recommendationKey(recommendation))}
+            {#if recommendation.kind === 'item'}
+              <VideoCard
+                {client}
+                item={recommendation.item}
+                recommendationReason={recommendation.item.reason}
+                poster
+                on:select={() => dispatch('recommendationSelect', recommendation)}
+                on:channel={() => dispatch('movies')}
+              />
+            {:else}
+              <ShowRecommendationCard
+                {client}
+                {recommendation}
+                compact
+                on:play={() => dispatch('recommendationSelect', recommendation)}
+                on:show={(event) => dispatch('channel', event.detail)}
+              />
+            {/if}
           {/each}
         </div>
       </section>
@@ -2033,16 +2060,27 @@
               </label>
             {/if}
           </div>
-          {#each recommendations as recommendation (recommendation.Id)}
-            <VideoCard
-              {client}
-              item={recommendation}
-              compact
-              titleContext={channelName(recommendation) === contextLabel ? 'channel' : 'feed'}
-              titleChannel={contextLabel}
-              on:select={(event) => dispatch('select', event.detail)}
-              on:channel={(event) => dispatch('channel', event.detail)}
-            />
+          {#each recommendations as recommendation (recommendationKey(recommendation))}
+            {#if recommendation.kind === 'item'}
+              <VideoCard
+                {client}
+                item={recommendation.item}
+                recommendationReason={recommendation.item.reason}
+                compact
+                titleContext={channelName(recommendation.item) === contextLabel ? 'channel' : 'feed'}
+                titleChannel={contextLabel}
+                on:select={() => dispatch('recommendationSelect', recommendation)}
+                on:channel={(event) => dispatch('channel', event.detail)}
+              />
+            {:else}
+              <ShowRecommendationCard
+                {client}
+                {recommendation}
+                compact
+                on:play={() => dispatch('recommendationSelect', recommendation)}
+                on:show={(event) => dispatch('channel', event.detail)}
+              />
+            {/if}
           {/each}
         </section>
       {/if}
