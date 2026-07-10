@@ -1500,6 +1500,95 @@ label {
   padding-top: 24px;
 }
 
+.watch-layout.minimized {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right, 0px));
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  display: block;
+  width: min(var(--mini-player-width, 400px), calc(100vw - 36px));
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.watch-layout.minimized .watch-left,
+.watch-layout.minimized .watch-player-area {
+  display: block;
+  min-width: 0;
+}
+
+.watch-layout.minimized .back-button,
+.watch-layout.minimized .watch-main,
+.watch-layout.minimized .recommendation-rail,
+.watch-layout.minimized .cinematic-glow,
+.watch-layout.minimized .playing-next-card {
+  display: none;
+}
+
+.watch-layout.minimized .player-frame {
+  --player-aspect-padding: 56.25%;
+  --player-video-fit: contain;
+  filter: none;
+}
+
+.watch-layout.minimized .player-shell {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.48);
+}
+
+.watch-layout.minimized.resizing {
+  user-select: none;
+}
+
+.mini-player-resize-handle {
+  position: absolute;
+  z-index: 14;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  touch-action: none;
+}
+
+.mini-player-resize-handle:hover,
+.mini-player-resize-handle:focus-visible,
+.watch-layout.minimized.resizing .mini-player-resize-handle {
+  background: color-mix(in srgb, var(--focus) 72%, transparent);
+}
+
+.mini-player-resize-handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.mini-player-resize-top {
+  top: -6px;
+  left: 14px;
+  right: 14px;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.mini-player-resize-left {
+  top: 14px;
+  bottom: 14px;
+  left: -6px;
+  width: 12px;
+  cursor: ew-resize;
+}
+
+.mini-player-resize-corner {
+  top: -7px;
+  left: -7px;
+  z-index: 15;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+}
+
 .watch-layout.cinematic-watch {
   position: relative;
   isolation: isolate;
@@ -1617,6 +1706,37 @@ label {
   inset: 0;
   z-index: 2;
   background: transparent;
+}
+
+.mini-player-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 13;
+  display: flex;
+  gap: 6px;
+}
+
+.mini-player-action {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+}
+
+.mini-player-action:hover,
+.mini-player-action:focus-visible {
+  background: rgba(24, 24, 24, 0.92);
+}
+
+.mini-player-action:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .player-overlay {
@@ -1911,6 +2031,31 @@ label {
   color: #fff;
   background: transparent;
   border-radius: 50%;
+}
+
+.watch-layout.minimized .player-controls-layer {
+  padding: 24px 10px 8px;
+}
+
+.watch-layout.minimized .player-control-row {
+  gap: 4px;
+}
+
+.watch-layout.minimized .player-control {
+  width: 34px;
+  height: 34px;
+}
+
+.watch-layout.minimized .player-control-row > .player-control:not(:first-child):not(.fullscreen-control),
+.watch-layout.minimized .quality-control,
+.watch-layout.minimized .player-time,
+.watch-layout.minimized .player-source-pill,
+.watch-layout.minimized .volume-slider {
+  display: none;
+}
+
+.watch-layout.minimized .fullscreen-control {
+  margin-left: auto;
 }
 
 .player-control:hover,
@@ -3008,6 +3153,12 @@ label {
     display: inline-flex;
   }
 
+
+  .watch-layout.minimized {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    width: min(var(--mini-player-width, 400px), calc(100vw - 24px));
+  }
   .onboarding-panel {
     padding: 24px;
   }

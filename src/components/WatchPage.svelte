@@ -20,7 +20,8 @@
     SkipForward,
     TriangleAlert,
     Volume2,
-    VolumeX
+    VolumeX,
+    X
   } from 'lucide-svelte';
   import type { JellyfinClient, PlaybackEventPayload } from '../lib/jellyfin';
   import {
@@ -74,6 +75,7 @@
   export let selectedEpisodeSeason = 0;
   export let episodeSeriesTitle = '';
   export let recommendations: JellyfinItem[] = [];
+  export let minimized = false;
 
   const dispatch = createEventDispatcher<{
     select: JellyfinItem;
@@ -86,6 +88,8 @@
     movies: void;
     next: void;
     finished: JellyfinItem;
+    restore: void;
+    close: void;
   }>();
 
   type PlaybackAttempt = {
@@ -124,9 +128,26 @@
   };
 
   type CinematicAvailability = 'idle' | 'dynamic' | 'unavailable';
+  type MiniPlayerResizeAxis = 'top' | 'left' | 'corner';
+  type MiniPlayerResizeState = {
+    axis: MiniPlayerResizeAxis;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+  };
+
+  const MINI_PLAYER_WIDTH_KEY = 'jellytube.miniPlayerWidth';
+  const DEFAULT_MINI_PLAYER_WIDTH = 400;
+  const MIN_MINI_PLAYER_WIDTH = 280;
+  const MAX_MINI_PLAYER_WIDTH = 720;
+  const MINI_PLAYER_KEYBOARD_STEP = 24;
 
   let video: WebKitVideoElement;
   let playerShell: WebKitFullscreenElement;
+  let watchLayout: HTMLElement;
+  let miniPlayerWidth = savedMiniPlayerWidth();
+  let miniResizeState: MiniPlayerResizeState | null = null;
   let loading = true;
   let buffering = false;
   let error = '';
@@ -257,6 +278,14 @@
         : cinematicMode
           ? 'Cinematic glow warming up'
           : 'Cinematic glow off';
+
+  $: if (minimized) {
+    qualityMenuOpen = false;
+    subtitleMenuOpen = false;
+    clearCinematicTimer();
+  } else if (cinematicMode && isPlaying) {
+    scheduleCinematicSample(0);
+  }
 
   onMount(() => {
     video?.setAttribute('webkit-playsinline', 'true');
@@ -551,12 +580,14 @@
     window.clearTimeout(clickTimer);
     qualityMenuOpen = false;
     subtitleMenuOpen = false;
-    await finishReporting();
+    const activeVideo = video;
+    const reporting = finishReporting();
     teardownHls();
-    clearVideoSource();
+    clearVideoSource(activeVideo);
     playRequested = false;
     isPlaying = false;
     clearCinematicTimer();
+    await reporting;
   }
 
   function teardownHls() {
@@ -564,12 +595,12 @@
     hls = null;
   }
 
-  function clearVideoSource() {
-    if (!video) return;
+  function clearVideoSource(target: WebKitVideoElement | undefined = video) {
+    if (!target) return;
     suppressMediaErrors = true;
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
+    target.pause();
+    target.removeAttribute('src');
+    target.load();
     window.setTimeout(() => {
       suppressMediaErrors = false;
     }, 100);
@@ -865,6 +896,10 @@
   }
 
   function handlePlayerClick() {
+    if (minimized) {
+      dispatch('restore');
+      return;
+    }
     if (qualityMenuOpen || subtitleMenuOpen) {
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
@@ -881,6 +916,10 @@
   function handlePlayerDoubleClick() {
     window.clearTimeout(clickTimer);
     clickTimer = 0;
+    if (minimized) {
+      dispatch('restore');
+      return;
+    }
     playerShell?.focus();
     void toggleFullscreen();
   }
@@ -1265,7 +1304,7 @@
 
   function scheduleCinematicSample(delay = CINEMATIC_SAMPLE_INTERVAL_MS) {
     clearCinematicTimer();
-    if (!cinematicMode || cinematicBlocked || cinematicAvailability === 'unavailable' || error || loading || buffering) {
+    if (minimized || !cinematicMode || cinematicBlocked || cinematicAvailability === 'unavailable' || error || loading || buffering) {
       return;
     }
     cinematicTimer = window.setTimeout(sampleCinematicGlow, delay);
@@ -1365,6 +1404,73 @@
     return `${minutes}:${String(remaining).padStart(2, '0')}`;
   }
 
+  function startMiniPlayerResize(event: PointerEvent, axis: MiniPlayerResizeAxis) {
+    if (!minimized || event.button !== 0) return;
+    const startWidth = watchLayout?.getBoundingClientRect().width ?? miniPlayerWidth;
+    miniResizeState = {
+      axis,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function resizeMiniPlayer(event: PointerEvent) {
+    if (!miniResizeState || event.pointerId !== miniResizeState.pointerId) return;
+    const horizontalDelta = miniResizeState.startX - event.clientX;
+    const verticalDelta = (miniResizeState.startY - event.clientY) * (16 / 9);
+    const resizeDelta =
+      miniResizeState.axis === 'left'
+        ? horizontalDelta
+        : miniResizeState.axis === 'top'
+          ? verticalDelta
+          : Math.abs(horizontalDelta) >= Math.abs(verticalDelta)
+            ? horizontalDelta
+            : verticalDelta;
+    miniPlayerWidth = clampedMiniPlayerWidth(miniResizeState.startWidth + resizeDelta);
+    event.preventDefault();
+  }
+
+  function finishMiniPlayerResize(event: PointerEvent) {
+    if (!miniResizeState || event.pointerId !== miniResizeState.pointerId) return;
+    miniResizeState = null;
+    persistMiniPlayerWidth();
+  }
+
+  function handleMiniPlayerResizeKeydown(event: KeyboardEvent, axis: MiniPlayerResizeAxis) {
+    let delta = 0;
+    if ((axis === 'left' || axis === 'corner') && event.key === 'ArrowLeft') delta = MINI_PLAYER_KEYBOARD_STEP;
+    if ((axis === 'left' || axis === 'corner') && event.key === 'ArrowRight') delta = -MINI_PLAYER_KEYBOARD_STEP;
+    if ((axis === 'top' || axis === 'corner') && event.key === 'ArrowUp') delta = MINI_PLAYER_KEYBOARD_STEP;
+    if ((axis === 'top' || axis === 'corner') && event.key === 'ArrowDown') delta = -MINI_PLAYER_KEYBOARD_STEP;
+    if (!delta) return;
+    event.preventDefault();
+    const renderedWidth = watchLayout?.getBoundingClientRect().width ?? miniPlayerWidth;
+    miniPlayerWidth = clampedMiniPlayerWidth(renderedWidth + delta);
+    persistMiniPlayerWidth();
+  }
+
+  function clampedMiniPlayerWidth(width: number) {
+    const viewportMargin = window.innerWidth <= 900 ? 24 : 36;
+    const maximum = Math.max(0, Math.min(MAX_MINI_PLAYER_WIDTH, window.innerWidth - viewportMargin));
+    const minimum = Math.min(MIN_MINI_PLAYER_WIDTH, maximum);
+    return Math.round(Math.min(maximum, Math.max(minimum, width)));
+  }
+
+  function persistMiniPlayerWidth() {
+    localStorage.setItem(MINI_PLAYER_WIDTH_KEY, String(Math.round(miniPlayerWidth)));
+  }
+
+  function savedMiniPlayerWidth() {
+    const stored = Number(localStorage.getItem(MINI_PLAYER_WIDTH_KEY));
+    if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_MINI_PLAYER_WIDTH;
+    return Math.round(Math.min(MAX_MINI_PLAYER_WIDTH, Math.max(MIN_MINI_PLAYER_WIDTH, stored)));
+  }
+
   function savedQualityId(): PlaybackQualityId {
     const stored = localStorage.getItem('jellytube.playerQuality');
     return stored && (stored === 'auto' || stored === 'direct' || /^hls-\d+k$/.test(stored))
@@ -1373,7 +1479,46 @@
   }
 </script>
 
-<section class="watch-layout" class:theater-mode={theaterMode} class:cinematic-watch={cinematicMode}>
+<svelte:window
+  on:pointermove={resizeMiniPlayer}
+  on:pointerup={finishMiniPlayerResize}
+  on:pointercancel={finishMiniPlayerResize}
+/>
+
+<section
+  bind:this={watchLayout}
+  class="watch-layout"
+  class:minimized={minimized}
+  class:resizing={Boolean(miniResizeState)}
+  class:theater-mode={theaterMode && !minimized}
+  class:cinematic-watch={cinematicMode && !minimized}
+  style={minimized ? `--mini-player-width: ${miniPlayerWidth}px` : undefined}
+  aria-label={minimized ? `Minimized video player for ${title}` : undefined}
+>
+  {#if minimized}
+    <button
+      class="mini-player-resize-handle mini-player-resize-top"
+      aria-label="Resize minimized player from top edge"
+      title="Drag to resize player"
+      on:pointerdown={(event) => startMiniPlayerResize(event, 'top')}
+      on:keydown={(event) => handleMiniPlayerResizeKeydown(event, 'top')}
+    ></button>
+    <button
+      class="mini-player-resize-handle mini-player-resize-left"
+      aria-label="Resize minimized player from left edge"
+      title="Drag to resize player"
+      on:pointerdown={(event) => startMiniPlayerResize(event, 'left')}
+      on:keydown={(event) => handleMiniPlayerResizeKeydown(event, 'left')}
+    ></button>
+    <button
+      class="mini-player-resize-handle mini-player-resize-corner"
+      aria-label="Resize minimized player from top-left corner"
+      title="Drag to resize player"
+      on:pointerdown={(event) => startMiniPlayerResize(event, 'corner')}
+      on:keydown={(event) => handleMiniPlayerResizeKeydown(event, 'corner')}
+    ></button>
+  {/if}
+
   <div class="watch-left">
     <div class="watch-player-area">
       <button class="back-button" on:click={() => dispatch('back')}>
@@ -1384,9 +1529,9 @@
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
       class="player-frame"
-      class:cinematic={cinematicMode}
-      class:cinematic-ready={cinematicReady}
-      class:cinematic-unavailable={cinematicAvailability === 'unavailable'}
+      class:cinematic={cinematicMode && !minimized}
+      class:cinematic-ready={cinematicReady && !minimized}
+      class:cinematic-unavailable={cinematicAvailability === 'unavailable' && !minimized}
       class:ultrawide-crop={ultrawideCrop}
       style={cinematicStyle}
     >
@@ -1452,10 +1597,31 @@
           {/if}
         </video>
 
+        {#if minimized}
+          <div class="mini-player-actions" aria-label="Minimized player controls">
+            <button
+              class="mini-player-action"
+              aria-label="Restore player"
+              title="Restore player"
+              on:click|stopPropagation={() => dispatch('restore')}
+            >
+              <Maximize size={19} />
+            </button>
+            <button
+              class="mini-player-action"
+              aria-label="Close player"
+              title="Close player"
+              on:click|stopPropagation={() => dispatch('close')}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        {/if}
+
         {#if !error}
           <button
             class="player-hit-target"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
+            aria-label={minimized ? 'Restore player' : isPlaying ? 'Pause' : 'Play'}
             on:click={handlePlayerClick}
             on:dblclick={handlePlayerDoubleClick}
           ></button>

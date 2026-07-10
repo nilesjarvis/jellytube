@@ -107,12 +107,12 @@
   let searchSuggestions: SearchSuggestion[] = [];
   let searchSuggestionIndex = -1;
   const searchSuggestionScheduler = createSearchSuggestionScheduler<SearchSuggestion>();
-  let selectedItem: JellyfinItem | null = null;
-  let selectedQueue: JellyfinItem[] = [];
-  let selectedQueueName = '';
-  let selectedEpisodeSeason = 0;
+  let activePlaybackItem: JellyfinItem | null = null;
+  let activePlaybackQueue: JellyfinItem[] = [];
+  let activePlaybackQueueName = '';
+  let activePlaybackEpisodeSeason = 0;
   let selectedChannelSeason = 0;
-  let shouldAutoplay = false;
+  let activePlaybackAutoplay = false;
   let selectedChannel = '';
   let selectedActor: JellyfinItem | null = null;
   let actorWork: JellyfinItem[] = [];
@@ -215,22 +215,21 @@
     .slice(0, 180);
   $: creatorDirectory = filteredChannelDirectory.filter((entry) => entry.kind !== 'show').slice(0, 180);
   $: latestDirectoryVideos = [...channelDirectoryPool].sort(compareByContentDateDesc).slice(0, 48);
-  $: episodeCollection = selectedItem ? episodeCollectionForItem(selectedItem, episodePool) : null;
-  $: watchQueue = episodeCollection ? episodeCollection.allItems : selectedQueue;
-  $: watchQueueTitle = episodeCollection ? episodeCollection.seriesName : selectedQueueName;
+  $: episodeCollection = activePlaybackItem ? episodeCollectionForItem(activePlaybackItem, episodePool) : null;
+  $: watchQueue = episodeCollection ? episodeCollection.allItems : activePlaybackQueue;
+  $: watchQueueTitle = episodeCollection ? episodeCollection.seriesName : activePlaybackQueueName;
   $: activeEpisodeSeason =
-    episodeCollection && selectedEpisodeSeason
-      ? selectedEpisodeSeason
+    episodeCollection && activePlaybackEpisodeSeason
+      ? activePlaybackEpisodeSeason
       : episodeCollection?.currentSeason ?? 0;
   $: featuredMovie = movieResume[0] ?? moviePopular[0] ?? movies[0] ?? null;
   $: actorMovies = actorWork.filter((item) => item.Type === 'Movie');
   $: actorSeries = actorWork.filter((item) => item.Type === 'Series');
   $: actorEpisodes = actorWork.filter((item) => item.Type === 'Episode');
   $: {
-    const item = selectedItem;
+    const item = activePlaybackItem;
     const queue = watchQueue;
     const contextKey = [
-      route,
       item?.Id ?? '',
       itemIdsKey(queue),
       itemIdsKey(videoPool),
@@ -239,12 +238,12 @@
       playbackActivityKey(activity),
       recentPlaybackIds.join(',')
     ].join('|');
-    syncWatchRecommendations(route, item, queue, contextKey);
+    syncWatchRecommendations(item, queue, contextKey);
   }
 
   $: {
-    if (route === 'watch' && selectedItem) {
-      document.title = `${displayTitle(selectedItem)} - JellyTube`;
+    if (route === 'watch' && activePlaybackItem) {
+      document.title = `${displayTitle(activePlaybackItem)} - JellyTube`;
     } else if (route === 'channel' && selectedChannel) {
       document.title = `${selectedChannel} - JellyTube`;
     } else if (route === 'actor' && selectedActor) {
@@ -657,12 +656,7 @@
   }
 
   async function showSearch(trimmed: string) {
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
@@ -699,12 +693,7 @@
   }
 
   async function showActor(personId: string, generation: number) {
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
@@ -781,23 +770,72 @@
     preserveQueueOrder = false,
     autoplay = false
   ) {
+    setPlaybackItem(item, queue, queueName, preserveQueueOrder, autoplay);
+    selectedChannelSeason = 0;
+    selectedChannel = '';
+    selectedActor = null;
+    actorWork = [];
+    route = 'watch';
+  }
+
+  function setPlaybackItem(
+    item: JellyfinItem,
+    queue: JellyfinItem[] = [],
+    queueName = '',
+    preserveQueueOrder = false,
+    autoplay = false
+  ) {
     const collection = queue.length ? null : episodeCollectionForItem(item, episodePool);
-    selectedItem = item;
-    selectedQueue = collection
+    activePlaybackItem = item;
+    activePlaybackQueue = collection
       ? collection.allItems
       : queue.length
         ? preserveQueueOrder
           ? queue
           : ensureQueueStartsWith(queue, item)
         : [];
-    selectedQueueName = collection ? collection.seriesName : queueName;
-    selectedEpisodeSeason = episodeInfo(item)?.season ?? 0;
+    activePlaybackQueueName = collection ? collection.seriesName : queueName;
+    activePlaybackEpisodeSeason = episodeInfo(item)?.season ?? 0;
+    activePlaybackAutoplay = autoplay;
+  }
+
+  function playItemFromPlayer(
+    item: JellyfinItem,
+    queue: JellyfinItem[] = [],
+    queueName = '',
+    preserveQueueOrder = false
+  ) {
+    if (route === 'watch') {
+      openItem(item, queue, queueName, preserveQueueOrder);
+      return;
+    }
+    setPlaybackItem(item, queue, queueName, preserveQueueOrder, true);
+    void ensureSeriesEpisodes(item);
+  }
+
+  function restorePlayback() {
+    if (!activePlaybackItem) return;
+    navigationGeneration += 1;
+    menuOpen = false;
+    loading = false;
+    error = '';
     selectedChannelSeason = 0;
-    shouldAutoplay = autoplay;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
     route = 'watch';
+    writeUrl(watchRouteFor(activePlaybackItem, watchQueueTitle), 'push');
+    scrollToTop(true);
+  }
+
+  function closePlayback() {
+    activePlaybackItem = null;
+    activePlaybackQueue = [];
+    activePlaybackQueueName = '';
+    activePlaybackEpisodeSeason = 0;
+    activePlaybackAutoplay = false;
+    watchRecommendations = [];
+    watchRecommendationContextKey = '';
   }
 
   function openChannel(channel: string) {
@@ -810,12 +848,7 @@
 
   async function showChannel(channel: string) {
     selectedChannel = channel;
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedActor = null;
     actorWork = [];
     route = 'channel';
@@ -869,10 +902,10 @@
 
   function playNextQueued() {
     const queue = watchQueue;
-    if (!selectedItem || queue.length === 0) return;
-    const currentIndex = queue.findIndex((queueItem) => queueItem.Id === selectedItem?.Id);
+    if (!activePlaybackItem || queue.length === 0) return;
+    const currentIndex = queue.findIndex((queueItem) => queueItem.Id === activePlaybackItem?.Id);
     const nextItem = currentIndex >= 0 ? queue[currentIndex + 1] : queue[0];
-    if (nextItem) openItem(nextItem, queue, watchQueueTitle, true);
+    if (nextItem) playItemFromPlayer(nextItem, queue, watchQueueTitle, true);
   }
 
   function goHome() {
@@ -889,12 +922,7 @@
 
   function showHome() {
     route = 'home';
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
@@ -923,12 +951,7 @@
 
   function showSimpleRoute(nextRoute: 'movies' | 'music' | 'shows' | 'subscriptions') {
     route = nextRoute;
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
@@ -940,12 +963,7 @@
 
   async function showLibrarySettings() {
     route = 'libraries';
-    selectedItem = null;
-    selectedQueue = [];
-    selectedQueueName = '';
-    selectedEpisodeSeason = 0;
     selectedChannelSeason = 0;
-    shouldAutoplay = false;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
@@ -1148,8 +1166,8 @@
 
   function findLoadedItem(itemId: string) {
     return (
-      selectedItem?.Id === itemId
-        ? selectedItem
+      activePlaybackItem?.Id === itemId
+        ? activePlaybackItem
         : libraryPool.find((item) => item.Id === itemId) ??
           videoPool.find((item) => item.Id === itemId) ??
           moviePool.find((item) => item.Id === itemId) ??
@@ -1407,12 +1425,11 @@
   }
 
   function syncWatchRecommendations(
-    currentRoute: Route,
     item: JellyfinItem | null,
     queue: JellyfinItem[],
     contextKey: string
   ) {
-    if (currentRoute !== 'watch' || !item) {
+    if (!item) {
       if (contextKey !== watchRecommendationContextKey) {
         watchRecommendationContextKey = contextKey;
       }
@@ -1719,12 +1736,13 @@
   </aside>
 
   <main class="content">
-    {#if route === 'watch' && selectedItem}
-      {#key selectedItem.Id}
+    {#if activePlaybackItem}
+      {#key activePlaybackItem.Id}
         <WatchPage
           {client}
-          item={selectedItem}
-          autoplay={shouldAutoplay}
+          item={activePlaybackItem}
+          autoplay={activePlaybackAutoplay}
+          minimized={route !== 'watch'}
           queue={watchQueue}
           queueTitle={watchQueueTitle}
           episodeSeasons={episodeCollection?.seasons ?? []}
@@ -1732,18 +1750,22 @@
           episodeSeriesTitle={episodeCollection?.seriesName ?? ''}
           recommendations={watchRecommendations}
           on:back={goBackOrHome}
-          on:select={(event) => openItem(event.detail)}
-          on:queueSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}
-          on:episodeSelect={(event) => openItem(event.detail, watchQueue, watchQueueTitle, true)}
-          on:episodeSeason={(event) => (selectedEpisodeSeason = event.detail)}
+          on:select={(event) => playItemFromPlayer(event.detail)}
+          on:queueSelect={(event) => playItemFromPlayer(event.detail, watchQueue, watchQueueTitle, true)}
+          on:episodeSelect={(event) => playItemFromPlayer(event.detail, watchQueue, watchQueueTitle, true)}
+          on:episodeSeason={(event) => (activePlaybackEpisodeSeason = event.detail)}
           on:channel={(event) => openChannel(event.detail)}
           on:actor={(event) => openActor(event.detail)}
           on:movies={() => navigateTo({ view: 'movies' })}
           on:finished={(event) => rememberFinishedItem(event.detail)}
           on:next={playNextQueued}
+          on:restore={restorePlayback}
+          on:close={closePlayback}
         />
       {/key}
-    {:else if error}
+    {/if}
+
+    {#if error}
       <div class="empty-state">
         <p>{error}</p>
         <button class="secondary-action" on:click={retryLoadingRoute}>Try again</button>
@@ -2328,7 +2350,7 @@
           <button class="primary-action settings-save" on:click={saveLibraries}>Update libraries</button>
         {/if}
       </section>
-    {:else}
+    {:else if route === 'home'}
       {#if resume.length}
         <section class="feed-section">
           <h2>Continue watching</h2>

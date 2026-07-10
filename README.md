@@ -66,6 +66,7 @@ These screenshots live in `screenshots/` and are embedded here so users can prev
 - **Subscriptions directory** that works as a searchable show/channel directory instead of a follow/unfollow system.
 - **Season-aware show pages** for episodic libraries, including season selection, latest episode shortcuts, and lazy full-series loading.
 - **Rich watch page** with direct play where possible, Jellyfin HLS fallback, resume position, queue/episode shelves, autoplay-next, volume persistence, seeking, fullscreen, and responsive mobile layout.
+- **Persistent mini-player** keeps the current video playing in the bottom-right corner while you browse; drag its top or left edges to resize it, and JellyTube remembers the preferred size.
 - **Browser-native navigation** so search, channel, library, and watch routes survive refresh and work with back/forward buttons.
 - **Light, dark, and system themes** saved in browser storage.
 

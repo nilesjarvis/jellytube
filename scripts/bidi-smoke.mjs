@@ -189,6 +189,7 @@ async function main() {
         localStorage.removeItem('jellytube.session.v1');
         localStorage.removeItem('jellytube.cinematicMode');
         localStorage.removeItem('jellytube.ultrawideCrop');
+        localStorage.removeItem('jellytube.miniPlayerWidth');
         localStorage.setItem('jellytube.theme', 'light');
         localStorage.setItem('jellytube.autoplayNext', 'true');
         return true;
@@ -599,6 +600,90 @@ async function main() {
     socket,
     context,
     `
+      (async () => {
+        const video = document.querySelector('.player-shell video');
+        if (video.paused) await video.play();
+        window.__jellytubePersistentVideo = video;
+        window.__jellytubePersistentTime = video.currentTime;
+        document.querySelector('.wordmark').click();
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const layout = document.querySelector('.watch-layout.minimized');
+        const video = layout?.querySelector('video');
+        const bounds = layout?.getBoundingClientRect();
+        return Boolean(
+          location.pathname === '/' &&
+          layout &&
+          video === window.__jellytubePersistentVideo &&
+          !video.paused &&
+          video.currentTime >= window.__jellytubePersistentTime &&
+          getComputedStyle(layout).position === 'fixed' &&
+          bounds.right <= innerWidth &&
+          bounds.bottom <= innerHeight &&
+          document.querySelector('.mini-player-action[aria-label="Restore player"]') &&
+          document.querySelector('.mini-player-action[aria-label="Close player"]') &&
+          getComputedStyle(document.querySelector('.mini-player-resize-top')).cursor === 'ns-resize' &&
+          getComputedStyle(document.querySelector('.mini-player-resize-left')).cursor === 'ew-resize' &&
+          getComputedStyle(document.querySelector('.mini-player-resize-corner')).cursor === 'nwse-resize' &&
+          document.querySelectorAll('.player-shell video').length === 1
+        );
+      })()
+    `,
+    'persistent minimized playback'
+  );
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        const layout = document.querySelector('.watch-layout.minimized');
+        const bounds = layout.getBoundingClientRect();
+        window.__jellytubeMiniWidthBeforeResize = bounds.width;
+        window.__jellytubeMiniRightBeforeResize = bounds.right;
+        window.__jellytubeMiniBottomBeforeResize = bounds.bottom;
+        document.querySelector('.mini-player-resize-left').dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })
+        );
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const bounds = document.querySelector('.watch-layout.minimized')?.getBoundingClientRect();
+        return Boolean(
+          bounds?.width >= window.__jellytubeMiniWidthBeforeResize + 23 &&
+          Math.abs(bounds.right - window.__jellytubeMiniRightBeforeResize) < 1 &&
+          Math.abs(bounds.bottom - window.__jellytubeMiniBottomBeforeResize) < 1 &&
+          Math.abs(Number(localStorage.getItem('jellytube.miniPlayerWidth')) - bounds.width) < 1
+        );
+      })()
+    `,
+    'resize and persist minimized player'
+  );
+  await screenshot(socket, context, '11a-mini-player');
+  await evaluate(socket, context, `document.querySelector('.mini-player-action[aria-label="Restore player"]').click()`);
+  await waitFor(
+    socket,
+    context,
+    `Boolean(location.pathname.startsWith('/watch/') && !document.querySelector('.watch-layout.minimized') && document.querySelector('.player-shell video') === window.__jellytubePersistentVideo && document.querySelectorAll('.player-shell video').length === 1)`,
+    'restore persistent player'
+  );
+
+  await evaluate(
+    socket,
+    context,
+    `
       (() => {
         window.__jellytubeMixTitle = document.querySelector('.watch-main h1').innerText;
         document.querySelector('.player-shell video').dispatchEvent(new Event('ended', { bubbles: true }));
@@ -859,7 +944,7 @@ async function main() {
   await waitFor(
     socket,
     context,
-    `location.pathname === '/search' && new URL(location.href).searchParams.get('q') === 'SNL' && document.body.innerText.includes('Search results')`,
+    `(() => { const layout = document.querySelector('.watch-layout.minimized'); const bounds = layout?.getBoundingClientRect(); return Boolean(location.pathname === '/search' && new URL(location.href).searchParams.get('q') === 'SNL' && document.body.innerText.includes('Search results') && bounds && Math.abs(bounds.width - Number(localStorage.getItem('jellytube.miniPlayerWidth'))) < 1); })()`,
     'browser back to search'
   );
   await screenshot(socket, context, '16-browser-back-search');
@@ -874,6 +959,46 @@ async function main() {
   await screenshot(socket, context, '17-browser-forward-watch');
 
   await setViewport(socket, context, 390, 900);
+  await evaluate(
+    socket,
+    context,
+    `
+      (() => {
+        window.__jellytubeMobileVideo = document.querySelector('.player-shell video');
+        document.querySelector('.wordmark').click();
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
+      (() => {
+        const layout = document.querySelector('.watch-layout.minimized');
+        const bounds = layout?.getBoundingClientRect();
+        return Boolean(
+          location.pathname === '/' &&
+          layout?.querySelector('video') === window.__jellytubeMobileVideo &&
+          bounds.left >= 0 &&
+          bounds.top >= 0 &&
+          bounds.right <= innerWidth &&
+          bounds.bottom <= innerHeight &&
+          document.querySelector('.mini-player-action[aria-label="Restore player"]')?.getBoundingClientRect().width >= 36 &&
+          document.querySelector('.mini-player-action[aria-label="Close player"]')?.getBoundingClientRect().width >= 36
+        );
+      })()
+    `,
+    'mobile minimized player bounds'
+  );
+  await screenshot(socket, context, '17b-mini-player-mobile');
+  await evaluate(socket, context, `document.querySelector('.mini-player-action[aria-label="Restore player"]').click()`);
+  await waitFor(
+    socket,
+    context,
+    `Boolean(location.pathname.startsWith('/watch/') && !document.querySelector('.watch-layout.minimized') && document.querySelector('.player-shell video') === window.__jellytubeMobileVideo)`,
+    'mobile restore player'
+  );
   await screenshot(socket, context, '18-watch-mobile');
 
   await send(socket, 'session.end', {}).catch(() => {});
