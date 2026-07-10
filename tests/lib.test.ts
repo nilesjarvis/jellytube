@@ -47,6 +47,14 @@ import {
   playbackQualityById,
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
+import {
+  containerDefaultAudioStream,
+  initialPlaybackAudioId,
+  playbackAudioById,
+  playbackAudioOptions,
+  playbackAudioPreferenceKey,
+  serializePlaybackAudioPreference
+} from '../src/lib/playbackAudio';
 import { rankSearchResults } from '../src/lib/search';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
 import {
@@ -481,6 +489,145 @@ test('playback quality options use bitrate labels and filter above source resolu
   assert.equal(options[1].detail, '720p · 9.5 Mbps');
   assert.equal(playbackQualityById(options, 'hls-20000k')?.id, 'auto');
   assert.equal(playbackQualityById(options, 'hls-4000k')?.videoBitrate, 4_000_000);
+});
+
+test('playback audio options keep indexed audio streams and preserve duplicate labels', () => {
+  const options = playbackAudioOptions({
+    Id: 'source',
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      { Type: 'Video', Index: 0, Codec: 'h264' },
+      { Type: 'Audio', Index: 1, Language: 'eng', DisplayTitle: 'English', Codec: 'aac', IsDefault: true },
+      { Type: 'Audio', Index: 2, Language: 'eng', DisplayTitle: 'English', Codec: 'ac3' },
+      { Type: 'Audio', Index: 2, Language: 'spa', DisplayTitle: 'Duplicate index' },
+      { Type: 'Audio', Language: 'fra', Title: 'Unindexed' },
+      { Type: 'Audio', Index: 3, Language: 'jpn' },
+      { Type: 'Audio', Index: 4 }
+    ]
+  });
+
+  assert.deepEqual(options.map(({ id, label, detail, index }) => ({ id, label, detail, index })), [
+    { id: 'audio-1', label: 'English', detail: 'ENG · Default · AAC', index: 1 },
+    { id: 'audio-2', label: 'English', detail: 'ENG · AC3', index: 2 },
+    { id: 'audio-3', label: 'JPN', detail: 'JPN', index: 3 },
+    { id: 'audio-4', label: 'Audio 4', detail: '', index: 4 }
+  ]);
+  assert.equal(playbackAudioById(options, 'audio-2')?.index, 2);
+  assert.equal(playbackAudioById(options, 'audio-missing')?.index, 1);
+});
+
+test('playback audio preference resolves exact matches then prioritizes language over cross-language titles', () => {
+  const source = {
+    Id: 'source',
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      { Type: 'Audio' as const, Index: 1, Language: 'eng', Title: 'Main', IsDefault: true },
+      { Type: 'Audio' as const, Index: 2, Language: 'eng', Title: 'Commentary' },
+      { Type: 'Audio' as const, Index: 3, Language: 'spa', Title: 'Commentary' },
+      { Type: 'Audio' as const, Index: 4, Language: 'fra', Title: 'Surround' }
+    ]
+  };
+  const options = playbackAudioOptions(source);
+
+  assert.equal(
+    initialPlaybackAudioId(source, options, JSON.stringify({ language: ' SPA ', title: 'Commentary' })),
+    'audio-3'
+  );
+  assert.equal(
+    initialPlaybackAudioId(source, options, JSON.stringify({ language: 'deu', title: 'Commentary' })),
+    'audio-2'
+  );
+  assert.equal(
+    initialPlaybackAudioId(source, options, JSON.stringify({ language: 'eng', title: 'Surround' })),
+    'audio-1'
+  );
+});
+
+test('playback audio preference falls back across items by language using source defaults first', () => {
+  const source = {
+    Id: 'next-item',
+    DefaultAudioStreamIndex: 3,
+    MediaStreams: [
+      { Type: 'Audio' as const, Index: 1, Language: 'eng', Title: 'Main', IsDefault: true },
+      { Type: 'Audio' as const, Index: 2, Language: 'spa', Title: 'Main' },
+      { Type: 'Audio' as const, Index: 3, Language: 'eng', Title: 'Descriptive' }
+    ]
+  };
+  const options = playbackAudioOptions(source);
+
+  assert.equal(
+    initialPlaybackAudioId(source, options, JSON.stringify({ language: 'ENG', title: 'Old commentary' })),
+    'audio-3'
+  );
+});
+
+test('playback audio preference safely falls back for malformed or stale values and invalid defaults', () => {
+  const source = {
+    Id: 'source',
+    DefaultAudioStreamIndex: 99,
+    MediaStreams: [
+      { Type: 'Audio' as const, Index: 5, Language: 'fra' },
+      { Type: 'Audio' as const, Index: 7, Language: 'eng', IsDefault: true }
+    ]
+  };
+  const options = playbackAudioOptions(source);
+
+  assert.equal(initialPlaybackAudioId(source, options, '{bad json'), 'audio-7');
+  assert.equal(initialPlaybackAudioId(source, options, JSON.stringify({ language: 'deu', title: 'Missing' })), 'audio-7');
+  assert.equal(initialPlaybackAudioId(source, options, JSON.stringify({ language: 12, index: 5 })), 'audio-7');
+  assert.equal(initialPlaybackAudioId(source, options, null), 'audio-7');
+  assert.equal(initialPlaybackAudioId({ ...source, DefaultAudioStreamIndex: 5 }, options, null), 'audio-5');
+  const serverSelectedSource = {
+    Id: 'server-selected',
+    DefaultAudioStreamIndex: 2,
+    MediaStreams: [
+      { Type: 'Audio' as const, Index: 1, Language: 'eng', IsDefault: true },
+      { Type: 'Audio' as const, Index: 2, Language: 'jpn' }
+    ]
+  };
+  assert.equal(containerDefaultAudioStream(serverSelectedSource)?.Index, 1);
+});
+
+test('playback audio preferences serialize semantic identity without a stream index', () => {
+  const option = playbackAudioOptions({
+    Id: 'source',
+    MediaStreams: [
+      { Type: 'Audio', Index: 12, Language: ' ENG ', Title: ' Director commentary ', DisplayTitle: 'English commentary' }
+    ]
+  })[0];
+
+  const serialized = serializePlaybackAudioPreference(option);
+  assert.deepEqual(JSON.parse(serialized), { language: 'eng', title: 'Director commentary' });
+  assert.equal(serialized.includes('12'), false);
+  assert.equal(serialized.includes('index'), false);
+});
+
+test('playback audio preferences preserve DisplayTitle-only tracks case-insensitively', () => {
+  const source = {
+    Id: 'source',
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      { Type: 'Audio' as const, Index: 1, Language: 'eng', DisplayTitle: 'English AAC', IsDefault: true },
+      { Type: 'Audio' as const, Index: 2, Language: 'eng', Title: '   ', DisplayTitle: 'English Stereo' }
+    ]
+  };
+  const options = playbackAudioOptions(source);
+  const serialized = serializePlaybackAudioPreference(options[1]);
+
+  assert.deepEqual(JSON.parse(serialized), { language: 'eng', title: 'English Stereo' });
+  assert.equal(initialPlaybackAudioId(source, options, serialized), 'audio-2');
+  assert.equal(
+    initialPlaybackAudioId(source, options, JSON.stringify({ language: 'ENG', title: 'english stereo' })),
+    'audio-2'
+  );
+});
+
+test('playback audio preference keys normalize servers and remain server and user scoped', () => {
+  const normalized = playbackAudioPreferenceKey(' https://media.example.test/// ', 'user-a');
+
+  assert.equal(normalized, playbackAudioPreferenceKey('https://media.example.test', 'user-a'));
+  assert.notEqual(normalized, playbackAudioPreferenceKey('https://other.example.test', 'user-a'));
+  assert.notEqual(normalized, playbackAudioPreferenceKey('https://media.example.test', 'user-b'));
 });
 
 test('watch recommendations prefer similar metadata over same-channel filler', () => {
@@ -1502,6 +1649,50 @@ test('Jellyfin discovery requests keep detail fields isolated and tokens out of 
     assert.equal(imageUrl.searchParams.get('fillWidth'), '320');
     assert.equal(imageUrl.searchParams.get('quality'), '90');
     assert.equal(imageUrl.searchParams.get('api_key'), 'access-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLocalStorage === undefined) {
+      delete (globalThis as { localStorage?: Storage }).localStorage;
+    } else {
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: originalLocalStorage });
+    }
+  }
+});
+
+test('Jellyfin playback requests carry selected audio indexes through negotiation and HLS', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: () => 'test-device',
+      setItem: () => undefined
+    }
+  });
+  globalThis.fetch = async (input, init) => {
+    requests.push({
+      url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+      body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {}
+    });
+    return new Response(JSON.stringify({ MediaSources: [], PlaySessionId: 'session' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+
+  try {
+    const client = new JellyfinClient('http://jellyfin.test', 'access-token', 'user-1');
+    await client.getPlaybackInfo('video-1', 50_000_000, 2);
+    await client.getPlaybackInfo('video-1', 0, -1);
+
+    assert.equal(requests[0].body.AudioStreamIndex, 2);
+    assert.equal('AudioStreamIndex' in requests[1].body, false);
+
+    const selectedUrl = new URL(client.getHlsUrl('video-1', 'source-1', { audioStreamIndex: 2 }));
+    const defaultUrl = new URL(client.getHlsUrl('video-1', 'source-1'));
+    assert.equal(selectedUrl.searchParams.get('AudioStreamIndex'), '2');
+    assert.equal(defaultUrl.searchParams.has('AudioStreamIndex'), false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalLocalStorage === undefined) {

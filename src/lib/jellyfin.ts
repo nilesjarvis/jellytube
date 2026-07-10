@@ -308,13 +308,16 @@ export class JellyfinClient {
     });
   }
 
-  async getPlaybackInfo(itemId: string, positionTicks = 0) {
+  async getPlaybackInfo(itemId: string, positionTicks = 0, audioStreamIndex?: number) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.post<PlaybackInfo>(
       `/Items/${itemId}/PlaybackInfo`,
       {
         DeviceProfile: browserDeviceProfile(),
-        MaxStreamingBitrate: 140_000_000
+        MaxStreamingBitrate: 140_000_000,
+        ...(audioStreamIndex !== undefined && audioStreamIndex >= 0
+          ? { AudioStreamIndex: audioStreamIndex }
+          : {})
       },
       {
         userId: this.userId,

@@ -6,6 +6,7 @@
     Captions,
     Check,
     Loader2,
+    Languages,
     Maximize,
     Minimize,
     Pause,
@@ -55,6 +56,15 @@
     shouldSampleCinematicGlow
   } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
+  import {
+    containerDefaultAudioStream,
+    initialPlaybackAudioId,
+    playbackAudioById,
+    playbackAudioOptions,
+    playbackAudioPreferenceKey,
+    serializePlaybackAudioPreference,
+    type PlaybackAudioOption
+  } from '../lib/playbackAudio';
   import {
     playbackQualityById,
     playbackQualityOptions,
@@ -110,6 +120,16 @@
     stream: JellyfinMediaStream | null;
     index: number | null;
     delivery: 'off' | 'track' | 'burn';
+  };
+
+  type AudioSelectionRollback = {
+    audioId: string;
+    qualityOptions: PlaybackQualityOption[];
+    qualityId: PlaybackQualityId;
+    preferenceKey: string;
+    preference: string | null;
+    shouldResume: boolean;
+    attemptedLabel: string;
   };
 
   type WebKitVideoElement = HTMLVideoElement & {
@@ -177,6 +197,7 @@
   let playRequested = false;
   let suppressMediaErrors = false;
   let hlsRecovered = false;
+  let hlsNetworkRecovered = false;
   let seekApplied = false;
   let resumeSeconds = 0;
   let controlsVisible = true;
@@ -187,6 +208,12 @@
   let selectedQualityId = preferredQualityId;
   let qualityOptions: PlaybackQualityOption[] = [];
   let qualityMenuOpen = false;
+  let audioOptions: PlaybackAudioOption[] = [];
+  let selectedAudioId = '';
+  let audioMenuOpen = false;
+  let pendingAudioRollback: AudioSelectionRollback | null = null;
+  let preserveBoundaryResume = false;
+  let restartShouldResume = false;
   let subtitleOptions: SubtitleOption[] = [{ id: 'off', label: 'Off', detail: 'No captions', stream: null, index: null, delivery: 'off' }];
   let selectedSubtitleId = 'off';
   let subtitleMenuOpen = false;
@@ -233,6 +260,8 @@
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
   $: selectedQuality = playbackQualityById(qualityOptions, selectedQualityId);
   $: qualityButtonLabel = selectedQuality?.label ?? 'Auto';
+  $: selectedAudio = playbackAudioById(audioOptions, selectedAudioId);
+  $: audioButtonLabel = selectedAudio?.label ?? 'Default';
   $: selectedSubtitle = subtitleOptions.find((option) => option.id === selectedSubtitleId) ?? subtitleOptions[0];
   $: subtitleButtonLabel = selectedSubtitle?.label ?? 'Off';
   $: subtitleActive = Boolean(selectedSubtitle?.index !== null && selectedSubtitle?.index !== undefined);
@@ -297,6 +326,7 @@
 
   $: if (minimized) {
     qualityMenuOpen = false;
+    audioMenuOpen = false;
     subtitleMenuOpen = false;
     clearCinematicTimer();
   } else if (cinematicMode && isPlaying) {
@@ -372,6 +402,10 @@
     error = '';
     fallbackNotice = '';
     qualityMenuOpen = false;
+    audioMenuOpen = false;
+    pendingAudioRollback = null;
+    preserveBoundaryResume = false;
+    restartShouldResume = false;
     subtitleMenuOpen = false;
     activeTextTrackUrl = '';
     currentTime = 0;
@@ -395,11 +429,25 @@
         ? 0
         : detailedItem.UserData?.PlaybackPositionTicks ?? 0;
       resumeSeconds = startTicks / 10_000_000;
-      const playbackInfo = await client.getPlaybackInfo(item.Id, startTicks);
+      const audioPreference = localStorage.getItem(
+        playbackAudioPreferenceKey(client.serverUrl, client.userId ?? '')
+      );
+      const itemMediaSource = detailedItem.MediaSources?.[0];
+      const itemAudioOptions = itemMediaSource ? playbackAudioOptions(itemMediaSource) : [];
+      const itemAudioId = itemMediaSource
+        ? initialPlaybackAudioId(itemMediaSource, itemAudioOptions, audioPreference)
+        : '';
+      const playbackInfo = await client.getPlaybackInfo(
+        item.Id,
+        startTicks,
+        playbackAudioById(itemAudioOptions, itemAudioId)?.index
+      );
       mediaSource = playbackInfo.MediaSources[0] ?? null;
       playSessionId = playbackInfo.PlaySessionId ?? '';
       if (!mediaSource) throw new Error('No playable media source was returned by Jellyfin.');
 
+      audioOptions = playbackAudioOptions(mediaSource);
+      selectedAudioId = initialPlaybackAudioId(mediaSource, audioOptions, audioPreference);
       qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
       selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
       subtitleOptions = buildSubtitleOptions(mediaSource);
@@ -448,6 +496,7 @@
   }
 
   function getDirectAttempt(source: JellyfinMediaSource): PlaybackAttempt | null {
+    if (selectedAudioOption()?.index !== containerDefaultAudioStream(source)?.Index) return null;
     if (source.SupportsDirectPlay === false) return null;
     const extension = directStreamExtension(source);
     if (!extension) return null;
@@ -477,7 +526,7 @@
       url: client.getHlsUrl(item.Id, source.Id, {
         startTicks: 0,
         playSessionId,
-        audioStreamIndex: source.DefaultAudioStreamIndex,
+        audioStreamIndex: selectedAudioOption()?.index,
         subtitleStreamIndex: subtitleOption?.delivery === 'burn' ? subtitleOption.index ?? undefined : undefined,
         maxWidth,
         maxHeight,
@@ -504,6 +553,7 @@
     error = '';
     seekApplied = false;
     hlsRecovered = false;
+    hlsNetworkRecovered = false;
 
     teardownHls();
     clearVideoSource();
@@ -527,7 +577,8 @@
           hls?.recoverMediaError();
           return;
         }
-        if (data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR && hls) {
+        if (data.type === HlsPlayer.ErrorTypes.NETWORK_ERROR && hls && !hlsNetworkRecovered) {
+          hlsNetworkRecovered = true;
           hls.startLoad();
           return;
         }
@@ -558,6 +609,20 @@
       fallbackNotice = `${failedLabel} was rejected by this browser. Switched to ${nextLabel}.`;
       if (nextAttempt) selectedQualityId = nextAttempt.qualityId;
       await startAttempt(attemptIndex + 1, playRequested);
+      return;
+    }
+
+    const audioRollback = rollbackPendingAudioSelection();
+    if (audioRollback && attempts.length) {
+      try {
+        await startAttempt(0, audioRollback.shouldResume);
+        fallbackNotice = `${audioRollback.attemptedLabel} could not be selected. Restored the previous audio track.`;
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : `Playback failed. ${detail}`;
+        preserveBoundaryResume = false;
+        restartShouldResume = false;
+      }
+      controlsVisible = true;
       return;
     }
 
@@ -595,6 +660,7 @@
     window.clearTimeout(controlsTimer);
     window.clearTimeout(clickTimer);
     qualityMenuOpen = false;
+    audioMenuOpen = false;
     subtitleMenuOpen = false;
     const activeVideo = video;
     const reporting = finishReporting();
@@ -623,20 +689,20 @@
   }
 
   function eventPayload(): PlaybackEventPayload {
-    const position = Math.round((video?.currentTime ?? 0) * 10_000_000);
+    const position = Math.round((preserveBoundaryResume ? resumeSeconds : video?.currentTime ?? 0) * 10_000_000);
     return {
       ItemId: detailedItem.Id,
       MediaSourceId: mediaSource?.Id,
       PlaySessionId: playSessionId,
       PositionTicks: position,
       CanSeek: true,
-      IsPaused: video?.paused ?? true,
+      IsPaused: preserveBoundaryResume ? !restartShouldResume : video?.paused ?? true,
       IsMuted: video?.muted ?? false,
       VolumeLevel: Math.round((video?.volume ?? 1) * 100),
       PlayMethod: playMethod,
       RepeatMode: 'RepeatNone',
       PlaybackStartTimeTicks: detailedItem.UserData?.PlaybackPositionTicks ?? 0,
-      AudioStreamIndex: mediaSource?.DefaultAudioStreamIndex,
+      AudioStreamIndex: selectedAudioOption()?.index,
       SubtitleStreamIndex: selectedSubtitleOption()?.index ?? undefined
     };
   }
@@ -645,13 +711,10 @@
     return source.MediaStreams?.find((stream) => stream.Type === type);
   }
 
-  function defaultAudioStream(source: JellyfinMediaSource) {
-    return (
-      source.MediaStreams?.find(
-        (stream) => stream.Type === 'Audio' && stream.Index === source.DefaultAudioStreamIndex
-      ) ?? streamOfType(source, 'Audio')
-    );
+  function selectedAudioOption() {
+    return playbackAudioById(audioOptions, selectedAudioId);
   }
+
 
   function supportsNativeHls() {
     return Boolean(
@@ -669,7 +732,7 @@
 
   function mediaSummary(source: JellyfinMediaSource) {
     const videoStream = streamOfType(source, 'Video');
-    const audioStream = defaultAudioStream(source);
+    const audioStream = selectedAudioOption()?.stream ?? containerDefaultAudioStream(source);
     const resolution = videoStream?.Width && videoStream?.Height ? `${videoStream.Width}x${videoStream.Height}` : '';
     return [source.Container, videoStream?.Codec, audioStream?.Codec, resolution].filter(Boolean).join(' · ');
   }
@@ -804,8 +867,13 @@
 
   function handleLoadedMetadata() {
     duration = Number.isFinite(video.duration) ? video.duration : ticksToSeconds(detailedItem.RunTimeTicks);
-    if (!seekApplied && resumeSeconds > 1 && duration && resumeSeconds < duration - 1) {
-      video.currentTime = resumeSeconds;
+    const shouldSeek = preserveBoundaryResume
+      ? resumeSeconds > 0 && duration > 0
+      : resumeSeconds > 1 && duration > 0 && resumeSeconds < duration - 1;
+    if (!seekApplied && shouldSeek) {
+      video.currentTime = preserveBoundaryResume
+        ? Math.min(resumeSeconds, Math.max(0, duration - 0.05))
+        : resumeSeconds;
       seekApplied = true;
     }
     syncPlaybackState();
@@ -830,7 +898,10 @@
     buffering = false;
     controlsVisible = true;
     clearCinematicTimer();
-    void safeReport('progress');
+    if (!suppressMediaErrors) {
+      playRequested = false;
+      void safeReport('progress');
+    }
   }
 
   function handleEnded() {
@@ -916,9 +987,10 @@
       dispatch('restore');
       return;
     }
-    if (qualityMenuOpen || subtitleMenuOpen) {
+    if (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen) {
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
+      audioMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -989,10 +1061,108 @@
     localStorage.setItem('jellytube.loopMusicVideo', String(loopMusicVideo));
   }
 
+  function toggleAudioMenu(event: MouseEvent) {
+    event.stopPropagation();
+    audioMenuOpen = !audioMenuOpen;
+    if (audioMenuOpen) {
+      qualityMenuOpen = false;
+      subtitleMenuOpen = false;
+    }
+    controlsVisible = true;
+    if (!audioMenuOpen) scheduleControls();
+  }
+
+  async function selectAudio(event: MouseEvent, option: PlaybackAudioOption) {
+    event.stopPropagation();
+    audioMenuOpen = false;
+    controlsVisible = true;
+    if (!mediaSource || option.id === selectedAudioId) {
+      scheduleControls();
+      return;
+    }
+
+    const previousTime = video?.currentTime ?? currentTime;
+    const shouldResume = Boolean(video && !video.paused && !video.ended) || playRequested;
+    const preferenceKey = playbackAudioPreferenceKey(client.serverUrl, client.userId ?? '');
+    pendingAudioRollback = {
+      audioId: selectedAudioId,
+      qualityOptions,
+      qualityId: selectedQualityId,
+      preferenceKey,
+      preference: localStorage.getItem(preferenceKey),
+      shouldResume,
+      attemptedLabel: option.label
+    };
+
+    selectedAudioId = option.id;
+    localStorage.setItem(preferenceKey, serializePlaybackAudioPreference(option));
+    qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
+    selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
+    resumeSeconds = Number.isFinite(previousTime) ? previousTime : 0;
+    currentTime = resumeSeconds;
+    preserveBoundaryResume = true;
+    restartShouldResume = shouldResume;
+    attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
+
+    if (!attempts.length) {
+      rollbackPendingAudioSelection();
+      fallbackNotice = `${option.label} is not available for this stream.`;
+      preserveBoundaryResume = false;
+      restartShouldResume = false;
+      scheduleControls();
+      return;
+    }
+
+    try {
+      await startAttempt(0, shouldResume);
+    } catch (caught) {
+      const rollback = rollbackPendingAudioSelection();
+      if (!rollback || !attempts.length) {
+        error = caught instanceof Error ? caught.message : 'Could not switch audio tracks.';
+        controlsVisible = true;
+        preserveBoundaryResume = false;
+        restartShouldResume = false;
+        return;
+      }
+      try {
+        await startAttempt(0, rollback.shouldResume);
+        fallbackNotice = `${option.label} could not be selected. Restored the previous audio track.`;
+      } catch (restoreCaught) {
+        error = restoreCaught instanceof Error ? restoreCaught.message : 'Could not restore the previous audio track.';
+        controlsVisible = true;
+        preserveBoundaryResume = false;
+        restartShouldResume = false;
+      }
+    }
+  }
+
+  function rollbackPendingAudioSelection() {
+    const rollback = pendingAudioRollback;
+    if (!rollback) return null;
+    pendingAudioRollback = null;
+    selectedAudioId = rollback.audioId;
+    qualityOptions = rollback.qualityOptions;
+    selectedQualityId = rollback.qualityId;
+    restoreAudioPreference(rollback.preferenceKey, rollback.preference);
+    attempts = mediaSource ? buildPlaybackAttempts(mediaSource, selectedQualityId) : [];
+    return rollback;
+  }
+
+  function restoreAudioPreference(key: string, preference: string | null) {
+    if (preference === null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, preference);
+    }
+  }
+
   function toggleQualityMenu(event: MouseEvent) {
     event.stopPropagation();
     qualityMenuOpen = !qualityMenuOpen;
-    if (qualityMenuOpen) subtitleMenuOpen = false;
+    if (qualityMenuOpen) {
+      subtitleMenuOpen = false;
+      audioMenuOpen = false;
+    }
     controlsVisible = true;
     if (!qualityMenuOpen) scheduleControls();
   }
@@ -1040,7 +1210,10 @@
   function toggleSubtitleMenu(event: MouseEvent) {
     event.stopPropagation();
     subtitleMenuOpen = !subtitleMenuOpen;
-    if (subtitleMenuOpen) qualityMenuOpen = false;
+    if (subtitleMenuOpen) {
+      qualityMenuOpen = false;
+      audioMenuOpen = false;
+    }
     controlsVisible = true;
     if (!subtitleMenuOpen) scheduleControls();
   }
@@ -1251,10 +1424,11 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && (qualityMenuOpen || subtitleMenuOpen)) {
+    if (event.key === 'Escape' && (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen)) {
       event.preventDefault();
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
+      audioMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -1292,7 +1466,7 @@
 
   function scheduleControls() {
     window.clearTimeout(controlsTimer);
-    if (!isPlaying || qualityMenuOpen || subtitleMenuOpen) return;
+    if (!isPlaying || qualityMenuOpen || subtitleMenuOpen || audioMenuOpen) return;
     controlsTimer = window.setTimeout(() => {
       controlsVisible = false;
     }, 2400);
@@ -1568,7 +1742,6 @@
       >
         <video
           bind:this={video}
-          autoplay={autoplay}
           crossorigin="anonymous"
           playsinline
           preload="metadata"
@@ -1578,6 +1751,9 @@
           on:ended={handleEnded}
           on:loadedmetadata={handleLoadedMetadata}
           on:canplay={() => {
+            preserveBoundaryResume = false;
+            restartShouldResume = false;
+            pendingAudioRollback = null;
             loading = false;
             buffering = false;
             if (cinematicMode) scheduleCinematicSample(120);
@@ -1808,6 +1984,45 @@
               >
                 <RectangleHorizontal size={21} />
               </button>
+
+              {#if audioOptions.length > 1}
+                <div class="quality-control audio-control">
+                  <button
+                    class="player-control audio-button"
+                    class:active={audioMenuOpen}
+                    aria-label={`Audio track: ${audioButtonLabel}`}
+                    aria-expanded={audioMenuOpen}
+                    aria-haspopup="menu"
+                    title={`Audio track: ${audioButtonLabel}`}
+                    on:click={toggleAudioMenu}
+                  >
+                    <Languages size={21} />
+                  </button>
+
+                  {#if audioMenuOpen}
+                    <div class="quality-menu subtitle-menu audio-menu" role="menu" aria-label="Audio tracks">
+                      <div class="quality-menu-heading">Audio</div>
+                      {#each audioOptions as option (option.id)}
+                        <button
+                          class:active={option.id === selectedAudioId}
+                          class="quality-option audio-option"
+                          role="menuitemradio"
+                          aria-checked={option.id === selectedAudioId}
+                          on:click={(event) => void selectAudio(event, option)}
+                        >
+                          <span>
+                            <strong>{option.label}</strong>
+                            <small>{option.detail}</small>
+                          </span>
+                          {#if option.id === selectedAudioId}
+                            <Check size={16} />
+                          {/if}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
 
               {#if subtitleOptions.length > 1}
                 <div class="quality-control subtitle-control">
