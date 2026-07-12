@@ -1,4 +1,8 @@
-# JellyTube
+<p align="center">
+  <img src="public/favicon.svg" alt="JellyTube logo" width="112" height="112">
+</p>
+
+<h1 align="center">JellyTube</h1>
 
 JellyTube is a local, frontend-only Svelte application that turns selected Jellyfin libraries into a YouTube-style browsing and watching experience. It is designed for Jellyfin servers that already host downloaded YouTube archives, movies, episodic shows, and music videos.
 

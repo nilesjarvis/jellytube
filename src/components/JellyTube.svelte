@@ -1836,7 +1836,9 @@
         <Menu size={22} />
       </button>
       <button class="wordmark" on:click={goHome} aria-label="JellyTube home">
-        <span class="play-mark">▶</span>
+        <span class="play-mark" aria-hidden="true">
+          <img src="/jellyfin-mark.svg" alt="" />
+        </span>
         <span>JellyTube</span>
       </button>
     </div>

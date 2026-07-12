@@ -349,7 +349,12 @@ label {
   width: 31px;
   height: 22px;
   border-radius: 6px;
-  font-size: 0.74rem;
+}
+
+.play-mark img {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .search-form {
