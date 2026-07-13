@@ -48,6 +48,11 @@ import {
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
 import {
+  initialPlayerAspectMode,
+  PLAYER_ASPECT_OPTIONS,
+  playerAspectById
+} from '../src/lib/playerAspect';
+import {
   containerDefaultAudioStream,
   initialPlaybackAudioId,
   playbackAudioById,
@@ -489,6 +494,21 @@ test('playback quality options use bitrate labels and filter above source resolu
   assert.equal(options[1].detail, '720p · 9.5 Mbps');
   assert.equal(playbackQualityById(options, 'hls-20000k')?.id, 'auto');
   assert.equal(playbackQualityById(options, 'hls-4000k')?.videoBitrate, 4_000_000);
+});
+
+test('player aspect modes expose non-cropping stretch targets and validate saved choices', () => {
+  assert.deepEqual(
+    PLAYER_ASPECT_OPTIONS.filter((option) => option.behavior === 'stretch').map((option) => option.id),
+    ['stretch-4-3', 'stretch-16-9', 'stretch-21-9']
+  );
+  assert.equal(playerAspectById('stretch-21-9')?.label, 'Stretch to 21:9');
+  assert.equal(initialPlayerAspectMode('stretch-16-9'), 'stretch-16-9');
+  assert.equal(initialPlayerAspectMode('unsupported'), 'fit');
+});
+
+test('player aspect mode migrates the former ultrawide crop preference', () => {
+  assert.equal(initialPlayerAspectMode(null, true), 'crop-21-9');
+  assert.equal(initialPlayerAspectMode('stretch-21-9', true), 'stretch-21-9');
 });
 
 test('playback audio options keep indexed audio streams and preserve duplicate labels', () => {

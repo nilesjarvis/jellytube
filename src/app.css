@@ -1563,7 +1563,7 @@ label {
 }
 
 .watch-layout.minimized .player-frame {
-  --player-aspect-padding: 56.25%;
+  --player-shell-aspect: 16 / 9;
   --player-video-fit: contain;
   filter: none;
 }
@@ -1660,7 +1660,7 @@ label {
 .player-frame {
   position: relative;
   isolation: isolate;
-  --player-aspect-padding: 56.25%;
+  --player-shell-aspect: 16 / 9;
   --player-video-fit: contain;
   --cinematic-left: rgba(20, 22, 30, 0.42);
   --cinematic-right: rgba(20, 22, 30, 0.42);
@@ -1669,8 +1669,30 @@ label {
 }
 
 .player-frame.ultrawide-crop {
-  --player-aspect-padding: 42.8571428571%;
+  --player-shell-aspect: 21 / 9;
   --player-video-fit: cover;
+}
+
+.player-frame.aspect-stretch {
+  --player-video-fit: fill;
+}
+
+.player-frame.aspect-stretch-4-3 {
+  --player-shell-aspect: 4 / 3;
+  --player-target-width-from-height: 133.333333cqh;
+  --player-target-height-from-width: 75cqw;
+}
+
+.player-frame.aspect-stretch-16-9 {
+  --player-shell-aspect: 16 / 9;
+  --player-target-width-from-height: 177.777778cqh;
+  --player-target-height-from-width: 56.25cqw;
+}
+
+.player-frame.aspect-stretch-21-9 {
+  --player-shell-aspect: 21 / 9;
+  --player-target-width-from-height: 233.333333cqh;
+  --player-target-height-from-width: 42.8571428571cqw;
 }
 
 .cinematic-glow {
@@ -1707,13 +1729,13 @@ label {
 .player-shell {
   position: relative;
   overflow: hidden;
+  container-type: size;
   border-radius: 8px;
   background: #000;
-  height: 0;
-  padding-top: var(--player-aspect-padding);
+  aspect-ratio: var(--player-shell-aspect);
   color: #fff;
   outline: 0;
-  transition: padding-top 0.32s cubic-bezier(0.2, 0, 0.2, 1);
+  transition: aspect-ratio 0.32s cubic-bezier(0.2, 0, 0.2, 1);
 }
 
 .player-shell:focus-visible {
@@ -1723,18 +1745,38 @@ label {
 .player-shell:fullscreen,
 .player-shell:-webkit-full-screen {
   height: 100%;
-  padding-top: 0;
+  aspect-ratio: auto;
 }
 
-.player-shell video {
+.player-video-viewport {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.player-frame.aspect-stretch .player-video-viewport {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  width: min(100cqw, var(--player-target-width-from-height));
+  height: 100%;
+  height: min(100cqh, var(--player-target-height-from-width));
+  transform: translate(-50%, -50%);
+}
+
+.player-video-viewport video {
   width: 100%;
   height: 100%;
   display: block;
   background: #000;
   cursor: pointer;
   object-fit: var(--player-video-fit);
+}
+
+.player-frame.aspect-stretch .player-video-viewport video {
+  object-fit: fill;
 }
 
 .player-hit-target {
@@ -2174,6 +2216,11 @@ label {
 
 .subtitle-menu {
   width: min(360px, calc(100vw - 24px));
+}
+
+.aspect-menu {
+  width: min(310px, calc(100vw - 24px));
+  max-height: min(62vh, calc(100cqh - 52px));
 }
 
 .subtitle-button.active {
@@ -3369,17 +3416,14 @@ label {
     grid-auto-columns: minmax(198px, 82vw);
   }
 
-  .player-frame.ultrawide-crop {
-    --player-aspect-padding: 56.25%;
+  .player-frame.ultrawide-crop,
+  .player-frame.aspect-stretch {
+    --player-shell-aspect: 16 / 9;
   }
 
   .player-controls-layer {
     padding-left: 8px;
     padding-right: 8px;
-  }
-
-  .ultrawide-control {
-    display: none;
   }
 
   .fullscreen-control {

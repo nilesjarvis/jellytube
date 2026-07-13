@@ -71,6 +71,14 @@
     type PlaybackQualityId,
     type PlaybackQualityOption
   } from '../lib/playbackQuality';
+  import {
+    initialPlayerAspectMode,
+    LEGACY_ULTRAWIDE_CROP_STORAGE_KEY,
+    PLAYER_ASPECT_OPTIONS,
+    PLAYER_ASPECT_STORAGE_KEY,
+    playerAspectById,
+    type PlayerAspectOption
+  } from '../lib/playerAspect';
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
   import { canDirectPlaySource, directStreamExtension } from '../lib/codecSupport';
   import { actorsForItem } from '../lib/people';
@@ -218,7 +226,11 @@
   let selectedSubtitleId = 'off';
   let subtitleMenuOpen = false;
   let activeTextTrackUrl = '';
-  let ultrawideCrop = localStorage.getItem('jellytube.ultrawideCrop') === 'true';
+  let aspectMode = initialPlayerAspectMode(
+    localStorage.getItem(PLAYER_ASPECT_STORAGE_KEY),
+    localStorage.getItem(LEGACY_ULTRAWIDE_CROP_STORAGE_KEY) === 'true'
+  );
+  let aspectMenuOpen = false;
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
   let loopMusicVideo = localStorage.getItem('jellytube.loopMusicVideo') === 'true';
@@ -265,6 +277,8 @@
   $: selectedSubtitle = subtitleOptions.find((option) => option.id === selectedSubtitleId) ?? subtitleOptions[0];
   $: subtitleButtonLabel = selectedSubtitle?.label ?? 'Off';
   $: subtitleActive = Boolean(selectedSubtitle?.index !== null && selectedSubtitle?.index !== undefined);
+  $: selectedAspect = playerAspectById(aspectMode) ?? PLAYER_ASPECT_OPTIONS[0];
+  $: aspectButtonLabel = selectedAspect.label;
   $: queueIndex = queue.findIndex((queueItem) => queueItem.Id === item.Id);
   $: hasNextQueued = queueIndex >= 0 && queueIndex < queue.length - 1;
   $: upcomingQueue = queueIndex >= 0 ? queue.slice(queueIndex + 1) : queue;
@@ -328,6 +342,7 @@
     qualityMenuOpen = false;
     audioMenuOpen = false;
     subtitleMenuOpen = false;
+    aspectMenuOpen = false;
     clearCinematicTimer();
   } else if (cinematicMode && isPlaying) {
     scheduleCinematicSample(0);
@@ -403,6 +418,7 @@
     fallbackNotice = '';
     qualityMenuOpen = false;
     audioMenuOpen = false;
+    aspectMenuOpen = false;
     pendingAudioRollback = null;
     preserveBoundaryResume = false;
     restartShouldResume = false;
@@ -662,6 +678,7 @@
     qualityMenuOpen = false;
     audioMenuOpen = false;
     subtitleMenuOpen = false;
+    aspectMenuOpen = false;
     const activeVideo = video;
     const reporting = finishReporting();
     teardownHls();
@@ -987,10 +1004,11 @@
       dispatch('restore');
       return;
     }
-    if (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen) {
+    if (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen || aspectMenuOpen) {
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
       audioMenuOpen = false;
+      aspectMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -1067,6 +1085,7 @@
     if (audioMenuOpen) {
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
+      aspectMenuOpen = false;
     }
     controlsVisible = true;
     if (!audioMenuOpen) scheduleControls();
@@ -1162,6 +1181,7 @@
     if (qualityMenuOpen) {
       subtitleMenuOpen = false;
       audioMenuOpen = false;
+      aspectMenuOpen = false;
     }
     controlsVisible = true;
     if (!qualityMenuOpen) scheduleControls();
@@ -1213,6 +1233,7 @@
     if (subtitleMenuOpen) {
       qualityMenuOpen = false;
       audioMenuOpen = false;
+      aspectMenuOpen = false;
     }
     controlsVisible = true;
     if (!subtitleMenuOpen) scheduleControls();
@@ -1274,9 +1295,26 @@
     }
   }
 
-  function toggleUltrawideCrop() {
-    ultrawideCrop = !ultrawideCrop;
-    localStorage.setItem('jellytube.ultrawideCrop', String(ultrawideCrop));
+  function toggleAspectMenu(event: MouseEvent) {
+    event.stopPropagation();
+    aspectMenuOpen = !aspectMenuOpen;
+    if (aspectMenuOpen) {
+      qualityMenuOpen = false;
+      subtitleMenuOpen = false;
+      audioMenuOpen = false;
+    }
+    controlsVisible = true;
+    if (!aspectMenuOpen) scheduleControls();
+  }
+
+  function selectAspect(event: MouseEvent, option: PlayerAspectOption) {
+    event.stopPropagation();
+    aspectMode = option.id;
+    aspectMenuOpen = false;
+    controlsVisible = true;
+    localStorage.setItem(PLAYER_ASPECT_STORAGE_KEY, aspectMode);
+    localStorage.removeItem(LEGACY_ULTRAWIDE_CROP_STORAGE_KEY);
+    scheduleControls();
   }
 
   function toggleCinematicMode() {
@@ -1424,11 +1462,12 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen)) {
+    if (event.key === 'Escape' && (qualityMenuOpen || subtitleMenuOpen || audioMenuOpen || aspectMenuOpen)) {
       event.preventDefault();
       qualityMenuOpen = false;
       subtitleMenuOpen = false;
       audioMenuOpen = false;
+      aspectMenuOpen = false;
       scheduleControls();
       return;
     }
@@ -1466,7 +1505,7 @@
 
   function scheduleControls() {
     window.clearTimeout(controlsTimer);
-    if (!isPlaying || qualityMenuOpen || subtitleMenuOpen || audioMenuOpen) return;
+    if (!isPlaying || qualityMenuOpen || subtitleMenuOpen || audioMenuOpen || aspectMenuOpen) return;
     controlsTimer = window.setTimeout(() => {
       controlsVisible = false;
     }, 2400);
@@ -1722,7 +1761,11 @@
       class:cinematic={cinematicMode && !minimized}
       class:cinematic-ready={cinematicReady && !minimized}
       class:cinematic-unavailable={cinematicAvailability === 'unavailable' && !minimized}
-      class:ultrawide-crop={ultrawideCrop}
+      class:aspect-stretch={selectedAspect.behavior === 'stretch'}
+      class:aspect-stretch-4-3={aspectMode === 'stretch-4-3'}
+      class:aspect-stretch-16-9={aspectMode === 'stretch-16-9'}
+      class:aspect-stretch-21-9={aspectMode === 'stretch-21-9'}
+      class:ultrawide-crop={aspectMode === 'crop-21-9'}
       style={cinematicStyle}
     >
       <div class="cinematic-glow" aria-hidden="true"></div>
@@ -1740,54 +1783,56 @@
         on:keydown={handleKeydown}
         on:wheel={handleWheel}
       >
-        <video
-          bind:this={video}
-          crossorigin="anonymous"
-          playsinline
-          preload="metadata"
-          poster={client.getImageUrl(detailedItem, 1280)}
-          on:play={handlePlay}
-          on:pause={handlePause}
-          on:ended={handleEnded}
-          on:loadedmetadata={handleLoadedMetadata}
-          on:canplay={() => {
-            preserveBoundaryResume = false;
-            restartShouldResume = false;
-            pendingAudioRollback = null;
-            loading = false;
-            buffering = false;
-            if (cinematicMode) scheduleCinematicSample(120);
-          }}
-          on:playing={() => {
-            loading = false;
-            buffering = false;
-            if (cinematicMode) scheduleCinematicSample(120);
-          }}
-          on:waiting={() => {
-            if (!video.paused) {
-              buffering = true;
-              clearCinematicTimer();
-            }
-          }}
-          on:timeupdate={syncPlaybackState}
-          on:progress={syncBuffered}
-          on:volumechange={handleVolumeChange}
-          on:error={() => void handlePlaybackFailure()}
-        >
-          {#if activeTextTrackUrl && selectedSubtitle?.delivery === 'track'}
-            {#key activeTextTrackUrl}
-              <track
-                kind="subtitles"
-                src={activeTextTrackUrl}
-                srclang={selectedSubtitle.stream?.Language ?? 'und'}
-                label={selectedSubtitle.label}
-                default
-                on:load={() => void syncTextTrackMode()}
-                on:error={() => void handleSubtitleTrackError()}
-              />
-            {/key}
-          {/if}
-        </video>
+        <div class="player-video-viewport">
+          <video
+            bind:this={video}
+            crossorigin="anonymous"
+            playsinline
+            preload="metadata"
+            poster={client.getImageUrl(detailedItem, 1280)}
+            on:play={handlePlay}
+            on:pause={handlePause}
+            on:ended={handleEnded}
+            on:loadedmetadata={handleLoadedMetadata}
+            on:canplay={() => {
+              preserveBoundaryResume = false;
+              restartShouldResume = false;
+              pendingAudioRollback = null;
+              loading = false;
+              buffering = false;
+              if (cinematicMode) scheduleCinematicSample(120);
+            }}
+            on:playing={() => {
+              loading = false;
+              buffering = false;
+              if (cinematicMode) scheduleCinematicSample(120);
+            }}
+            on:waiting={() => {
+              if (!video.paused) {
+                buffering = true;
+                clearCinematicTimer();
+              }
+            }}
+            on:timeupdate={syncPlaybackState}
+            on:progress={syncBuffered}
+            on:volumechange={handleVolumeChange}
+            on:error={() => void handlePlaybackFailure()}
+          >
+            {#if activeTextTrackUrl && selectedSubtitle?.delivery === 'track'}
+              {#key activeTextTrackUrl}
+                <track
+                  kind="subtitles"
+                  src={activeTextTrackUrl}
+                  srclang={selectedSubtitle.stream?.Language ?? 'und'}
+                  label={selectedSubtitle.label}
+                  default
+                  on:load={() => void syncTextTrackMode()}
+                  on:error={() => void handleSubtitleTrackError()}
+                />
+              {/key}
+            {/if}
+          </video>
+        </div>
 
         {#if minimized}
           <div class="mini-player-actions" aria-label="Minimized player controls">
@@ -1954,15 +1999,42 @@
                 </button>
               {/if}
 
-              <button
-                class="player-control ultrawide-control"
-                class:active={ultrawideCrop}
-                aria-label={ultrawideCrop ? 'Use original player aspect' : 'Crop to 21:9 player'}
-                title={ultrawideCrop ? '21:9 crop on' : '21:9 crop off'}
-                on:click={toggleUltrawideCrop}
-              >
-                <Ratio size={21} />
-              </button>
+              <div class="quality-control aspect-control">
+                <button
+                  class="player-control aspect-button"
+                  class:active={aspectMode !== 'fit' || aspectMenuOpen}
+                  aria-label={`Aspect ratio: ${aspectButtonLabel}`}
+                  aria-expanded={aspectMenuOpen}
+                  aria-haspopup="menu"
+                  title={`Aspect ratio: ${aspectButtonLabel}`}
+                  on:click={toggleAspectMenu}
+                >
+                  <Ratio size={21} />
+                </button>
+
+                {#if aspectMenuOpen}
+                  <div class="quality-menu aspect-menu" role="menu" aria-label="Video aspect ratio">
+                    <div class="quality-menu-heading">Aspect ratio</div>
+                    {#each PLAYER_ASPECT_OPTIONS as option (option.id)}
+                      <button
+                        class:active={option.id === aspectMode}
+                        class="quality-option aspect-option"
+                        role="menuitemradio"
+                        aria-checked={option.id === aspectMode}
+                        on:click={(event) => selectAspect(event, option)}
+                      >
+                        <span>
+                          <strong>{option.label}</strong>
+                          <small>{option.detail}</small>
+                        </span>
+                        {#if option.id === aspectMode}
+                          <Check size={16} />
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
 
               <button
                 class="player-control cinematic-control"

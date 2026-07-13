@@ -188,6 +188,7 @@ async function main() {
       (() => {
         localStorage.removeItem('jellytube.session.v1');
         localStorage.removeItem('jellytube.cinematicMode');
+        localStorage.removeItem('jellytube.playerAspect');
         localStorage.removeItem('jellytube.ultrawideCrop');
         localStorage.removeItem('jellytube.miniPlayerWidth');
         localStorage.setItem('jellytube.theme', 'light');
@@ -826,8 +827,9 @@ async function main() {
     `
       Boolean(
         !document.querySelector('.player-frame')?.classList.contains('cinematic') &&
+        !document.querySelector('.player-frame')?.classList.contains('aspect-stretch') &&
         !document.querySelector('.player-frame')?.classList.contains('ultrawide-crop') &&
-        localStorage.getItem('jellytube.ultrawideCrop') !== 'true' &&
+        localStorage.getItem('jellytube.playerAspect') === null &&
         localStorage.getItem('jellytube.cinematicMode') !== 'true'
       )
     `,
@@ -837,8 +839,57 @@ async function main() {
     socket,
     context,
     `
+      (async () => {
+        document.querySelector('.aspect-button').click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        [...document.querySelectorAll('.aspect-option')]
+          .find((option) => option.textContent.includes('Stretch to 21:9'))
+          ?.click();
+        return true;
+      })()
+    `
+  );
+  await waitFor(
+    socket,
+    context,
+    `
       (() => {
-        document.querySelector('.ultrawide-control').click();
+        const frame = document.querySelector('.player-frame');
+        const shell = document.querySelector('.player-shell');
+        const viewport = document.querySelector('.player-video-viewport');
+        const video = document.querySelector('.player-shell video');
+        if (
+          !frame?.classList.contains('aspect-stretch-21-9') ||
+          localStorage.getItem('jellytube.playerAspect') !== 'stretch-21-9'
+        ) {
+          return false;
+        }
+        const shellBounds = shell?.getBoundingClientRect();
+        const viewportBounds = viewport?.getBoundingClientRect();
+        if (!shellBounds?.height || !viewportBounds?.height) return false;
+        const shellRatio = shellBounds.width / shellBounds.height;
+        const viewportRatio = viewportBounds.width / viewportBounds.height;
+        return (
+          Math.abs(shellRatio - 21 / 9) < 0.08 &&
+          Math.abs(viewportRatio - 21 / 9) < 0.08 &&
+          getComputedStyle(video).objectFit === 'fill'
+        );
+      })()
+    `,
+    '21:9 stretch mode',
+    12000
+  );
+  await screenshot(socket, context, '15a-aspect-stretch-watch');
+  await evaluate(
+    socket,
+    context,
+    `
+      (async () => {
+        document.querySelector('.aspect-button').click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        [...document.querySelectorAll('.aspect-option')]
+          .find((option) => option.textContent.includes('Crop to 21:9'))
+          ?.click();
         return true;
       })()
     `
@@ -851,21 +902,33 @@ async function main() {
         const frame = document.querySelector('.player-frame');
         const shell = document.querySelector('.player-shell');
         const video = document.querySelector('.player-shell video');
-        if (!frame?.classList.contains('ultrawide-crop') || localStorage.getItem('jellytube.ultrawideCrop') !== 'true') {
-          return false;
-        }
         const bounds = shell?.getBoundingClientRect();
         if (!bounds?.height) return false;
-        const ratio = bounds.width / bounds.height;
-        window.__jellytubeUltrawideRatio = ratio;
-        return Math.abs(ratio - 21 / 9) < 0.08 && getComputedStyle(video).objectFit === 'cover';
+        return (
+          frame?.classList.contains('ultrawide-crop') &&
+          localStorage.getItem('jellytube.playerAspect') === 'crop-21-9' &&
+          Math.abs(bounds.width / bounds.height - 21 / 9) < 0.08 &&
+          getComputedStyle(video).objectFit === 'cover'
+        );
       })()
     `,
-    'ultrawide crop mode',
+    '21:9 crop mode',
     12000
   );
-  await screenshot(socket, context, '15a-ultrawide-watch');
-  await evaluate(socket, context, `document.querySelector('.ultrawide-control').click()`);
+  await evaluate(
+    socket,
+    context,
+    `
+      (async () => {
+        document.querySelector('.aspect-button').click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        [...document.querySelectorAll('.aspect-option')]
+          .find((option) => option.textContent.includes('Original'))
+          ?.click();
+        return true;
+      })()
+    `
+  );
   await waitFor(
     socket,
     context,
@@ -879,13 +942,14 @@ async function main() {
         const ratio = bounds.width / bounds.height;
         return (
           !frame?.classList.contains('ultrawide-crop') &&
-          localStorage.getItem('jellytube.ultrawideCrop') === 'false' &&
+          !frame?.classList.contains('aspect-stretch') &&
+          localStorage.getItem('jellytube.playerAspect') === 'fit' &&
           Math.abs(ratio - 16 / 9) < 0.08 &&
           getComputedStyle(video).objectFit === 'contain'
         );
       })()
     `,
-    'ultrawide crop toggle off',
+    'original aspect mode',
     12000
   );
   await evaluate(
