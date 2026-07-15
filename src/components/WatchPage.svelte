@@ -14,11 +14,10 @@
     Ratio,
     Repeat,
     RotateCcw,
+    RotateCw,
     RectangleHorizontal,
     Settings,
     Sparkles,
-    SkipBack,
-    SkipForward,
     TriangleAlert,
     Volume2,
     VolumeX,
@@ -172,6 +171,8 @@
   const MIN_MINI_PLAYER_WIDTH = 280;
   const MAX_MINI_PLAYER_WIDTH = 720;
   const MINI_PLAYER_KEYBOARD_STEP = 24;
+  const SEEK_STEP_SECONDS = 10;
+  const BUFFERING_INDICATOR_DELAY_MS = 250;
 
   function recommendationKey(recommendation: ProjectedRecommendation) {
     return recommendation.kind === 'item'
@@ -198,6 +199,7 @@
   let playMethod: PlaybackEventPayload['PlayMethod'] = 'DirectPlay';
   let hls: Hls | null = null;
   let progressTimer = 0;
+  let bufferingTimer = 0;
   let started = false;
   let attempts: PlaybackAttempt[] = [];
   let attemptIndex = 0;
@@ -413,7 +415,7 @@
 
   async function loadPlayback(autoPlay = false) {
     loading = true;
-    buffering = false;
+    clearBuffering();
     error = '';
     fallbackNotice = '';
     qualityMenuOpen = false;
@@ -477,7 +479,7 @@
       await startAttempt(0, autoPlay);
     } catch (caught) {
       loading = false;
-      buffering = false;
+      clearBuffering();
       error = caught instanceof Error ? caught.message : 'Could not prepare playback.';
     }
   }
@@ -565,7 +567,7 @@
     activeAttempt = attempt;
     playMethod = attempt.playMethod;
     loading = true;
-    buffering = false;
+    clearBuffering();
     error = '';
     seekApplied = false;
     hlsRecovered = false;
@@ -616,7 +618,7 @@
   async function handlePlaybackFailure(detail = mediaErrorMessage()) {
     if (suppressMediaErrors) return;
     loading = false;
-    buffering = false;
+    clearBuffering();
 
     if (attemptIndex < attempts.length - 1) {
       const failedLabel = activeAttempt?.label ?? 'The stream';
@@ -675,6 +677,7 @@
   async function stopPlayback() {
     window.clearTimeout(controlsTimer);
     window.clearTimeout(clickTimer);
+    clearBuffering();
     qualityMenuOpen = false;
     audioMenuOpen = false;
     subtitleMenuOpen = false;
@@ -896,14 +899,30 @@
     syncPlaybackState();
     void syncTextTrackMode();
     loading = false;
-    buffering = false;
+    clearBuffering();
     if (cinematicMode) scheduleCinematicSample(180);
+  }
+
+  function clearBuffering() {
+    if (bufferingTimer) window.clearTimeout(bufferingTimer);
+    bufferingTimer = 0;
+    buffering = false;
+  }
+
+  function handleWaiting() {
+    if (!video || video.paused || buffering || bufferingTimer) return;
+    clearCinematicTimer();
+    bufferingTimer = window.setTimeout(() => {
+      bufferingTimer = 0;
+      if (!video || video.paused || video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      buffering = true;
+    }, BUFFERING_INDICATOR_DELAY_MS);
   }
 
   function handlePlay() {
     isPlaying = true;
     playRequested = true;
-    buffering = false;
+    clearBuffering();
     if (fallbackNotice.startsWith('Autoplay was blocked')) fallbackNotice = '';
     void reportStart();
     scheduleControls();
@@ -912,7 +931,7 @@
 
   function handlePause() {
     isPlaying = false;
-    buffering = false;
+    clearBuffering();
     controlsVisible = true;
     clearCinematicTimer();
     if (!suppressMediaErrors) {
@@ -1485,10 +1504,10 @@
       togglePlay();
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      seekBy(-5);
+      seekBy(-SEEK_STEP_SECONDS);
     } else if (event.key === 'ArrowRight') {
       event.preventDefault();
-      seekBy(5);
+      seekBy(SEEK_STEP_SECONDS);
     } else if (event.key.toLowerCase() === 'm') {
       event.preventDefault();
       toggleMute();
@@ -1799,20 +1818,15 @@
               restartShouldResume = false;
               pendingAudioRollback = null;
               loading = false;
-              buffering = false;
+              clearBuffering();
               if (cinematicMode) scheduleCinematicSample(120);
             }}
             on:playing={() => {
               loading = false;
-              buffering = false;
+              clearBuffering();
               if (cinematicMode) scheduleCinematicSample(120);
             }}
-            on:waiting={() => {
-              if (!video.paused) {
-                buffering = true;
-                clearCinematicTimer();
-              }
-            }}
+            on:waiting={handleWaiting}
             on:timeupdate={syncPlaybackState}
             on:progress={syncBuffered}
             on:volumechange={handleVolumeChange}
@@ -1957,11 +1971,27 @@
                   <Play size={22} fill="currentColor" />
                 {/if}
               </button>
-              <button class="player-control" aria-label="Back 5 seconds" on:click={() => seekBy(-5)}>
-                <SkipBack size={21} />
+              <button
+                class="player-control seek-step-control"
+                aria-label="Back 10 seconds"
+                title="Back 10 seconds"
+                on:click={() => seekBy(-SEEK_STEP_SECONDS)}
+              >
+                <span class="seek-step-icon" aria-hidden="true">
+                  <RotateCcw size={24} />
+                  <span>10</span>
+                </span>
               </button>
-              <button class="player-control" aria-label="Forward 5 seconds" on:click={() => seekBy(5)}>
-                <SkipForward size={21} />
+              <button
+                class="player-control seek-step-control"
+                aria-label="Forward 10 seconds"
+                title="Forward 10 seconds"
+                on:click={() => seekBy(SEEK_STEP_SECONDS)}
+              >
+                <span class="seek-step-icon" aria-hidden="true">
+                  <RotateCw size={24} />
+                  <span>10</span>
+                </span>
               </button>
 
               <div class="volume-control">

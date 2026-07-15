@@ -2147,6 +2147,21 @@ label {
   background: rgba(255, 255, 255, 0.24);
 }
 
+.seek-step-icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.seek-step-icon span {
+  position: absolute;
+  font-size: 0.55rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
 .cinematic-control.active {
   color: #fff;
 }
@@ -2922,7 +2937,7 @@ label {
 
 @media (max-width: 1016px) {
   .watch-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .show-hero-copy h1 {
@@ -3220,13 +3235,6 @@ label {
     font-size: 0.78rem;
   }
 
-  @media (max-width: 420px) {
-    .player-control-row .player-control:nth-of-type(2),
-    .player-control-row .player-control:nth-of-type(3) {
-      display: none;
-    }
-  }
-
   .center-play {
     width: 62px;
     height: 62px;
@@ -3435,17 +3443,25 @@ label {
   }
 
   .player-time {
-    font-size: 0.72rem;
+    display: none;
+  }
+
+  .volume-control {
+    display: none;
   }
 }
 
 @media (max-width: 360px) {
-  .volume-control {
+  .cinematic-control {
     display: none;
   }
 
   .player-control-row {
     gap: 0;
+  }
+
+  .player-control {
+    width: 32px;
   }
 
   .fullscreen-control {
