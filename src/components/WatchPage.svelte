@@ -1647,6 +1647,8 @@
   function handleFullscreenChange() {
     const doc = document as WebKitDocument;
     fullscreen = Boolean(document.fullscreenElement || doc.webkitFullscreenElement || video?.webkitDisplayingFullscreen);
+    controlsVisible = true;
+    scheduleControls();
   }
 
   function handleVisibilityChange() {
