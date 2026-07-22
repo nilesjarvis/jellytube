@@ -1898,6 +1898,12 @@ label {
   background: transparent;
 }
 
+.player-shell:not(.controls-visible),
+.player-shell:not(.controls-visible) .player-video-viewport video,
+.player-shell:not(.controls-visible) .player-hit-target {
+  cursor: none;
+}
+
 .mini-player-actions {
   position: absolute;
   top: 8px;
