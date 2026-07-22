@@ -53,6 +53,7 @@ import {
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
 import { applyProgressiveResult } from '../src/lib/progressiveLoad';
+import { latestAddedSections } from '../src/lib/homeLatest';
 import {
   DEFAULT_PLAYER_SOURCE_ASPECT_RATIO,
   initialPlayerAspectMode,
@@ -217,6 +218,63 @@ test('content dates prefer Jellyfin PremiereDate over import DateCreated', () =>
 
   assert.equal(contentDate(snl), '2004-01-10T00:00:00.0000000Z');
   assert.equal(relativeDate('2026-05-05T00:00:00.000Z', Date.parse('2026-05-06T12:00:00.000Z')), 'yesterday');
+});
+
+test('latest additions split into ordered category rails with independent limits', () => {
+  const sections = latestAddedSections([
+    item({
+      Id: 'show-old',
+      Name: 'Older episode',
+      Type: 'Episode',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-18T00:00:00.000Z'
+    }),
+    item({
+      Id: 'movie',
+      Name: 'Movie',
+      Type: 'Movie',
+      contentKind: 'movie',
+      DateCreated: '2026-07-22T00:00:00.000Z'
+    }),
+    item({
+      Id: 'show-new',
+      Name: 'Newer episode',
+      Type: 'Episode',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-21T00:00:00.000Z'
+    }),
+    item({
+      Id: 'show-cutoff',
+      Name: 'Oldest episode',
+      Type: 'Episode',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-17T00:00:00.000Z'
+    }),
+    item({
+      Id: 'music',
+      Name: 'Music video',
+      Type: 'MusicVideo',
+      contentKind: 'musicVideo',
+      DateCreated: '2026-07-20T00:00:00.000Z'
+    }),
+    item({
+      Id: 'video',
+      Name: 'Home video',
+      sourceCollectionType: 'homevideos',
+      DateCreated: '2026-07-19T00:00:00.000Z'
+    })
+  ], 2);
+
+  assert.deepEqual(sections.map(({ id, title }) => ({ id, title })), [
+    { id: 'shows', title: 'Latest added in shows' },
+    { id: 'movies', title: 'Latest movies' },
+    { id: 'music-videos', title: 'Latest music videos' },
+    { id: 'videos', title: 'Latest videos' }
+  ]);
+  assert.deepEqual(sections[0].items.map((entry) => entry.Id), ['show-new', 'show-old']);
+  assert.deepEqual(sections[1].items.map((entry) => entry.Id), ['movie']);
+  assert.deepEqual(sections[2].items.map((entry) => entry.Id), ['music']);
+  assert.deepEqual(sections[3].items.map((entry) => entry.Id), ['video']);
 });
 
 test('compact metadata and channel grouping use release date instead of import date', () => {

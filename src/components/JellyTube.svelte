@@ -74,6 +74,7 @@
   import { saveSession } from '../lib/session';
   import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
   import { applyProgressiveResult } from '../lib/progressiveLoad';
+  import { latestAddedSections } from '../lib/homeLatest';
   import type {
     AppSession,
     ContentKind,
@@ -204,6 +205,7 @@
   $: videoSources = session.selectedLibraries.filter((source) => source.contentKind === 'video');
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
+  $: latestAddedCategorySections = latestAddedSections(latestAdded);
   $: channelItems = selectedChannel ? searchPool.filter((item) => channelMatches(item, selectedChannel)) : [];
   $: channelLatest = [...channelItems].sort(
     (a, b) => contentDateValue(b) - contentDateValue(a)
@@ -447,9 +449,7 @@
           Promise.all([videoByAddedRequest, movieByAddedRequest, musicByAddedRequest]),
           loadGeneration,
           ([videoItems, movieItems, musicItems]) => {
-            latestAdded = mergeItems(videoItems, movieItems, musicItems)
-              .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
-              .slice(0, 48);
+            latestAdded = mergeItems(videoItems, movieItems, musicItems);
           },
           (state) => (latestAddedState = state)
         ),
@@ -2884,7 +2884,7 @@
       {/if}
 
       {#if latestAddedState === 'loading'}
-        <SkeletonFeedSection count={10} showMeta />
+        <SkeletonFeedSection count={6} showMeta horizontal />
       {:else if latestAddedState === 'error'}
         <section class="feed-section">
           <h2>Latest added</h2>
@@ -2893,25 +2893,27 @@
             <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
           </div>
         </section>
-      {:else if latestAdded.length}
-        <section class="feed-section">
-          <div class="section-heading">
-            <h2>Latest added</h2>
-            <span>Across selected libraries</span>
-          </div>
-          <div class="video-grid">
-            {#each latestAdded as item (item.Id)}
-              <VideoCard
-                {client}
-                {item}
-                titleContext="recommendation"
-                titleChannel={channelName(item)}
-                on:select={(event) => openItem(event.detail)}
-                on:channel={(event) => openChannel(event.detail)}
-              />
-            {/each}
-          </div>
-        </section>
+      {:else if latestAddedCategorySections.length}
+        {#each latestAddedCategorySections as latestSection (latestSection.id)}
+          <section class="feed-section" aria-label={latestSection.title}>
+            <div class="section-heading">
+              <h2>{latestSection.title}</h2>
+              <span>{latestSection.detail}</span>
+            </div>
+            <div class="video-grid horizontal-video-rail">
+              {#each latestSection.items as item (item.Id)}
+                <VideoCard
+                  {client}
+                  {item}
+                  titleContext="recommendation"
+                  titleChannel={channelName(item)}
+                  on:select={(event) => openItem(event.detail)}
+                  on:channel={(event) => openChannel(event.detail)}
+                />
+              {/each}
+            </div>
+          </section>
+        {/each}
       {/if}
 
       {#if recommendedState === 'loading'}
