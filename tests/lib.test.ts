@@ -32,6 +32,10 @@ import {
 import { actorsForItem } from '../src/lib/people';
 import { activePlaybackFormatLogo } from '../src/lib/playbackFormat';
 import {
+  getCachedSourceMediaFormat,
+  sourceMediaFormatBadge
+} from '../src/lib/mediaFormat';
+import {
   channelName,
   compactMeta,
   dailyRecommendationSeed,
@@ -2003,6 +2007,90 @@ test('active playback format logos describe rendered HDR and never source-only t
   }), false);
 });
 
+test('media card format badges describe the source independently of the active playback path', () => {
+  const dolbySource = dolbyVisionHdrSource();
+  const dolbyItem = item({
+    Id: dolbySource.Id,
+    Name: 'Dolby source',
+    Type: 'Movie',
+    MediaStreams: dolbySource.MediaStreams
+  });
+  assert.deepEqual(sourceMediaFormatBadge(dolbyItem), {
+    kind: 'dolby-vision',
+    label: 'Dolby Vision',
+    detail: 'Dolby Vision Profile 8 source with HDR10+ metadata'
+  });
+
+  const genericPqItem = item({
+    Id: 'generic-pq',
+    Name: 'Generic PQ source',
+    MediaStreams: [{
+      Type: 'Video',
+      Codec: 'hevc',
+      VideoRange: 'HDR',
+      VideoRangeType: 'HDR',
+      ColorTransfer: 'smpte2084'
+    }]
+  });
+  assert.equal(sourceMediaFormatBadge(genericPqItem)?.kind, 'hdr10');
+  assert.equal(sourceMediaFormatBadge(item({
+    Id: 'hlg',
+    Name: 'HLG source',
+    MediaStreams: [{
+      Type: 'Video',
+      Codec: 'hevc',
+      VideoRange: 'HDR',
+      VideoRangeType: 'HLG',
+      ColorTransfer: 'arib-std-b67'
+    }]
+  }))?.kind, 'hlg');
+  assert.equal(sourceMediaFormatBadge(item({
+    Id: 'sdr',
+    Name: 'SDR source',
+    MediaStreams: [{ Type: 'Video', Codec: 'h264', VideoRange: 'SDR' }]
+  })), null);
+});
+
+test('media card format metadata batches nearby cards and caches resolved formats', async () => {
+  const requests: string[][] = [];
+  const client = {
+    async getItemsWithMediaStreams(ids: string[]) {
+      requests.push(ids);
+      return {
+        Items: ids.map((id) => item({
+          Id: id,
+          Name: id,
+          MediaStreams: [{
+            Type: 'Video',
+            Codec: 'hevc',
+            VideoRange: 'HDR',
+            VideoRangeType: id === 'dolby' ? 'DOVIWithHDR10' : 'HDR10',
+            ...(id === 'dolby'
+              ? { DvProfile: 8, DvBlSignalCompatibilityId: 1 }
+              : {})
+          }]
+        })),
+        TotalRecordCount: ids.length
+      };
+    }
+  };
+  const hdr = item({ Id: 'hdr', Name: 'HDR', MediaSources: [] });
+  const dolby = item({ Id: 'dolby', Name: 'Dolby' });
+
+  const [hdrFormat, dolbyFormat, duplicateHdrFormat] = await Promise.all([
+    getCachedSourceMediaFormat(client, hdr),
+    getCachedSourceMediaFormat(client, dolby),
+    getCachedSourceMediaFormat(client, hdr)
+  ]);
+
+  assert.deepEqual(requests, [['hdr', 'dolby']]);
+  assert.equal(hdrFormat?.kind, 'hdr10');
+  assert.equal(dolbyFormat?.kind, 'dolby-vision');
+  assert.deepEqual(duplicateHdrFormat, hdrFormat);
+  assert.deepEqual(await getCachedSourceMediaFormat(client, hdr), hdrFormat);
+  assert.equal(requests.length, 1);
+});
+
 test('HDR remux profile asks Jellyfin for HEVC fMP4 before the SDR fallback', async () => {
   const source = dolbyVisionHdrSource();
   const capabilities = await detectHlsRemuxCapabilities(source, {
@@ -2216,6 +2304,7 @@ test('Jellyfin discovery requests keep detail fields isolated and tokens out of 
       sortOrder: 'Descending'
     });
     await client.getItems({ parentId: 'library-1' });
+    await client.getItemsWithMediaStreams(['movie-1', 'movie-2', 'movie-1']);
     await client.getItem('movie-1');
     await client.getSimilarItems('movie-1', 36);
     await client.getNextUp({ parentId: 'shows-1', seriesId: 'series-1', limit: 18 });
@@ -2232,20 +2321,31 @@ test('Jellyfin discovery requests keep detail fields isolated and tokens out of 
     const normalListUrl = new URL(requests[1]);
     assert.equal(normalListUrl.searchParams.has('PersonIds'), false);
     assert.ok(!normalListUrl.searchParams.get('Fields')?.split(',').includes('People'));
+    assert.ok(!normalListUrl.searchParams.get('Fields')?.split(',').includes('MediaStreams'));
 
-    const detailUrl = new URL(requests[2]);
+    const mediaStreamsUrl = new URL(requests[2]);
+    assert.equal(mediaStreamsUrl.pathname, '/Users/user-1/Items');
+    assert.equal(mediaStreamsUrl.searchParams.get('Ids'), 'movie-1,movie-2');
+    assert.equal(mediaStreamsUrl.searchParams.get('Fields'), 'MediaStreams');
+    assert.equal(mediaStreamsUrl.searchParams.get('EnableImages'), 'false');
+    assert.equal(mediaStreamsUrl.searchParams.get('EnableUserData'), 'false');
+    assert.equal(mediaStreamsUrl.searchParams.get('EnableTotalRecordCount'), 'false');
+    assert.equal(mediaStreamsUrl.searchParams.get('Limit'), '2');
+    assert.equal(mediaStreamsUrl.searchParams.has('api_key'), false);
+
+    const detailUrl = new URL(requests[3]);
     assert.equal(detailUrl.pathname, '/Users/user-1/Items/movie-1');
     assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('People'));
     assert.ok(detailUrl.searchParams.get('Fields')?.split(',').includes('MediaSources'));
 
-    const similarUrl = new URL(requests[3]);
+    const similarUrl = new URL(requests[4]);
     assert.equal(similarUrl.pathname, '/Items/movie-1/Similar');
     assert.equal(similarUrl.searchParams.get('userId'), 'user-1');
     assert.equal(similarUrl.searchParams.get('Limit'), '36');
     assert.ok(!similarUrl.searchParams.get('Fields')?.split(',').includes('People'));
     assert.equal(similarUrl.searchParams.has('api_key'), false);
 
-    const nextUpUrl = new URL(requests[4]);
+    const nextUpUrl = new URL(requests[5]);
     assert.equal(nextUpUrl.pathname, '/Shows/NextUp');
     assert.equal(nextUpUrl.searchParams.get('userId'), 'user-1');
     assert.equal(nextUpUrl.searchParams.get('parentId'), 'shows-1');

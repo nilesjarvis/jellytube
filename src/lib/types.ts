@@ -156,6 +156,7 @@ export type JellyfinItem = {
   BackdropImageTags?: string[];
   PrimaryImageAspectRatio?: number;
   UserData?: JellyfinUserData;
+  MediaStreams?: JellyfinMediaStream[];
   MediaSources?: JellyfinMediaSource[];
   People?: JellyfinPerson[];
   sourceLibraryId?: string;

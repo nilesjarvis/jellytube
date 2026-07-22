@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import type Hls from 'hls.js';
   import type { JellyfinClient } from '../lib/jellyfin';
   import {
@@ -26,6 +26,12 @@
     shouldStartFromBeginning
   } from '../lib/recommendations';
   import { episodeCode } from '../lib/episodes';
+  import {
+    getCachedSourceMediaFormat,
+    hasMediaStreamMetadata,
+    sourceMediaFormatBadge,
+    type SourceMediaFormatBadge
+  } from '../lib/mediaFormat';
   import type { JellyfinItem } from '../lib/types';
 
   export let client: JellyfinClient;
@@ -49,6 +55,11 @@
   let previewPlayStarted = false;
   let suppressPreviewErrors = false;
   let hls: Hls | null = null;
+  let cardElement: HTMLElement;
+  let formatObserver: IntersectionObserver | null = null;
+  let formatRequested = false;
+  let destroyed = false;
+  let resolvedSourceFormat: SourceMediaFormatBadge | null = null;
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -76,8 +87,36 @@
       ? `${contextualEpisodeCode} · ${channel}`
       : channel;
   $: readableRecommendationReason = recommendationReason?.trim() ?? '';
+  $: sourceFormat = sourceMediaFormatBadge(item) ?? resolvedSourceFormat;
 
-  onDestroy(() => stopPreview());
+  onMount(() => {
+    if (sourceFormat || hasMediaStreamMetadata(item)) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      void requestSourceFormat();
+      return;
+    }
+    formatObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void requestSourceFormat();
+      },
+      { rootMargin: '480px 320px' }
+    );
+    formatObserver.observe(cardElement);
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    formatObserver?.disconnect();
+    stopPreview();
+  });
+
+  async function requestSourceFormat() {
+    if (formatRequested) return;
+    formatRequested = true;
+    formatObserver?.disconnect();
+    const format = await getCachedSourceMediaFormat(client, item);
+    if (!destroyed) resolvedSourceFormat = format;
+  }
 
   function beginPreview(event: PointerEvent) {
     if (!previewEligible || event.pointerType !== 'mouse') return;
@@ -209,7 +248,7 @@
   }
 </script>
 
-<article class:compact class:poster class="video-card">
+<article bind:this={cardElement} class:compact class:poster class="video-card">
   <button
     class:preview-ready={previewConfirmed && previewReady}
     class:preview-failed={previewFailed}
@@ -219,7 +258,7 @@
     on:pointerleave={stopPreview}
     on:pointercancel={stopPreview}
     on:click={() => dispatch('select', item)}
-    aria-label={title}
+    aria-label={sourceFormat ? `${title}, ${sourceFormat.label}` : title}
   >
     {#if imageUrl}
       <img src={imageUrl} alt="" loading="lazy" />
@@ -238,6 +277,13 @@
         on:playing={handlePreviewReady}
         on:error={handlePreviewError}
       ></video>
+    {/if}
+    {#if sourceFormat}
+      <span
+        class={`media-format-badge ${sourceFormat.kind}`}
+        title={sourceFormat.detail}
+        aria-hidden="true"
+      >{sourceFormat.label}</span>
     {/if}
     {#if formatDuration(item.RunTimeTicks)}
       <span class="duration">{formatDuration(item.RunTimeTicks)}</span>

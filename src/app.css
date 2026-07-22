@@ -1039,6 +1039,46 @@ label {
   font-weight: 750;
 }
 
+.media-format-badge {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  max-width: calc(100% - 12px);
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(5, 5, 8, 0.78);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.045em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.media-format-badge.dolby-vision {
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+}
+
+.media-format-badge.hdr10-plus {
+  color: #fff7d1;
+  border-color: rgba(255, 225, 94, 0.82);
+}
+
+.video-card.compact .media-format-badge {
+  top: 5px;
+  right: 5px;
+  padding: 3px 5px;
+  font-size: 0.59rem;
+}
+
 .progress-bar {
   position: absolute;
   z-index: 2;

@@ -236,6 +236,20 @@ export class JellyfinClient {
     });
   }
 
+  async getItemsWithMediaStreams(itemIds: string[]) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const ids = [...new Set(itemIds.map((id) => id.trim()).filter(Boolean))];
+    if (!ids.length) return { Items: [], TotalRecordCount: 0 } satisfies ItemResponse;
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      Ids: ids.join(','),
+      Fields: 'MediaStreams',
+      EnableImages: 'false',
+      EnableUserData: 'false',
+      EnableTotalRecordCount: 'false',
+      Limit: String(ids.length)
+    });
+  }
+
   async getSearchSuggestions(
     sources: { id: string; itemTypes: string; name?: string; contentKind?: string }[],
     searchTerm: string,
