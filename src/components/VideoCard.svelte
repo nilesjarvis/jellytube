@@ -52,7 +52,11 @@
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  $: imageUrl = client.getImageUrl(item, compact ? 320 : 640);
+  $: imageWidth = compact ? 320 : 640;
+  $: useMovieBackdrop = !poster && (item.Type === 'Movie' || item.contentKind === 'movie');
+  $: imageUrl = useMovieBackdrop
+    ? client.getBackdropUrl(item, imageWidth) || client.getImageUrl(item, imageWidth)
+    : client.getImageUrl(item, imageWidth);
   $: progress = playbackProgress(item);
   $: showProgress = progress > 0 && progress < 95 && !shouldStartFromBeginning(item);
   $: previewEligible = isHoverPreviewEligible(item, { poster, finePointer, reducedMotion });

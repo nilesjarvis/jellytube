@@ -2127,7 +2127,6 @@
               <VideoCard
                 {client}
                 {item}
-                poster={item.contentKind === 'movie'}
                 titleContext="recommendation"
                 titleChannel={channelName(item)}
                 on:select={(event) => openItem(event.detail)}
