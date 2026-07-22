@@ -1779,6 +1779,116 @@ label {
   object-fit: fill;
 }
 
+.playback-format-logo {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 5px;
+  color: #fff;
+  background: rgba(3, 3, 5, 0.64);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.controls-visible .playback-format-logo,
+.youtube-player:focus-within .playback-format-logo {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dolby-glyph {
+  position: relative;
+  width: 25px;
+  height: 15px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+}
+
+.dolby-glyph::before,
+.dolby-glyph::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 7px;
+  border: 1.5px solid #fff;
+}
+
+.dolby-glyph::before {
+  left: 3px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+}
+
+.dolby-glyph::after {
+  right: 3px;
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+}
+
+.dolby-wordmark {
+  display: grid;
+  line-height: 0.78;
+  letter-spacing: 0.075em;
+}
+
+.dolby-wordmark span {
+  font-size: 0.43rem;
+  font-weight: 750;
+}
+
+.dolby-wordmark strong {
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.hdr-wordmark {
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.035em;
+}
+
+.hdr-version {
+  align-self: flex-start;
+  margin: 2px 0 0 -4px;
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.format-hlg .hdr-wordmark {
+  letter-spacing: 0.08em;
+}
+
+.watch-layout.minimized .playback-format-logo {
+  top: 52px;
+  right: 8px;
+  min-height: 28px;
+  padding: 4px 6px;
+  transform: translateY(-6px) scale(0.88);
+  transform-origin: top right;
+}
+
+.watch-layout.minimized .controls-visible .playback-format-logo,
+.watch-layout.minimized .youtube-player:focus-within .playback-format-logo {
+  transform: translateY(0) scale(0.88);
+}
+
 .player-hit-target {
   position: absolute;
   inset: 0;

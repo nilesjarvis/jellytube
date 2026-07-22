@@ -12,7 +12,11 @@ import type {
   PublicServerInfo
 } from './types';
 import type { ContentKind, SelectedLibrary } from './types';
-import { detectDirectPlayCodecs, type DirectPlayCodecs } from './codecSupport';
+import {
+  detectDirectPlayCodecs,
+  type DirectPlayCodecs,
+  type HlsRemuxCapabilities
+} from './codecSupport';
 
 const CLIENT_NAME = 'JellyTube';
 const CLIENT_VERSION = '0.1.0';
@@ -332,13 +336,27 @@ export class JellyfinClient {
     });
   }
 
-  async getPlaybackInfo(itemId: string, positionTicks = 0, audioStreamIndex?: number) {
+  async getPlaybackInfo(
+    itemId: string,
+    positionTicks = 0,
+    audioStreamIndex?: number,
+    remuxCapabilities?: HlsRemuxCapabilities | null
+  ) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.post<PlaybackInfo>(
       `/Items/${itemId}/PlaybackInfo`,
       {
-        DeviceProfile: browserDeviceProfile(),
+        DeviceProfile: browserDeviceProfile(140_000_000, detectDirectPlayCodecs(), remuxCapabilities),
         MaxStreamingBitrate: 140_000_000,
+        ...(remuxCapabilities?.preferHlsForStartup
+          ? {
+              EnableDirectPlay: false,
+              EnableDirectStream: true,
+              EnableTranscoding: true,
+              AllowVideoStreamCopy: true,
+              AllowAudioStreamCopy: true
+            }
+          : {}),
         ...(audioStreamIndex !== undefined && audioStreamIndex >= 0
           ? { AudioStreamIndex: audioStreamIndex }
           : {})
@@ -426,6 +444,16 @@ export class JellyfinClient {
       mediaSourceId,
       api_key: this.accessToken ?? ''
     });
+  }
+
+  getPlaybackUrl(path: string) {
+    const url = new URL(path, this.serverUrl);
+    const hasApiKey = [...url.searchParams.keys()].some((key) => {
+      const normalized = key.toLowerCase().replace(/_/g, '');
+      return normalized === 'apikey';
+    });
+    if (!hasApiKey && this.accessToken) url.searchParams.set('api_key', this.accessToken);
+    return url.toString();
   }
 
   getSubtitleStreamUrl(itemId: string, mediaSourceId: string, streamIndex: number, format = 'vtt') {
@@ -547,12 +575,27 @@ export type PlaybackEventPayload = {
   SubtitleStreamIndex?: number;
 };
 
-function directPlayProfilesFor(codecs: DirectPlayCodecs) {
+function directPlayProfilesFor(
+  codecs: DirectPlayCodecs,
+  remuxCapabilities?: HlsRemuxCapabilities | null
+) {
   const profiles: Array<{ Container: string; Type: 'Video'; VideoCodec: string; AudioCodec: string }> = [];
 
-  const mp4Codecs = [codecs.h264 ? 'h264' : '', codecs.hevc ? 'hevc' : ''].filter(Boolean).join(',');
+  const mp4AudioCodecs = [
+    'aac',
+    'mp3',
+    ...(remuxCapabilities?.audioCodecs ?? []).filter((codec) => codec !== 'aac' && codec !== 'mp3')
+  ].join(',');
+  const mp4Codecs = [codecs.h264 ? 'h264' : '', codecs.hevc ? 'hevc' : '']
+    .filter(Boolean)
+    .join(',');
   if (mp4Codecs) {
-    profiles.push({ Container: 'mp4,m4v', Type: 'Video', VideoCodec: mp4Codecs, AudioCodec: 'aac,mp3' });
+    profiles.push({
+      Container: 'mp4,m4v',
+      Type: 'Video',
+      VideoCodec: mp4Codecs,
+      AudioCodec: mp4AudioCodecs
+    });
   }
   // AV1 in mp4 may carry opus/flac audio in addition to the usual aac/mp3.
   if (codecs.av1) {
@@ -564,6 +607,15 @@ function directPlayProfilesFor(codecs: DirectPlayCodecs) {
     .join(',');
   if (webmCodecs) {
     profiles.push({ Container: 'webm', Type: 'Video', VideoCodec: webmCodecs, AudioCodec: 'vorbis,opus' });
+  }
+
+  if (remuxCapabilities) {
+    profiles.push({
+      Container: 'hls',
+      Type: 'Video',
+      VideoCodec: remuxCapabilities.videoCodec,
+      AudioCodec: remuxCapabilities.audioCodecs.join(',')
+    });
   }
 
   // If capability detection yields nothing (e.g. no DOM), fall back to the historically
@@ -580,26 +632,67 @@ function directPlayProfilesFor(codecs: DirectPlayCodecs) {
 
 export function browserDeviceProfile(
   maxStreamingBitrate = 140_000_000,
-  codecs: DirectPlayCodecs = detectDirectPlayCodecs()
+  codecs: DirectPlayCodecs = detectDirectPlayCodecs(),
+  remuxCapabilities?: HlsRemuxCapabilities | null
 ) {
+  const transcodingProfiles = [];
+  if (remuxCapabilities) {
+    transcodingProfiles.push({
+      Container: 'mp4',
+      Type: 'Video',
+      AudioCodec: remuxCapabilities.audioCodecs.join(','),
+      VideoCodec: remuxCapabilities.videoCodec,
+      Protocol: 'hls',
+      Context: 'Streaming',
+      MaxAudioChannels: String(remuxCapabilities.maxAudioChannels),
+      MinSegments: '2',
+      BreakOnNonKeyFrames: true
+    });
+  }
+  transcodingProfiles.push({
+    Container: 'ts',
+    Type: 'Video',
+    AudioCodec: 'aac,mp3',
+    VideoCodec: 'h264',
+    Protocol: 'hls',
+    Context: 'Streaming',
+    MaxAudioChannels: '2',
+    MinSegments: '2',
+    BreakOnNonKeyFrames: true
+  });
+
+  const codecProfiles = remuxCapabilities ? [
+    {
+      Type: 'Video',
+      Codec: remuxCapabilities.videoCodec,
+      Conditions: [
+        // Browsers honor the sample/display aspect metadata. Rejecting Jellyfin's
+        // broad IsAnamorphic flag needlessly tone-maps near-matching ratios such as
+        // 3836x1600 declared as 2.40:1.
+        { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main|main 10', IsRequired: false },
+        {
+          Condition: 'EqualsAny',
+          Property: 'VideoRangeType',
+          Value: remuxCapabilities.videoRangeTypes.join('|'),
+          IsRequired: false
+        },
+        {
+          Condition: 'LessThanEqual',
+          Property: 'VideoLevel',
+          Value: String(remuxCapabilities.maxVideoLevel),
+          IsRequired: false
+        },
+        { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
+      ]
+    }
+  ] : [];
+
   return {
     MaxStreamingBitrate: maxStreamingBitrate,
-    DirectPlayProfiles: directPlayProfilesFor(codecs),
-    TranscodingProfiles: [
-      {
-        Container: 'ts',
-        Type: 'Video',
-        AudioCodec: 'aac,mp3',
-        VideoCodec: 'h264',
-        Protocol: 'hls',
-        Context: 'Streaming',
-        MaxAudioChannels: '2',
-        MinSegments: '2',
-        BreakOnNonKeyFrames: true
-      }
-    ],
+    DirectPlayProfiles: directPlayProfilesFor(codecs, remuxCapabilities),
+    TranscodingProfiles: transcodingProfiles,
     ContainerProfiles: [],
-    CodecProfiles: [],
+    CodecProfiles: codecProfiles,
     SubtitleProfiles: [{ Format: 'vtt', Method: 'External' }]
   };
 }

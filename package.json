@@ -18,7 +18,7 @@
     "test": "npm run check && npm run test:unit"
   },
   "dependencies": {
-    "hls.js": "^1.5.20",
+    "hls.js": "^1.6.16",
     "lucide-svelte": "^0.468.0",
     "svelte": "^5.17.3"
   },

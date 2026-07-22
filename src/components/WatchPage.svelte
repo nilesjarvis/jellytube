@@ -83,9 +83,17 @@
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
   import {
     canDirectPlaySource,
+    detectHlsRemuxCapabilities,
     directStreamExtension,
+    hlsRemuxBaseLayerLevel,
+    hlsRemuxVideoPreference,
+    isHdrVideoSource,
+    isNegotiatedHlsRemux,
+    sourceVideoRangeType,
+    type HlsRemuxCapabilities,
     shouldPreferDirectPlayForAuto
   } from '../lib/codecSupport';
+  import { activePlaybackFormatLogo } from '../lib/playbackFormat';
   import { actorsForItem } from '../lib/people';
   import ActorCast from './ActorCast.svelte';
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
@@ -145,6 +153,8 @@
     preference: string | null;
     shouldResume: boolean;
     attemptedLabel: string;
+    remuxSource: JellyfinMediaSource | null;
+    playSessionId: string;
   };
 
   type WebKitVideoElement = HTMLVideoElement & {
@@ -203,6 +213,8 @@
   let fallbackNotice = '';
   let detailedItem: JellyfinItem = item;
   let mediaSource: JellyfinMediaSource | null = null;
+  let remuxCapabilities: HlsRemuxCapabilities | null = null;
+  let negotiatedRemuxSource: JellyfinMediaSource | null = null;
   let playSessionId = '';
   let playMethod: PlaybackEventPayload['PlayMethod'] = 'DirectPlay';
   let hls: Hls | null = null;
@@ -282,6 +294,11 @@
   $: seekMax = durationSeconds || 0;
   $: seekStyle = `--progress: ${progressPercent}%; --buffered: ${Math.max(bufferedPercent, progressPercent)}%;`;
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
+  $: playbackFormatLogo = activePlaybackFormatLogo(
+    mediaSource,
+    activeAttempt?.playMethod,
+    remuxCapabilities
+  );
   $: selectedQuality = playbackQualityById(qualityOptions, selectedQualityId);
   $: qualityButtonLabel = selectedQuality?.label ?? 'Auto';
   $: selectedAudio = playbackAudioById(audioOptions, selectedAudioId);
@@ -444,6 +461,8 @@
     sourceAspectRatio = DEFAULT_PLAYER_SOURCE_ASPECT_RATIO;
     resetCinematicGlow();
     await stopPlayback();
+    remuxCapabilities = null;
+    negotiatedRemuxSource = null;
     playRequested = autoPlay;
     await tick();
 
@@ -467,12 +486,17 @@
       const itemAudioId = itemMediaSource
         ? initialPlaybackAudioId(itemMediaSource, itemAudioOptions, audioPreference)
         : '';
+      remuxCapabilities = itemMediaSource
+        ? await detectHlsRemuxCapabilities(itemMediaSource, { video })
+        : null;
       const playbackInfo = await client.getPlaybackInfo(
         item.Id,
         startTicks,
-        playbackAudioById(itemAudioOptions, itemAudioId)?.index
+        playbackAudioById(itemAudioOptions, itemAudioId)?.index,
+        remuxCapabilities
       );
       mediaSource = playbackInfo.MediaSources[0] ?? null;
+      negotiatedRemuxSource = mediaSource;
       playSessionId = playbackInfo.PlaySessionId ?? '';
       if (!mediaSource) throw new Error('No playable media source was returned by Jellyfin.');
       const sourceVideoStream = mediaSource.MediaStreams?.find((stream) => stream.Type === 'Video');
@@ -483,13 +507,18 @@
 
       audioOptions = playbackAudioOptions(mediaSource);
       selectedAudioId = initialPlaybackAudioId(mediaSource, audioOptions, audioPreference);
-      const directAvailable = Boolean(getDirectAttempt(mediaSource));
+      const originalAttempt = getOriginalAttempt(mediaSource);
+      const directAvailable = Boolean(originalAttempt);
       qualityOptions = playbackQualityOptions(mediaSource, { directAvailable });
       selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
       subtitleOptions = buildSubtitleOptions(mediaSource);
       selectedSubtitleId = initialSubtitleId(mediaSource, subtitleOptions);
       activeTextTrackUrl = textTrackUrlForSelection();
-      autoPreferDirectPlay = await shouldPreferDirectPlayForAuto(mediaSource);
+      autoPreferDirectPlay = originalAttempt && remuxCapabilities && isHdrVideoSource(mediaSource)
+        ? remuxCapabilities.autoPrefer
+        : originalAttempt?.playMethod === 'DirectStream'
+          ? remuxCapabilities?.autoPrefer ?? false
+          : await shouldPreferDirectPlayForAuto(mediaSource);
       attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
       if (!attempts.length) {
         throw new Error('Jellyfin did not return a browser-compatible direct stream or HLS transcode option.');
@@ -510,11 +539,11 @@
   ) {
     const nextAttempts: PlaybackAttempt[] = [];
     const burnSubtitle = subtitleOption?.delivery === 'burn';
-    const directAttempt = burnSubtitle ? null : getDirectAttempt(source);
+    const originalAttempt = burnSubtitle ? null : getOriginalAttempt(source);
     const quality = playbackQualityById(qualityOptions, qualityId);
 
     if (quality?.mode === 'direct') {
-      if (directAttempt) nextAttempts.push(directAttempt);
+      if (originalAttempt) nextAttempts.push(originalAttempt);
       const fallbackHlsAttempt = getHlsAttempt(source, undefined, subtitleOption);
       if (fallbackHlsAttempt) nextAttempts.push(fallbackHlsAttempt);
       return nextAttempts;
@@ -528,13 +557,17 @@
 
     const hlsAttempt = getHlsAttempt(source, undefined, subtitleOption);
     if (autoPreferDirectPlay) {
-      if (directAttempt) nextAttempts.push(directAttempt);
+      if (originalAttempt) nextAttempts.push(originalAttempt);
       if (hlsAttempt) nextAttempts.push(hlsAttempt);
     } else {
       if (hlsAttempt) nextAttempts.push(hlsAttempt);
-      if (directAttempt) nextAttempts.push(directAttempt);
+      if (originalAttempt) nextAttempts.push(originalAttempt);
     }
     return nextAttempts;
+  }
+
+  function getOriginalAttempt(source: JellyfinMediaSource): PlaybackAttempt | null {
+    return getDirectAttempt(source) ?? getRemuxAttempt(source);
   }
 
   function getDirectAttempt(source: JellyfinMediaSource): PlaybackAttempt | null {
@@ -542,16 +575,103 @@
     if (source.SupportsDirectPlay === false) return null;
     const extension = directStreamExtension(source);
     if (!extension) return null;
-    const playable = canDirectPlaySource(source, video, extension);
+    const directVideoCodec = (streamOfType(source, 'Video')?.Codec ?? '').toLowerCase();
+    if (
+      isHdrVideoSource(source) &&
+      (directVideoCodec.includes('hevc') || directVideoCodec.includes('h265')) &&
+      !remuxCapabilities
+    ) {
+      return null;
+    }
+    const playable = canDirectPlaySource(
+      source,
+      video,
+      extension,
+      remuxCapabilities?.audioCodecs
+    );
     if (!playable) return null;
+    const range = sourceVideoRangeType(source);
+    const label = range.startsWith('DOVI')
+      ? 'Dolby Vision Original'
+      : range !== 'SDR'
+        ? 'HDR Original'
+        : 'Original';
 
     return {
       url: client.getStreamUrl(item.Id, source.Id, extension),
-      label: 'Original',
-      detail: mediaSummary(source),
+      label,
+      detail: [mediaSummary(source), range !== 'SDR' ? range : ''].filter(Boolean).join(' · '),
       qualityId: 'direct',
       mediaKind: 'direct',
       playMethod: 'DirectPlay'
+    };
+  }
+
+  function getRemuxAttempt(source: JellyfinMediaSource): PlaybackAttempt | null {
+    const negotiatedSource = negotiatedRemuxSource;
+    const audioStreamIndex = selectedAudioOption()?.index;
+    if (
+      !negotiatedSource ||
+      negotiatedSource.Id !== source.Id ||
+      !isNegotiatedHlsRemux(negotiatedSource, remuxCapabilities, audioStreamIndex)
+    ) {
+      return null;
+    }
+
+    const range = sourceVideoRangeType(source);
+    const hdrLabel = remuxCapabilities?.dolbyVision
+      ? 'Dolby Vision'
+      : remuxCapabilities?.hdr
+        ? 'HDR'
+        : '';
+    const videoStream = streamOfType(source, 'Video');
+    const dolbyProfile = videoStream?.DvProfile
+      ? `${videoStream.DvProfile}${
+          videoStream.DvBlSignalCompatibilityId !== undefined
+            ? `.${videoStream.DvBlSignalCompatibilityId}`
+            : ''
+        }`
+      : '';
+    const rangeDetail = remuxCapabilities?.dolbyVision
+      ? [
+          ['Dolby Vision', dolbyProfile].filter(Boolean).join(' '),
+          remuxCapabilities.hdr10Plus ? 'HDR10+' : ''
+        ].filter(Boolean).join(' + ')
+      : remuxCapabilities?.dolbyVisionSource && remuxCapabilities.hdr10CompatibleBaseLayer
+        ? `HDR10 base from Dolby Vision${dolbyProfile ? ` ${dolbyProfile}` : ''}`
+        : range !== 'SDR'
+          ? range
+          : '';
+    const audio = selectedAudioOption()?.stream;
+    const atmos = /atmos/i.test(
+      `${audio?.Profile ?? ''} ${audio?.DisplayTitle ?? ''} ${audio?.Title ?? ''}`
+    );
+    const sourceAudioCodec = (audio?.Codec ?? '').toLowerCase();
+    const audioCopied = Boolean(
+      sourceAudioCodec && remuxCapabilities?.audioCodecs.includes(sourceAudioCodec)
+    );
+    const sourceAudioLayout = audio?.ChannelLayout || (audio?.Channels ? `${audio.Channels}ch` : '');
+    const audioFormat = audioCopied
+      ? atmos ? 'Dolby Atmos' : audio?.Codec?.toUpperCase()
+      : audio ? `AAC from ${audio.Codec?.toUpperCase() || 'source'}` : '';
+    const audioLayout = audioCopied
+      ? sourceAudioLayout
+      : remuxCapabilities?.maxAudioChannels === 2 ? 'stereo' : sourceAudioLayout;
+    const audioDetail = [audioFormat, audioLayout]
+      .filter(Boolean)
+      .join(' ');
+    return {
+      url: client.getPlaybackUrl(negotiatedSource.TranscodingUrl!),
+      label: hdrLabel ? `${hdrLabel} Original` : 'Original',
+      detail: [
+        'HEVC video copy',
+        rangeDetail,
+        audioDetail,
+        'fMP4 HLS'
+      ].filter(Boolean).join(' · '),
+      qualityId: 'direct',
+      mediaKind: 'hls',
+      playMethod: 'DirectStream'
     };
   }
 
@@ -609,8 +729,11 @@
       hls = new HlsPlayer({
         lowLatencyMode: false,
         backBufferLength: 120,
-        capLevelToPlayerSize: true,
-        maxBufferLength: 45
+        capLevelToPlayerSize: attempt.playMethod !== 'DirectStream',
+        maxBufferLength: 45,
+        videoPreference: attempt.playMethod === 'DirectStream'
+          ? hlsRemuxVideoPreference(remuxCapabilities)
+          : undefined
       });
       hls.on(HlsPlayer.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
@@ -625,6 +748,11 @@
           return;
         }
         void handlePlaybackFailure(`HLS error: ${data.details || data.type}`);
+      });
+      hls.on(HlsPlayer.Events.MANIFEST_PARSED, (_event, data) => {
+        if (attempt.playMethod !== 'DirectStream' || !hls) return;
+        const baseLayerLevel = hlsRemuxBaseLayerLevel(data.levels, remuxCapabilities);
+        if (baseLayerLevel >= 0) hls.currentLevel = baseLayerLevel;
       });
       hls.loadSource(attempt.url);
       hls.attachMedia(video);
@@ -1158,12 +1286,30 @@
       preferenceKey,
       preference: localStorage.getItem(preferenceKey),
       shouldResume,
-      attemptedLabel: option.label
+      attemptedLabel: option.label,
+      remuxSource: negotiatedRemuxSource,
+      playSessionId
     };
 
     selectedAudioId = option.id;
     localStorage.setItem(preferenceKey, serializePlaybackAudioPreference(option));
-    qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
+    if (remuxCapabilities) {
+      try {
+        const playbackInfo = await client.getPlaybackInfo(
+          item.Id,
+          Math.round((Number.isFinite(previousTime) ? previousTime : 0) * 10_000_000),
+          option.index,
+          remuxCapabilities
+        );
+        negotiatedRemuxSource = playbackInfo.MediaSources[0] ?? null;
+        playSessionId = playbackInfo.PlaySessionId ?? playSessionId;
+      } catch {
+        negotiatedRemuxSource = null;
+      }
+    }
+    qualityOptions = playbackQualityOptions(mediaSource, {
+      directAvailable: Boolean(getOriginalAttempt(mediaSource))
+    });
     selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
     resumeSeconds = Number.isFinite(previousTime) ? previousTime : 0;
     currentTime = resumeSeconds;
@@ -1208,6 +1354,8 @@
     if (!rollback) return null;
     pendingAudioRollback = null;
     selectedAudioId = rollback.audioId;
+    negotiatedRemuxSource = rollback.remuxSource;
+    playSessionId = rollback.playSessionId;
     qualityOptions = rollback.qualityOptions;
     selectedQualityId = rollback.qualityId;
     restoreAudioPreference(rollback.preferenceKey, rollback.preference);
@@ -1876,6 +2024,31 @@
             {/if}
           </video>
         </div>
+
+        {#if playbackFormatLogo && !loading && !error}
+          <div
+            class={`playback-format-logo format-${playbackFormatLogo.kind}`}
+            role="img"
+            aria-label={playbackFormatLogo.detail}
+            title={playbackFormatLogo.detail}
+          >
+            {#if playbackFormatLogo.kind === 'dolby-vision'}
+              <span class="dolby-glyph" aria-hidden="true"></span>
+              <span class="dolby-wordmark" aria-hidden="true">
+                <span>DOLBY</span>
+                <strong>VISION</strong>
+              </span>
+            {:else if playbackFormatLogo.kind === 'hdr10-plus'}
+              <strong class="hdr-wordmark" aria-hidden="true">HDR</strong>
+              <span class="hdr-version" aria-hidden="true">10+</span>
+            {:else if playbackFormatLogo.kind === 'hdr10'}
+              <strong class="hdr-wordmark" aria-hidden="true">HDR</strong>
+              <span class="hdr-version" aria-hidden="true">10</span>
+            {:else}
+              <strong class="hdr-wordmark" aria-hidden="true">{playbackFormatLogo.label}</strong>
+            {/if}
+          </div>
+        {/if}
 
         {#if minimized}
           <div class="mini-player-actions" aria-label="Minimized player controls">

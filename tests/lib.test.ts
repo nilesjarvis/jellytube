@@ -16,11 +16,21 @@ import {
 import { assertUserCanPlayMedia, browserDeviceProfile, JellyfinClient } from '../src/lib/jellyfin';
 import {
   canDirectPlaySource,
+  detectHlsRemuxCapabilities,
   detectDirectPlayCodecs,
+  hasKnownBrokenFmp4Hls,
+  hlsRemuxBaseLayerLevel,
+  hlsRemuxVideoPreference,
+  isHdrVideoSource,
+  isNegotiatedHlsRemux,
   mediaCapabilitiesVideoConfiguration,
+  sourceVideoRangeType,
+  shouldPreferHlsForStartup,
+  type HlsRemuxCapabilities,
   shouldPreferDirectPlayForAuto
 } from '../src/lib/codecSupport';
 import { actorsForItem } from '../src/lib/people';
+import { activePlaybackFormatLogo } from '../src/lib/playbackFormat';
 import {
   channelName,
   compactMeta,
@@ -114,6 +124,54 @@ function performanceSensitiveAv1Source(): JellyfinMediaSource {
         Index: 0
       },
       { Type: 'Audio', Codec: 'opus', BitRate: 132_194, Index: 1, IsDefault: true }
+    ]
+  };
+}
+
+function dolbyVisionHdrSource(): JellyfinMediaSource {
+  return {
+    Id: '94f85e17c4cbbcfc9357e18bf7e8cfaa',
+    Container: 'mkv',
+    Bitrate: 25_336_992,
+    SupportsDirectPlay: false,
+    SupportsTranscoding: true,
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      {
+        Type: 'Video',
+        Codec: 'hevc',
+        Profile: 'Main 10',
+        Level: 150,
+        BitDepth: 10,
+        Width: 3840,
+        Height: 1606,
+        BitRate: 24_568_992,
+        AverageFrameRate: 23.976,
+        ColorPrimaries: 'bt2020',
+        ColorSpace: 'bt2020nc',
+        ColorTransfer: 'smpte2084',
+        VideoRange: 'HDR',
+        VideoRangeType: 'DOVIWithHDR10Plus',
+        DvProfile: 8,
+        DvLevel: 6,
+        RpuPresentFlag: 1,
+        BlPresentFlag: 1,
+        ElPresentFlag: 0,
+        DvBlSignalCompatibilityId: 1,
+        Hdr10PlusPresentFlag: true,
+        Index: 0
+      },
+      {
+        Type: 'Audio',
+        Codec: 'eac3',
+        Profile: 'Dolby Digital Plus + Dolby Atmos',
+        BitRate: 768_000,
+        Channels: 6,
+        ChannelLayout: '5.1',
+        SampleRate: 48_000,
+        Index: 1,
+        IsDefault: true
+      }
     ]
   };
 }
@@ -1713,6 +1771,321 @@ test('device profile advertises av1/hevc direct play only when the browser suppo
   assert.ok(legacyProfile.TranscodingProfiles.length > 0);
 });
 
+test('HDR remux detection requires exact HEVC, Dolby Vision, HLS, and HDR display support', async () => {
+  const queriedConfigurations: unknown[] = [];
+  const source = dolbyVisionHdrSource();
+  const video = {
+    canPlayType: (mime: string) =>
+      /hvc1\.2\.4\.L150\.B0|dvh1\.08\.06|mpegurl|ec-3/i.test(mime) ? 'probably' : ''
+  };
+  const capabilities = await detectHlsRemuxCapabilities(source, {
+    video,
+    matchMedia: (query) => ({ matches: query === '(dynamic-range: high)' }),
+    mediaCapabilities: {
+      async decodingInfo(configuration) {
+        queriedConfigurations.push(configuration);
+        return { supported: true, smooth: true, powerEfficient: false };
+      }
+    },
+    mediaSource: null,
+    userAgent: 'Safari'
+  });
+
+  assert.ok(capabilities);
+  assert.deepEqual(capabilities.audioCodecs, ['aac', 'eac3']);
+  assert.equal(capabilities.maxAudioChannels, 6);
+  assert.equal(capabilities.hdr, true);
+  assert.equal(capabilities.dolbyVisionSource, true);
+  assert.equal(capabilities.dolbyVision, true);
+  assert.equal(capabilities.hdr10CompatibleBaseLayer, true);
+  assert.equal(capabilities.hdr10Plus, true);
+  assert.equal(capabilities.autoPrefer, true);
+  assert.deepEqual(hlsRemuxVideoPreference(capabilities), {
+    preferHDR: true,
+    allowedVideoRanges: ['PQ']
+  });
+  assert.deepEqual(hlsRemuxVideoPreference({
+    ...capabilities,
+    videoRangeTypes: ['SDR', 'HLG']
+  }), {
+    preferHDR: true,
+    allowedVideoRanges: ['HLG']
+  });
+  assert.deepEqual(capabilities.videoRangeTypes, ['SDR', 'DOVIWithHDR10Plus']);
+  assert.deepEqual(queriedConfigurations, [{
+    type: 'file',
+    video: {
+      contentType: 'video/mp4; codecs="hvc1.2.4.L150.B0"',
+      width: 3840,
+      height: 1606,
+      bitrate: 24_568_992,
+      framerate: 23.976,
+      colorGamut: 'rec2020',
+      transferFunction: 'pq',
+      hdrMetadataType: 'smpteSt2086'
+    }
+  }]);
+  assert.equal(isHdrVideoSource(source), true);
+  assert.equal(sourceVideoRangeType(source), 'DOVIWithHDR10Plus');
+  assert.equal(canDirectPlaySource(
+    { ...source, Container: 'mp4', SupportsDirectPlay: true },
+    { canPlayType: (mime: string) => /hvc1\.1\.6\.L93/.test(mime) ? 'probably' : '' },
+    'mp4',
+    ['aac', 'eac3']
+  ), false, 'generic HEVC support is insufficient for Main 10 HDR direct play');
+
+  assert.equal(await detectHlsRemuxCapabilities(source, {
+    video,
+    matchMedia: () => ({ matches: false }),
+    mediaCapabilities: null,
+    mediaSource: null,
+    userAgent: 'Safari'
+  }), null, 'an SDR output must keep Jellyfin tone mapping');
+
+  assert.equal(await detectHlsRemuxCapabilities(source, {
+    video: {
+      canPlayType: (mime: string) =>
+        /hvc1\.2\.4\.L150\.B0|mpegurl|ec-3/i.test(mime) ? 'probably' : ''
+    },
+    matchMedia: () => ({ matches: true }),
+    mediaCapabilities: null,
+    mediaSource: null,
+    userAgent: 'Safari'
+  }), null, 'Dolby Vision sources require an exact Dolby Vision decoder probe');
+});
+
+test('Firefox can remux a Dolby Vision 8.1 source through its HDR10-compatible HEVC base layer', async () => {
+  const source = dolbyVisionHdrSource();
+  const capabilities = await detectHlsRemuxCapabilities(source, {
+    video: {
+      canPlayType: (mime: string) =>
+        /hvc1\.2\.4\.L150\.B0/i.test(mime) ? 'probably' : ''
+    },
+    matchMedia: (query) => ({ matches: query === '(dynamic-range: high)' }),
+    mediaCapabilities: {
+      async decodingInfo() {
+        return { supported: true, smooth: true, powerEfficient: true };
+      }
+    },
+    mediaSource: {
+      isTypeSupported: (mime: string) => /hvc1\.2\.4\.L150\.B0/i.test(mime)
+    },
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0'
+  });
+
+  assert.ok(capabilities);
+  assert.equal(capabilities.dolbyVisionSource, true);
+  assert.equal(capabilities.dolbyVision, false);
+  assert.equal(capabilities.hdr10CompatibleBaseLayer, true);
+  assert.deepEqual(capabilities.audioCodecs, ['aac']);
+  assert.deepEqual(hlsRemuxVideoPreference(capabilities), {
+    preferHDR: true,
+    allowedVideoRanges: ['PQ']
+  });
+  assert.equal(hlsRemuxBaseLayerLevel([
+    { videoCodec: 'avc1.640028', videoRange: 'SDR' },
+    { videoCodec: 'hvc1.2.4.L150.B0', videoRange: 'PQ' }
+  ], capabilities), 1);
+  assert.equal(hlsRemuxBaseLayerLevel([
+    { videoCodec: 'hvc1.2.4.L150.B0', videoRange: 'PQ' }
+  ], { ...capabilities, dolbyVision: true }), -1);
+
+  const incompatibleSource = dolbyVisionHdrSource();
+  const incompatibleVideo = incompatibleSource.MediaStreams?.find((stream) => stream.Type === 'Video');
+  if (incompatibleVideo) {
+    incompatibleVideo.DvBlSignalCompatibilityId = 0;
+    incompatibleVideo.VideoRangeType = 'DOVI';
+  }
+  assert.equal(await detectHlsRemuxCapabilities(incompatibleSource, {
+    video: {
+      canPlayType: (mime: string) => /hvc1\.2\.4\.L150\.B0/i.test(mime) ? 'probably' : ''
+    },
+    matchMedia: () => ({ matches: true }),
+    mediaCapabilities: null,
+    mediaSource: { isTypeSupported: () => true },
+    userAgent: 'Mozilla/5.0 Firefox/153.0'
+  }), null, 'Firefox must not treat a non-HDR10 Dolby Vision base layer as HDR10');
+});
+
+test('active playback format logos describe rendered HDR and never source-only transcoded HDR', () => {
+  const source = dolbyVisionHdrSource();
+  const baseCapabilities: HlsRemuxCapabilities = {
+    videoCodec: 'hevc',
+    videoRangeTypes: ['SDR', 'DOVIWithHDR10Plus'],
+    maxVideoLevel: 150,
+    audioCodecs: ['aac'],
+    maxAudioChannels: 2,
+    hdr: true,
+    dolbyVisionSource: true,
+    dolbyVision: false,
+    hdr10CompatibleBaseLayer: true,
+    hdr10Plus: true,
+    preferHlsForStartup: false,
+    autoPrefer: true
+  };
+
+  assert.deepEqual(activePlaybackFormatLogo(source, 'DirectStream', baseCapabilities), {
+    kind: 'hdr10',
+    label: 'HDR10',
+    detail: 'HDR10 playback is active using the Dolby Vision 8.1 compatible base layer'
+  });
+  assert.equal(activePlaybackFormatLogo(source, 'Transcode', baseCapabilities), null);
+  assert.deepEqual(activePlaybackFormatLogo(source, 'DirectStream', {
+    ...baseCapabilities,
+    dolbyVision: true
+  })?.kind, 'dolby-vision');
+  assert.deepEqual(activePlaybackFormatLogo(source, 'DirectPlay', {
+    ...baseCapabilities,
+    dolbyVision: true
+  })?.kind, 'hdr10');
+  assert.deepEqual(activePlaybackFormatLogo({
+    ...source,
+    MediaStreams: source.MediaStreams?.map((stream) =>
+      stream.Type === 'Video'
+        ? { ...stream, DvProfile: undefined, VideoRangeType: 'HDR10Plus' }
+        : stream
+    )
+  }, 'DirectPlay')?.kind, 'hdr10-plus');
+
+  const genericHdr10Source: JellyfinMediaSource = {
+    ...source,
+    MediaStreams: source.MediaStreams?.map((stream) =>
+      stream.Type === 'Video'
+        ? {
+            ...stream,
+            DvProfile: undefined,
+            DvBlSignalCompatibilityId: undefined,
+            RpuPresentFlag: undefined,
+            Hdr10PlusPresentFlag: false,
+            VideoRange: 'HDR',
+            VideoRangeType: 'HDR',
+            ColorTransfer: 'smpte2084'
+          }
+        : stream
+    )
+  };
+  assert.equal(sourceVideoRangeType(genericHdr10Source), 'HDR10');
+  assert.deepEqual(activePlaybackFormatLogo(genericHdr10Source, 'DirectPlay'), {
+    kind: 'hdr10',
+    label: 'HDR10',
+    detail: 'HDR10 playback is active'
+  });
+
+  const punctuatedHdr10PlusSource: JellyfinMediaSource = {
+    ...genericHdr10Source,
+    MediaStreams: genericHdr10Source.MediaStreams?.map((stream) =>
+      stream.Type === 'Video'
+        ? { ...stream, VideoRangeType: 'HDR10+' }
+        : stream
+    )
+  };
+  assert.equal(sourceVideoRangeType(punctuatedHdr10PlusSource), 'HDR10Plus');
+  assert.equal(
+    activePlaybackFormatLogo(punctuatedHdr10PlusSource, 'DirectPlay')?.kind,
+    'hdr10-plus'
+  );
+
+  const largeHdrMp4 = {
+    ...genericHdr10Source,
+    Container: 'mp4',
+    Size: 38_729_283_435
+  };
+  assert.equal(shouldPreferHlsForStartup(largeHdrMp4), true);
+  assert.equal(shouldPreferHlsForStartup({ ...largeHdrMp4, Size: 1_000_000_000 }), false);
+  assert.equal(shouldPreferHlsForStartup({ ...largeHdrMp4, Container: 'mkv' }), false);
+  assert.equal(shouldPreferHlsForStartup({
+    ...largeHdrMp4,
+    MediaStreams: largeHdrMp4.MediaStreams?.map((stream) =>
+      stream.Type === 'Video'
+        ? { ...stream, VideoRange: 'SDR', VideoRangeType: 'SDR', ColorTransfer: 'bt709' }
+        : stream
+    )
+  }), false);
+});
+
+test('HDR remux profile asks Jellyfin for HEVC fMP4 before the SDR fallback', async () => {
+  const source = dolbyVisionHdrSource();
+  const capabilities = await detectHlsRemuxCapabilities(source, {
+    video: {
+      canPlayType: (mime: string) =>
+        /hvc1\.2\.4\.L150\.B0|dvh1\.08\.06|mpegurl|ec-3/i.test(mime) ? 'probably' : ''
+    },
+    matchMedia: () => ({ matches: true }),
+    mediaCapabilities: null,
+    mediaSource: null,
+    userAgent: 'Safari'
+  });
+  assert.ok(capabilities);
+
+  const profile = browserDeviceProfile(
+    140_000_000,
+    { h264: true, hevc: true, vp8: true, vp9: true, av1: true },
+    capabilities
+  );
+  assert.deepEqual(profile.TranscodingProfiles.slice(0, 2).map(({ Container, VideoCodec }) => ({
+    Container,
+    VideoCodec
+  })), [
+    { Container: 'mp4', VideoCodec: 'hevc' },
+    { Container: 'ts', VideoCodec: 'h264' }
+  ]);
+  assert.equal(profile.TranscodingProfiles[0].AudioCodec, 'aac,eac3');
+  assert.equal(profile.TranscodingProfiles[0].MaxAudioChannels, '6');
+  assert.ok(!profile.CodecProfiles[0].Conditions.some((condition) =>
+    condition.Property === 'IsAnamorphic'
+  ));
+  assert.equal(
+    playbackQualityOptions(source, { directAvailable: true })[1].detail,
+    '4K · Dolby Vision + HDR10+ · 25.3 Mbps'
+  );
+  assert.ok(profile.DirectPlayProfiles.some((candidate) =>
+    candidate.Container === 'hls' && candidate.VideoCodec === 'hevc'
+  ));
+  assert.ok(profile.CodecProfiles[0].Conditions.some((condition) =>
+    condition.Property === 'VideoRangeType' && condition.Value.includes('DOVIWithHDR10Plus')
+  ));
+
+  const negotiatedSource = {
+    ...source,
+    TranscodingContainer: 'mp4',
+    TranscodingUrl: '/videos/item/master.m3u8?VideoCodec=hevc&AudioCodec=eac3&AudioStreamIndex=1&SegmentContainer=mp4&TranscodeReasons=ContainerNotSupported'
+  };
+  assert.equal(isNegotiatedHlsRemux(negotiatedSource, capabilities, 1), true);
+  assert.equal(isNegotiatedHlsRemux(negotiatedSource, capabilities, 2), false);
+  assert.equal(isNegotiatedHlsRemux({
+    ...negotiatedSource,
+    TranscodingUrl: '/videos/item/master.m3u8?VideoCodec=hevc&SegmentContainer=mp4&TranscodeReasons=ContainerNotSupported'
+  }, capabilities, 1), true);
+  assert.equal(isNegotiatedHlsRemux({
+    ...negotiatedSource,
+    TranscodingUrl: '/videos/item/master.m3u8?VideoCodec=hevc&SegmentContainer=mp4&TranscodeReasons=ContainerNotSupported'
+  }, capabilities, 2), false);
+  assert.equal(isNegotiatedHlsRemux({
+    ...negotiatedSource,
+    TranscodingUrl: `${negotiatedSource.TranscodingUrl}&AllowVideoStreamCopy=false`
+  }, capabilities, 1), false);
+  assert.equal(isNegotiatedHlsRemux({
+    ...negotiatedSource,
+    TranscodingUrl: '/videos/item/master.m3u8?VideoCodec=hevc&SegmentContainer=mp4&TranscodeReasons=VideoRangeNotSupported'
+  }, capabilities, 1), false);
+  const directPlayDisabledSource = {
+    ...negotiatedSource,
+    TranscodingUrl: '/videos/item/master.m3u8?VideoCodec=hevc&AudioCodec=eac3&AudioStreamIndex=1&SegmentContainer=mp4&TranscodeReasons=DirectPlayError'
+  };
+  assert.equal(isNegotiatedHlsRemux(directPlayDisabledSource, capabilities, 1), false);
+  assert.equal(isNegotiatedHlsRemux(
+    directPlayDisabledSource,
+    { ...capabilities, preferHlsForStartup: true },
+    1
+  ), true);
+});
+
+test('known broken Firefox fMP4 release remains on the safe transcoding path', () => {
+  assert.equal(hasKnownBrokenFmp4Hls('Mozilla/5.0 Firefox/149.0'), true);
+  assert.equal(hasKnownBrokenFmp4Hls('Mozilla/5.0 Firefox/148.0'), false);
+  assert.equal(hasKnownBrokenFmp4Hls('Mozilla/5.0 Version/19.0 Safari/605.1.15'), false);
+});
+
 test('canDirectPlaySource direct-plays av1 only on browsers that decode it', () => {
   const av1Webm = {
     Id: 'source',
@@ -1924,16 +2297,47 @@ test('Jellyfin playback requests carry selected audio indexes through negotiatio
 
   try {
     const client = new JellyfinClient('http://jellyfin.test', 'access-token', 'user-1');
-    await client.getPlaybackInfo('video-1', 50_000_000, 2);
+    const remuxCapabilities: HlsRemuxCapabilities = {
+      videoCodec: 'hevc',
+      videoRangeTypes: ['SDR', 'HDR10'],
+      maxVideoLevel: 150,
+      audioCodecs: ['aac', 'eac3'],
+      maxAudioChannels: 6,
+      hdr: true,
+      dolbyVisionSource: false,
+    dolbyVision: false,
+    hdr10CompatibleBaseLayer: false,
+    hdr10Plus: false,
+    preferHlsForStartup: true,
+    autoPrefer: true
+  };
+    await client.getPlaybackInfo('video-1', 50_000_000, 2, remuxCapabilities);
     await client.getPlaybackInfo('video-1', 0, -1);
 
     assert.equal(requests[0].body.AudioStreamIndex, 2);
     assert.equal('AudioStreamIndex' in requests[1].body, false);
+    const deviceProfile = requests[0].body.DeviceProfile as {
+      TranscodingProfiles: Array<{ Container: string; VideoCodec: string }>;
+    };
+    assert.deepEqual(deviceProfile.TranscodingProfiles.slice(0, 2).map((profile) => profile.Container), ['mp4', 'ts']);
+    assert.equal(deviceProfile.TranscodingProfiles[0].VideoCodec, 'hevc');
+    assert.equal(requests[0].body.EnableDirectPlay, false);
+    assert.equal(requests[0].body.AllowVideoStreamCopy, true);
+    assert.equal('EnableDirectPlay' in requests[1].body, false);
 
     const selectedUrl = new URL(client.getHlsUrl('video-1', 'source-1', { audioStreamIndex: 2 }));
     const defaultUrl = new URL(client.getHlsUrl('video-1', 'source-1'));
     assert.equal(selectedUrl.searchParams.get('AudioStreamIndex'), '2');
     assert.equal(defaultUrl.searchParams.has('AudioStreamIndex'), false);
+
+    const negotiatedUrl = new URL(client.getPlaybackUrl('/videos/video-1/master.m3u8?ApiKey=server-key'));
+    assert.equal(negotiatedUrl.origin, 'http://jellyfin.test');
+    assert.equal(negotiatedUrl.searchParams.get('ApiKey'), 'server-key');
+    assert.equal(negotiatedUrl.searchParams.has('api_key'), false);
+    assert.equal(
+      new URL(client.getPlaybackUrl('/videos/video-1/master.m3u8')).searchParams.get('api_key'),
+      'access-token'
+    );
   } finally {
     globalThis.fetch = originalFetch;
     if (originalLocalStorage === undefined) {

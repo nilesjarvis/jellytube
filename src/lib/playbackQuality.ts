@@ -121,9 +121,22 @@ export function sourceVideoWidth(source: JellyfinMediaSource) {
 }
 
 function originalQualityDetail(source: JellyfinMediaSource) {
+  const video = source.MediaStreams?.find((stream) => stream.Type === 'Video');
   const height = sourceVideoHeight(source);
-  const bitrate = source.Bitrate ?? source.MediaStreams?.find((stream) => stream.Type === 'Video')?.BitRate ?? 0;
-  return [height ? `${height}p` : '', bitrate ? formatBitrate(bitrate) : 'source file'].filter(Boolean).join(' · ');
+  const width = sourceVideoWidth(source);
+  const resolution = width >= 3800 ? '4K' : height ? `${height}p` : '';
+  const rangeType = video?.VideoRangeType ?? '';
+  const color = rangeType.startsWith('DOVI')
+    ? `Dolby Vision${rangeType.includes('HDR10Plus') ? ' + HDR10+' : ''}`
+    : rangeType === 'HDR10Plus'
+      ? 'HDR10+'
+      : rangeType === 'HDR10'
+        ? 'HDR10'
+        : rangeType === 'HLG'
+          ? 'HLG'
+          : '';
+  const bitrate = source.Bitrate ?? video?.BitRate ?? 0;
+  return [resolution, color, bitrate ? formatBitrate(bitrate) : 'source file'].filter(Boolean).join(' · ');
 }
 
 function formatBitrate(bitsPerSecond: number) {
