@@ -65,6 +65,7 @@ import { showProgressForEpisodes } from '../src/lib/showProgress';
 import {
   countdownSecondsRemaining,
   episodePlayingNextItem,
+  seriesNextUpItem,
   shouldAdvancePlayingNext,
   shouldShowPlayingNext
 } from '../src/lib/playingNext';
@@ -1457,6 +1458,15 @@ test('playing next stays hidden without autoplay, without a next episode, or aft
   assert.equal(shouldAdvancePlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
 });
 
+test('series next up finds the server-selected episode for the show instead of the next old episode', () => {
+  const oldEpisode = episodeItem('show', 1, 2);
+  const serverNextUp = episodeItem('show', 3, 7);
+  const anotherShow = episodeItem('other-show', 1, 4);
+
+  assert.equal(seriesNextUpItem(oldEpisode, [anotherShow, oldEpisode, serverNextUp])?.Id, serverNextUp.Id);
+  assert.equal(seriesNextUpItem(oldEpisode, [anotherShow, oldEpisode]), null);
+});
+
 test('search suggestions only fetch for supported routes and useful queries', () => {
   assert.equal(shouldFetchSearchSuggestions('a', 'home'), false);
   assert.equal(shouldFetchSearchSuggestions('matrix', 'home'), true);
@@ -1636,6 +1646,7 @@ test('Jellyfin discovery requests keep detail fields isolated and tokens out of 
     await client.getItems({ parentId: 'library-1' });
     await client.getItem('movie-1');
     await client.getSimilarItems('movie-1', 36);
+    await client.getNextUp({ parentId: 'shows-1', seriesId: 'series-1', limit: 18 });
 
     const actorWorkUrl = new URL(requests[0]);
     assert.equal(actorWorkUrl.searchParams.get('ParentId'), 'library-1');
@@ -1661,6 +1672,17 @@ test('Jellyfin discovery requests keep detail fields isolated and tokens out of 
     assert.equal(similarUrl.searchParams.get('Limit'), '36');
     assert.ok(!similarUrl.searchParams.get('Fields')?.split(',').includes('People'));
     assert.equal(similarUrl.searchParams.has('api_key'), false);
+
+    const nextUpUrl = new URL(requests[4]);
+    assert.equal(nextUpUrl.pathname, '/Shows/NextUp');
+    assert.equal(nextUpUrl.searchParams.get('userId'), 'user-1');
+    assert.equal(nextUpUrl.searchParams.get('parentId'), 'shows-1');
+    assert.equal(nextUpUrl.searchParams.get('seriesId'), 'series-1');
+    assert.equal(nextUpUrl.searchParams.get('Limit'), '18');
+    assert.equal(nextUpUrl.searchParams.get('EnableResumable'), 'true');
+    assert.equal(nextUpUrl.searchParams.get('EnableRewatching'), 'false');
+    assert.equal(nextUpUrl.searchParams.get('EnableTotalRecordCount'), 'false');
+    assert.equal(nextUpUrl.searchParams.has('api_key'), false);
 
     assert.equal(client.getPersonImageUrl({ Id: 'person-1', Name: 'No image' }), '');
     assert.equal(client.getPersonImageUrl({ Name: 'No id', PrimaryImageTag: 'tag' }), '');

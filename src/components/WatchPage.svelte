@@ -94,10 +94,12 @@
   export let selectedEpisodeSeason = 0;
   export let episodeSeriesTitle = '';
   export let recommendations: ProjectedRecommendation[] = [];
+  export let nextUpItem: JellyfinItem | null = null;
   export let minimized = false;
 
   const dispatch = createEventDispatcher<{
     recommendationSelect: ProjectedRecommendation;
+    nextUpSelect: JellyfinItem;
     queueSelect: JellyfinItem;
     episodeSelect: JellyfinItem;
     episodeSeason: number;
@@ -2301,6 +2303,29 @@
   </div>
 
   <aside class="recommendation-rail" aria-label={isMovie ? 'Recommended movies' : 'Recommended videos'}>
+    {#if nextUpItem}
+      <section class="next-up-panel" aria-label={`Next up for ${channelName(nextUpItem)}`}>
+        <div class="next-up-heading">
+          <div>
+            <span>Next Up</span>
+            <h2>{channelName(nextUpItem)}</h2>
+          </div>
+          {#if episodeCode(nextUpItem)}
+            <strong>{episodeCode(nextUpItem)}</strong>
+          {/if}
+        </div>
+        <VideoCard
+          {client}
+          item={nextUpItem}
+          compact
+          titleContext="recommendation"
+          titleChannel={channelName(nextUpItem)}
+          on:select={(event) => dispatch('nextUpSelect', event.detail)}
+          on:channel={(event) => dispatch('channel', event.detail)}
+        />
+      </section>
+    {/if}
+
     {#if queue.length > 1 && !hasEpisodeShelf}
       <section class="queue-panel" aria-label="Mix playlist">
         <div class="queue-heading">

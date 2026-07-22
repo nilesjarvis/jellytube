@@ -172,6 +172,13 @@ export type HlsStreamOptions = {
   audioBitrate?: number;
 };
 
+export type NextUpQuery = {
+  parentId?: string;
+  seriesId?: string;
+  limit?: number;
+  startIndex?: number;
+};
+
 export class JellyfinClient {
   serverUrl: string;
   accessToken?: string;
@@ -297,6 +304,23 @@ export class JellyfinClient {
       userId: this.userId,
       Fields: itemFields,
       Limit: String(limit)
+    });
+  }
+
+  async getNextUp(query: NextUpQuery = {}): Promise<ItemResponse> {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>('/Shows/NextUp', {
+      userId: this.userId,
+      Fields: itemFields,
+      Limit: String(query.limit ?? 24),
+      StartIndex: String(query.startIndex ?? 0),
+      EnableImages: 'true',
+      EnableUserData: 'true',
+      EnableResumable: 'true',
+      EnableRewatching: 'false',
+      EnableTotalRecordCount: 'false',
+      ...(query.parentId ? { parentId: query.parentId } : {}),
+      ...(query.seriesId ? { seriesId: query.seriesId } : {})
     });
   }
 

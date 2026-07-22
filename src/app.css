@@ -2813,6 +2813,55 @@ label {
   gap: 12px;
 }
 
+.next-up-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--border));
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 10%, transparent), transparent 55%),
+    var(--surface);
+}
+
+.next-up-heading {
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.next-up-heading > div {
+  min-width: 0;
+}
+
+.next-up-heading span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--brand);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.next-up-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.05rem;
+}
+
+.next-up-heading strong {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .movie-recommendation-panel {
   display: grid;
   gap: 14px;

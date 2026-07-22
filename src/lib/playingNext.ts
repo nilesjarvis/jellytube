@@ -1,4 +1,5 @@
 import type { JellyfinItem } from './types';
+import { sameEpisodeSeries } from './episodes';
 
 export const PLAYING_NEXT_COUNTDOWN_SECONDS = 30;
 export const PLAYING_NEXT_SKIP_END_SECONDS = 10;
@@ -10,6 +11,17 @@ export function episodePlayingNextItem(
   const currentIndex = orderedEpisodes.findIndex((episode) => episode.Id === currentItem.Id);
   if (currentIndex < 0 || currentIndex >= orderedEpisodes.length - 1) return null;
   return orderedEpisodes[currentIndex + 1] ?? null;
+}
+
+export function seriesNextUpItem(
+  currentItem: JellyfinItem,
+  nextUpItems: JellyfinItem[]
+): JellyfinItem | null {
+  return (
+    nextUpItems.find(
+      (candidate) => candidate.Id !== currentItem.Id && sameEpisodeSeries(currentItem, candidate)
+    ) ?? null
+  );
 }
 
 export function countdownSecondsRemaining(currentTime: number, duration: number) {
