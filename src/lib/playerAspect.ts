@@ -14,6 +14,7 @@ export type PlayerAspectOption = {
 
 export const PLAYER_ASPECT_STORAGE_KEY = 'jellytube.playerAspect';
 export const LEGACY_ULTRAWIDE_CROP_STORAGE_KEY = 'jellytube.ultrawideCrop';
+export const DEFAULT_PLAYER_SOURCE_ASPECT_RATIO = 16 / 9;
 
 export const PLAYER_ASPECT_OPTIONS: PlayerAspectOption[] = [
   {
@@ -57,4 +58,25 @@ export function initialPlayerAspectMode(
   legacyUltrawideCrop = false
 ): PlayerAspectMode {
   return playerAspectById(storedMode)?.id ?? (legacyUltrawideCrop ? 'crop-21-9' : 'fit');
+}
+
+export function playerSourceAspectRatio(
+  width: number | null | undefined,
+  height: number | null | undefined,
+  fallback = DEFAULT_PLAYER_SOURCE_ASPECT_RATIO
+) {
+  const safeFallback = Number.isFinite(fallback) && fallback > 0
+    ? fallback
+    : DEFAULT_PLAYER_SOURCE_ASPECT_RATIO;
+  if (
+    typeof width !== 'number' ||
+    typeof height !== 'number' ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return safeFallback;
+  }
+  return width / height;
 }

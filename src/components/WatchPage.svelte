@@ -71,11 +71,13 @@
     type PlaybackQualityOption
   } from '../lib/playbackQuality';
   import {
+    DEFAULT_PLAYER_SOURCE_ASPECT_RATIO,
     initialPlayerAspectMode,
     LEGACY_ULTRAWIDE_CROP_STORAGE_KEY,
     PLAYER_ASPECT_OPTIONS,
     PLAYER_ASPECT_STORAGE_KEY,
     playerAspectById,
+    playerSourceAspectRatio,
     type PlayerAspectOption
   } from '../lib/playerAspect';
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
@@ -239,6 +241,7 @@
     localStorage.getItem(PLAYER_ASPECT_STORAGE_KEY),
     localStorage.getItem(LEGACY_ULTRAWIDE_CROP_STORAGE_KEY) === 'true'
   );
+  let sourceAspectRatio = DEFAULT_PLAYER_SOURCE_ASPECT_RATIO;
   let aspectMenuOpen = false;
   let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
@@ -438,6 +441,7 @@
     duration = 0;
     playingNextAdvanceKey = '';
     autoPreferDirectPlay = true;
+    sourceAspectRatio = DEFAULT_PLAYER_SOURCE_ASPECT_RATIO;
     resetCinematicGlow();
     await stopPlayback();
     playRequested = autoPlay;
@@ -471,6 +475,11 @@
       mediaSource = playbackInfo.MediaSources[0] ?? null;
       playSessionId = playbackInfo.PlaySessionId ?? '';
       if (!mediaSource) throw new Error('No playable media source was returned by Jellyfin.');
+      const sourceVideoStream = mediaSource.MediaStreams?.find((stream) => stream.Type === 'Video');
+      sourceAspectRatio = playerSourceAspectRatio(
+        sourceVideoStream?.Width,
+        sourceVideoStream?.Height
+      );
 
       audioOptions = playbackAudioOptions(mediaSource);
       selectedAudioId = initialPlaybackAudioId(mediaSource, audioOptions, audioPreference);
@@ -901,6 +910,11 @@
   }
 
   function handleLoadedMetadata() {
+    sourceAspectRatio = playerSourceAspectRatio(
+      video.videoWidth,
+      video.videoHeight,
+      sourceAspectRatio
+    );
     duration = Number.isFinite(video.duration) ? video.duration : ticksToSeconds(detailedItem.RunTimeTicks);
     const shouldSeek = preserveBoundaryResume
       ? resumeSeconds > 0 && duration > 0
@@ -1685,7 +1699,7 @@
   function resizeMiniPlayer(event: PointerEvent) {
     if (!miniResizeState || event.pointerId !== miniResizeState.pointerId) return;
     const horizontalDelta = miniResizeState.startX - event.clientX;
-    const verticalDelta = (miniResizeState.startY - event.clientY) * (16 / 9);
+    const verticalDelta = (miniResizeState.startY - event.clientY) * sourceAspectRatio;
     const resizeDelta =
       miniResizeState.axis === 'left'
         ? horizontalDelta
@@ -1800,7 +1814,7 @@
       class:aspect-stretch-16-9={aspectMode === 'stretch-16-9'}
       class:aspect-stretch-21-9={aspectMode === 'stretch-21-9'}
       class:ultrawide-crop={aspectMode === 'crop-21-9'}
-      style={cinematicStyle}
+      style={`${cinematicStyle}; --player-source-aspect: ${sourceAspectRatio}`}
     >
       <div class="cinematic-glow" aria-hidden="true"></div>
 

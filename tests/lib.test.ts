@@ -54,9 +54,11 @@ import {
 } from '../src/lib/playbackQuality';
 import { applyProgressiveResult } from '../src/lib/progressiveLoad';
 import {
+  DEFAULT_PLAYER_SOURCE_ASPECT_RATIO,
   initialPlayerAspectMode,
   PLAYER_ASPECT_OPTIONS,
-  playerAspectById
+  playerAspectById,
+  playerSourceAspectRatio
 } from '../src/lib/playerAspect';
 import {
   containerDefaultAudioStream,
@@ -585,6 +587,13 @@ test('player aspect modes expose non-cropping stretch targets and validate saved
 test('player aspect mode migrates the former ultrawide crop preference', () => {
   assert.equal(initialPlayerAspectMode(null, true), 'crop-21-9');
   assert.equal(initialPlayerAspectMode('stretch-21-9', true), 'stretch-21-9');
+});
+
+test('player source aspect follows intrinsic video dimensions with a safe fallback', () => {
+  assert.equal(playerSourceAspectRatio(2560, 1080), 2560 / 1080);
+  assert.equal(playerSourceAspectRatio(1080, 1920), 1080 / 1920);
+  assert.equal(playerSourceAspectRatio(0, 1080), DEFAULT_PLAYER_SOURCE_ASPECT_RATIO);
+  assert.equal(playerSourceAspectRatio(undefined, undefined, 2.4), 2.4);
 });
 
 test('playback audio options keep indexed audio streams and preserve duplicate labels', () => {

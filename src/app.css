@@ -1563,7 +1563,7 @@ label {
 }
 
 .watch-layout.minimized .player-frame {
-  --player-shell-aspect: 16 / 9;
+  --player-shell-aspect: var(--player-source-aspect, 16 / 9);
   --player-video-fit: contain;
   filter: none;
 }
@@ -1660,7 +1660,7 @@ label {
 .player-frame {
   position: relative;
   isolation: isolate;
-  --player-shell-aspect: 16 / 9;
+  --player-shell-aspect: var(--player-source-aspect, 16 / 9);
   --player-video-fit: contain;
   --cinematic-left: rgba(20, 22, 30, 0.42);
   --cinematic-right: rgba(20, 22, 30, 0.42);
@@ -3611,7 +3611,7 @@ label {
 }
 
 .watch-layout.theater-mode .player-shell {
-  height: clamp(320px, 42vw, calc(100vh - 260px));
+  height: auto;
   padding-top: 0;
 }
 
