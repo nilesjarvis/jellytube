@@ -1,4 +1,4 @@
-import type { JellyfinMediaSource } from './types';
+import type { JellyfinMediaSource, JellyfinMediaStream } from './types';
 
 // Representative codec strings used for `canPlayType` capability probes.
 // AV1 Main profile / level 4.0 / 8-bit covers this library's 1080p content; browsers
@@ -17,6 +17,29 @@ export type DirectPlayCodecs = {
   av1: boolean;
 };
 
+export type MediaCapabilitiesVideoConfiguration = {
+  type: 'file';
+  video: {
+    contentType: string;
+    width: number;
+    height: number;
+    bitrate: number;
+    framerate: number;
+  };
+};
+
+export type MediaCapabilitiesDecodingInfo = {
+  supported: boolean;
+  smooth: boolean;
+  powerEfficient: boolean;
+};
+
+export type MediaCapabilitiesProbe = {
+  decodingInfo(
+    configuration: MediaCapabilitiesVideoConfiguration
+  ): Promise<MediaCapabilitiesDecodingInfo>;
+};
+
 let sharedProbe: VideoProbe | null = null;
 
 function defaultProbe(): VideoProbe {
@@ -26,6 +49,17 @@ function defaultProbe(): VideoProbe {
       ? document.createElement('video')
       : { canPlayType: () => '' };
   return sharedProbe;
+}
+
+function defaultMediaCapabilitiesProbe(): MediaCapabilitiesProbe | null {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.mediaCapabilities ||
+    typeof navigator.mediaCapabilities.decodingInfo !== 'function'
+  ) {
+    return null;
+  }
+  return navigator.mediaCapabilities as unknown as MediaCapabilitiesProbe;
 }
 
 function canPlay(video: VideoProbe, mime: string) {
@@ -87,8 +121,12 @@ function videoCodecProbeString(videoCodec: string) {
   return videoCodec === 'av1' ? AV1_PROBE_CODEC : videoCodec;
 }
 
+function sourceVideoStream(source: JellyfinMediaSource) {
+  return source.MediaStreams?.find((stream) => stream.Type === 'Video');
+}
+
 function sourceVideoCodec(source: JellyfinMediaSource) {
-  return normalizeCodec(source.MediaStreams?.find((stream) => stream.Type === 'Video')?.Codec);
+  return normalizeCodec(sourceVideoStream(source)?.Codec);
 }
 
 function sourceAudioCodec(source: JellyfinMediaSource) {
@@ -136,4 +174,147 @@ export function canDirectPlaySource(
   }
 
   return false;
+}
+
+function positiveNumber(...values: Array<number | undefined>) {
+  return values.find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0
+  );
+}
+
+function av1ProfileNumber(profile?: string) {
+  const normalized = (profile ?? '').toLowerCase();
+  if (normalized.includes('professional')) return 2;
+  if (normalized.includes('high')) return 1;
+  return 0;
+}
+
+function inferredAv1Level(width: number, height: number, framerate: number) {
+  const pixels = width * height;
+  if (pixels > 1920 * 1080) return framerate > 30 ? 13 : 12;
+  if (pixels >= 1920 * 1080) return framerate > 30 ? 9 : 8;
+  return 5;
+}
+
+function av1CodecString(
+  stream: JellyfinMediaStream,
+  width: number,
+  height: number,
+  framerate: number
+) {
+  const profile = av1ProfileNumber(stream.Profile);
+  const level = Math.round(
+    positiveNumber(stream.Level) ?? inferredAv1Level(width, height, framerate)
+  );
+  const bitDepth = Math.round(positiveNumber(stream.BitDepth) ?? 8);
+  return `av01.${profile}.${String(level).padStart(2, '0')}M.${String(bitDepth).padStart(2, '0')}`;
+}
+
+function inferredVp9Level(width: number, height: number, framerate: number) {
+  const pixels = width * height;
+  if (pixels > 2560 * 1440) return framerate > 30 ? 51 : 50;
+  if (pixels > 1920 * 1080) return framerate > 30 ? 41 : 40;
+  return framerate > 30 ? 40 : 31;
+}
+
+function vp9CodecString(
+  stream: JellyfinMediaStream,
+  width: number,
+  height: number,
+  framerate: number
+) {
+  const level = Math.round(
+    positiveNumber(stream.Level) ?? inferredVp9Level(width, height, framerate)
+  );
+  const bitDepth = Math.round(positiveNumber(stream.BitDepth) ?? 8);
+  return `vp09.00.${String(level).padStart(2, '0')}.${String(bitDepth).padStart(2, '0')}`;
+}
+
+function mediaCapabilitiesCodecString(
+  stream: JellyfinMediaStream,
+  width: number,
+  height: number,
+  framerate: number
+) {
+  switch (normalizeCodec(stream.Codec)) {
+    case 'av1':
+      return av1CodecString(stream, width, height, framerate);
+    case 'hevc':
+      return HEVC_PROBE_CODECS[0];
+    case 'h264':
+      return 'avc1.42E01E';
+    case 'vp9':
+      return vp9CodecString(stream, width, height, framerate);
+    case 'vp8':
+      return 'vp8';
+    default:
+      return '';
+  }
+}
+
+// Builds the stream-specific Media Capabilities query used by Auto playback. Unlike
+// canPlayType, this lets the browser account for resolution, frame rate, and bitrate.
+export function mediaCapabilitiesVideoConfiguration(
+  source: JellyfinMediaSource
+): MediaCapabilitiesVideoConfiguration | null {
+  const stream = sourceVideoStream(source);
+  const width = positiveNumber(stream?.Width);
+  const height = positiveNumber(stream?.Height);
+  const bitrate = positiveNumber(stream?.BitRate, source.Bitrate);
+  const framerate = positiveNumber(stream?.AverageFrameRate, stream?.RealFrameRate) ?? 30;
+  const extension = directStreamExtension(source);
+  if (!stream || !width || !height || !bitrate || !extension) return null;
+
+  const codec = mediaCapabilitiesCodecString(stream, width, height, framerate);
+  if (!codec) return null;
+  const mime = extension === 'webm' ? 'video/webm' : 'video/mp4';
+  return {
+    type: 'file',
+    video: {
+      contentType: `${mime}; codecs="${codec}"`,
+      width: Math.round(width),
+      height: Math.round(height),
+      bitrate: Math.round(bitrate),
+      framerate
+    }
+  };
+}
+
+function isDemandingVideoSource(source: JellyfinMediaSource) {
+  const stream = sourceVideoStream(source);
+  const width = positiveNumber(stream?.Width) ?? 0;
+  const height = positiveNumber(stream?.Height) ?? 0;
+  const bitrate = positiveNumber(stream?.BitRate, source.Bitrate) ?? 0;
+  const framerate = positiveNumber(stream?.AverageFrameRate, stream?.RealFrameRate) ?? 30;
+  return (
+    width >= 2560 ||
+    height >= 1440 ||
+    (width >= 1920 && height >= 1080 && framerate >= 50) ||
+    bitrate >= 20_000_000
+  );
+}
+
+function needsConservativeCapabilityFallback(source: JellyfinMediaSource) {
+  const codec = sourceVideoCodec(source);
+  return codec === 'av1' || codec === 'hevc' || codec === 'vp9';
+}
+
+// Auto can direct-play ordinary sources immediately. For demanding sources, it only
+// prefers the original file when the browser confirms decoding will be supported,
+// smooth, and power efficient. Explicit Original playback remains available.
+export async function shouldPreferDirectPlayForAuto(
+  source: JellyfinMediaSource,
+  probe: MediaCapabilitiesProbe | null = defaultMediaCapabilitiesProbe()
+) {
+  if (!isDemandingVideoSource(source)) return true;
+
+  const configuration = mediaCapabilitiesVideoConfiguration(source);
+  if (!configuration || !probe) return !needsConservativeCapabilityFallback(source);
+
+  try {
+    const result = await probe.decodingInfo(configuration);
+    return result.supported && result.smooth && result.powerEfficient;
+  } catch {
+    return !needsConservativeCapabilityFallback(source);
+  }
 }

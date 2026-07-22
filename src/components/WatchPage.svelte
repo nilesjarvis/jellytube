@@ -79,7 +79,11 @@
     type PlayerAspectOption
   } from '../lib/playerAspect';
   import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
-  import { canDirectPlaySource, directStreamExtension } from '../lib/codecSupport';
+  import {
+    canDirectPlaySource,
+    directStreamExtension,
+    shouldPreferDirectPlayForAuto
+  } from '../lib/codecSupport';
   import { actorsForItem } from '../lib/people';
   import ActorCast from './ActorCast.svelte';
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
@@ -219,6 +223,7 @@
   let preferredQualityId = savedQualityId();
   let selectedQualityId = preferredQualityId;
   let qualityOptions: PlaybackQualityOption[] = [];
+  let autoPreferDirectPlay = true;
   let qualityMenuOpen = false;
   let audioOptions: PlaybackAudioOption[] = [];
   let selectedAudioId = '';
@@ -432,6 +437,7 @@
     bufferedPercent = 0;
     duration = 0;
     playingNextAdvanceKey = '';
+    autoPreferDirectPlay = true;
     resetCinematicGlow();
     await stopPlayback();
     playRequested = autoPlay;
@@ -468,11 +474,13 @@
 
       audioOptions = playbackAudioOptions(mediaSource);
       selectedAudioId = initialPlaybackAudioId(mediaSource, audioOptions, audioPreference);
-      qualityOptions = playbackQualityOptions(mediaSource, { directAvailable: Boolean(getDirectAttempt(mediaSource)) });
+      const directAvailable = Boolean(getDirectAttempt(mediaSource));
+      qualityOptions = playbackQualityOptions(mediaSource, { directAvailable });
       selectedQualityId = playbackQualityById(qualityOptions, preferredQualityId)?.id ?? 'auto';
       subtitleOptions = buildSubtitleOptions(mediaSource);
       selectedSubtitleId = initialSubtitleId(mediaSource, subtitleOptions);
       activeTextTrackUrl = textTrackUrlForSelection();
+      autoPreferDirectPlay = await shouldPreferDirectPlayForAuto(mediaSource);
       attempts = buildPlaybackAttempts(mediaSource, selectedQualityId);
       if (!attempts.length) {
         throw new Error('Jellyfin did not return a browser-compatible direct stream or HLS transcode option.');
@@ -509,9 +517,14 @@
       return nextAttempts;
     }
 
-    if (directAttempt) nextAttempts.push(directAttempt);
     const hlsAttempt = getHlsAttempt(source, undefined, subtitleOption);
-    if (hlsAttempt) nextAttempts.push(hlsAttempt);
+    if (autoPreferDirectPlay) {
+      if (directAttempt) nextAttempts.push(directAttempt);
+      if (hlsAttempt) nextAttempts.push(hlsAttempt);
+    } else {
+      if (hlsAttempt) nextAttempts.push(hlsAttempt);
+      if (directAttempt) nextAttempts.push(directAttempt);
+    }
     return nextAttempts;
   }
 

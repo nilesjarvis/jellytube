@@ -56,9 +56,14 @@ export type JellyfinUserData = {
 export type JellyfinMediaStream = {
   Type?: 'Video' | 'Audio' | 'Subtitle';
   Codec?: string;
+  Profile?: string;
+  Level?: number;
+  BitDepth?: number;
   Width?: number;
   Height?: number;
   BitRate?: number;
+  AverageFrameRate?: number;
+  RealFrameRate?: number;
   Index?: number;
   IsDefault?: boolean;
   Language?: string;

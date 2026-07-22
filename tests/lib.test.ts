@@ -14,7 +14,12 @@ import {
   previewHlsOptions
 } from '../src/lib/hoverPreview';
 import { assertUserCanPlayMedia, browserDeviceProfile, JellyfinClient } from '../src/lib/jellyfin';
-import { canDirectPlaySource, detectDirectPlayCodecs } from '../src/lib/codecSupport';
+import {
+  canDirectPlaySource,
+  detectDirectPlayCodecs,
+  mediaCapabilitiesVideoConfiguration,
+  shouldPreferDirectPlayForAuto
+} from '../src/lib/codecSupport';
 import { actorsForItem } from '../src/lib/people';
 import {
   channelName,
@@ -75,12 +80,38 @@ import {
   shouldFetchSearchSuggestions,
   suggestionNameLabel
 } from '../src/lib/searchSuggestions';
-import type { JellyfinItem, JellyfinUser } from '../src/lib/types';
+import type { JellyfinItem, JellyfinMediaSource, JellyfinUser } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
   return {
     Type: 'Video',
     ...overrides
+  };
+}
+
+function performanceSensitiveAv1Source(): JellyfinMediaSource {
+  return {
+    Id: '807b2118963df43167bbd3917266aff5',
+    Container: 'mp4',
+    Bitrate: 12_625_990,
+    SupportsDirectPlay: true,
+    SupportsTranscoding: true,
+    DefaultAudioStreamIndex: 1,
+    MediaStreams: [
+      {
+        Type: 'Video',
+        Codec: 'av1',
+        Profile: 'Main',
+        Level: 12,
+        BitDepth: 8,
+        Width: 3596,
+        Height: 2160,
+        BitRate: 12_491_673,
+        AverageFrameRate: 24,
+        Index: 0
+      },
+      { Type: 'Audio', Codec: 'opus', BitRate: 132_194, Index: 1, IsDefault: true }
+    ]
   };
 }
 
@@ -1635,6 +1666,63 @@ test('canDirectPlaySource direct-plays av1 only on browsers that decode it', () 
   assert.equal(canDirectPlaySource(av1Webm, av1Incapable), false);
   // A source Jellyfin already refused for direct play is never forced.
   assert.equal(canDirectPlaySource({ ...av1Webm, SupportsDirectPlay: false }, av1Capable), false);
+});
+
+test('media capabilities query describes the exact demanding av1 stream', () => {
+  assert.deepEqual(mediaCapabilitiesVideoConfiguration(performanceSensitiveAv1Source()), {
+    type: 'file',
+    video: {
+      contentType: 'video/mp4; codecs="av01.0.12M.08"',
+      width: 3596,
+      height: 2160,
+      bitrate: 12_491_673,
+      framerate: 24
+    }
+  });
+});
+
+test('Auto avoids demanding direct play when decoding is not power efficient', async () => {
+  let queriedContentType = '';
+  const preferDirect = await shouldPreferDirectPlayForAuto(performanceSensitiveAv1Source(), {
+    async decodingInfo(configuration) {
+      queriedContentType = configuration.video.contentType;
+      return { supported: true, smooth: true, powerEfficient: false };
+    }
+  });
+
+  assert.equal(queriedContentType, 'video/mp4; codecs="av01.0.12M.08"');
+  assert.equal(preferDirect, false);
+});
+
+test('Auto keeps demanding direct play when the browser confirms efficient decoding', async () => {
+  const preferDirect = await shouldPreferDirectPlayForAuto(performanceSensitiveAv1Source(), {
+    async decodingInfo() {
+      return { supported: true, smooth: true, powerEfficient: true };
+    }
+  });
+
+  assert.equal(preferDirect, true);
+});
+
+test('Auto conservatively transcodes demanding av1 without Media Capabilities support', async () => {
+  assert.equal(await shouldPreferDirectPlayForAuto(performanceSensitiveAv1Source(), null), false);
+
+  const ordinaryAv1: JellyfinMediaSource = {
+    ...performanceSensitiveAv1Source(),
+    Bitrate: 5_000_000,
+    MediaStreams: [
+      {
+        Type: 'Video',
+        Codec: 'av1',
+        Width: 1920,
+        Height: 1080,
+        BitRate: 4_800_000,
+        AverageFrameRate: 24
+      },
+      { Type: 'Audio', Codec: 'opus', Index: 1 }
+    ]
+  };
+  assert.equal(await shouldPreferDirectPlayForAuto(ordinaryAv1, null), true);
 });
 
 test('actor extraction keeps valid cast in server order and deduplicates people', () => {
