@@ -2636,6 +2636,27 @@
         </section>
       {/if}
 
+      {#if nextUp.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <h2>Next Up</h2>
+            <span>Continue your shows</span>
+          </div>
+          <div class="video-grid horizontal-video-rail">
+            {#each nextUp as item (item.Id)}
+              <VideoCard
+                {client}
+                {item}
+                titleContext="recommendation"
+                titleChannel={channelName(item)}
+                on:select={(event) => openItem(event.detail)}
+                on:channel={(event) => openChannel(event.detail)}
+              />
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       {#if latestAdded.length}
         <section class="feed-section">
           <div class="section-heading">
