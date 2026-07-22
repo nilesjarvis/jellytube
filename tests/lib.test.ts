@@ -47,6 +47,7 @@ import {
   playbackQualityById,
   playbackQualityOptions
 } from '../src/lib/playbackQuality';
+import { applyProgressiveResult } from '../src/lib/progressiveLoad';
 import {
   initialPlayerAspectMode,
   PLAYER_ASPECT_OPTIONS,
@@ -82,6 +83,49 @@ function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name
     ...overrides
   };
 }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+test('progressive loads publish ready sections without waiting for slower sections', async () => {
+  const fast = deferred<string>();
+  const slow = deferred<string>();
+  const applied: string[] = [];
+  const fastLoad = applyProgressiveResult(fast.promise, () => true, (value) => applied.push(value));
+  const slowLoad = applyProgressiveResult(slow.promise, () => true, (value) => applied.push(value));
+
+  fast.resolve('fast');
+  assert.equal(await fastLoad, 'ready');
+  assert.deepEqual(applied, ['fast']);
+
+  slow.resolve('slow');
+  assert.equal(await slowLoad, 'ready');
+  assert.deepEqual(applied, ['fast', 'slow']);
+});
+
+test('progressive loads isolate errors and ignore stale results', async () => {
+  const failed = deferred<string>();
+  const stale = deferred<string>();
+  const applied: string[] = [];
+  let current = true;
+  const failedLoad = applyProgressiveResult(failed.promise, () => current, (value) => applied.push(value));
+  const staleLoad = applyProgressiveResult(stale.promise, () => current, (value) => applied.push(value));
+
+  failed.reject(new Error('unavailable'));
+  assert.equal(await failedLoad, 'error');
+
+  current = false;
+  stale.resolve('old data');
+  assert.equal(await staleLoad, 'stale');
+  assert.deepEqual(applied, []);
+});
 
 function episodeItem(
   seriesId: string,

@@ -73,6 +73,7 @@
   import { normalizeSearch, rankSearchResults, searchLoadedItems } from '../lib/search';
   import { saveSession } from '../lib/session';
   import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
+  import { applyProgressiveResult } from '../lib/progressiveLoad';
   import type {
     AppSession,
     ContentKind,
@@ -81,6 +82,7 @@
     PlaybackActivity,
     SelectedLibrary
   } from '../lib/types';
+  import SkeletonFeedSection from './SkeletonFeedSection.svelte';
   import SkeletonLibraryGrid from './SkeletonLibraryGrid.svelte';
   import SkeletonRoute from './SkeletonRoute.svelte';
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
@@ -92,6 +94,7 @@
   type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
+  type HomeSectionState = 'loading' | 'ready' | 'error';
   type UrlRoute =
     | { view: 'home' }
     | { view: 'movies' }
@@ -155,6 +158,12 @@
   let latestAdded: JellyfinItem[] = [];
   let recommended: ProjectedRecommendation[] = [];
   let popular: JellyfinItem[] = [];
+  let resumeState: HomeSectionState = 'loading';
+  let nextUpState: HomeSectionState = 'loading';
+  let latestAddedState: HomeSectionState = 'loading';
+  let recentState: HomeSectionState = 'loading';
+  let recommendedState: HomeSectionState = 'loading';
+  let popularState: HomeSectionState = 'loading';
   let movies: JellyfinItem[] = [];
   let movieResume: JellyfinItem[] = [];
   let moviePopular: RankedItem[] = [];
@@ -173,6 +182,7 @@
   let recentPlaybackIds: string[] = [];
   let watchRecommendations: ProjectedRecommendation[] = [];
   let watchRecommendationContextKey = '';
+  let catalogLoadGeneration = 0;
   let catalogSimilarityGeneration = 0;
   let homeRelatedItemScores: ReadonlyMap<string, number> = new Map();
   let movieRelatedItemScores: ReadonlyMap<string, number> = new Map();
@@ -333,47 +343,210 @@
   async function loadAll(skeletonRoute: Route = loadingRoute, label = loadingLabelForRoute(skeletonRoute)) {
     loadingRoute = skeletonRoute;
     loadingLabel = label;
-    loading = true;
+    const progressivelyRenderHome = route === 'home' && skeletonRoute === 'home';
+    loading = !progressivelyRenderHome;
     error = '';
+    const loadGeneration = ++catalogLoadGeneration;
     const similarityGeneration = ++catalogSimilarityGeneration;
+    resetHomeSectionStates();
     homeRelatedItemScores = new Map();
     movieRelatedItemScores = new Map();
     musicRelatedItemScores = new Map();
     watchRelatedItemScores.clear();
     watchRelatedItemRequests.clear();
-    try {
-      const [
-        videoByRelease,
-        videoLegacyByAdded,
-        videoFullByAdded,
-        videoResume,
-        videoSeries,
-        videoNextUp,
-        movieLegacyByAdded,
-        movieFullByAdded,
-        movieResumeItems,
-        musicRecentByRelease,
-        musicFullByAdded,
-        activityResponse
-      ] = await Promise.all([
-        fetchSources(videoSources, { limit: 320, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-        fetchSources(videoSources, { limit: 260, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-        fetchCompleteSources(videoSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-        fetchSources(videoSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
-        fetchSeriesSources(videoSources),
-        fetchNextUpSources(videoSources),
-        fetchSources(movieSources, { limit: 220, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-        fetchCompleteSources(movieSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-        fetchSources(movieSources, { limit: 48, sortBy: 'DatePlayed', sortOrder: 'Descending', filters: 'IsResumable' }),
-        fetchSources(musicSources, { limit: 100, sortBy: 'PremiereDate', sortOrder: 'Descending' }),
-        fetchCompleteSources(musicSources, { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' }),
-        client.getPlaybackActivity(365).catch(() => [])
-      ]);
 
-      const videoRecentByRelease = videoByRelease.slice(0, 80);
-      const videoRecentByAdded = videoLegacyByAdded.slice(0, 80);
-      const movieRecent = movieLegacyByAdded.slice(0, 80);
-      const musicRecentByAdded = musicFullByAdded.slice(0, 100);
+    try {
+      let videoByRelease: JellyfinItem[] = [];
+      let videoLegacyByAdded: JellyfinItem[] = [];
+      let videoResume: JellyfinItem[] = [];
+      let videoNextUp: JellyfinItem[] = [];
+      let movieLegacyByAdded: JellyfinItem[] = [];
+      let movieResumeItems: JellyfinItem[] = [];
+      let musicRecentByRelease: JellyfinItem[] = [];
+      let musicRecentByAdded: JellyfinItem[] = [];
+
+      const videoByReleaseRequest = fetchSources(videoSources, {
+        limit: 320,
+        sortBy: 'PremiereDate',
+        sortOrder: 'Descending'
+      }).then((items) => (videoByRelease = items));
+      const videoByAddedRequest = fetchSources(videoSources, {
+        limit: 260,
+        sortBy: 'DateCreated',
+        sortOrder: 'Descending'
+      }).then((items) => (videoLegacyByAdded = items));
+      const videoResumeRequest = fetchSources(videoSources, {
+        limit: 48,
+        sortBy: 'DatePlayed',
+        sortOrder: 'Descending',
+        filters: 'IsResumable'
+      }).then((items) => (videoResume = items));
+      const videoNextUpRequest = fetchNextUpSources(videoSources).then((items) => (videoNextUp = items));
+      const movieByAddedRequest = fetchSources(movieSources, {
+        limit: 220,
+        sortBy: 'DateCreated',
+        sortOrder: 'Descending'
+      }).then((items) => (movieLegacyByAdded = items));
+      const movieResumeRequest = fetchSources(movieSources, {
+        limit: 48,
+        sortBy: 'DatePlayed',
+        sortOrder: 'Descending',
+        filters: 'IsResumable'
+      }).then((items) => (movieResumeItems = items));
+      const musicByReleaseRequest = fetchSources(musicSources, {
+        limit: 100,
+        sortBy: 'PremiereDate',
+        sortOrder: 'Descending'
+      }).then((items) => (musicRecentByRelease = items));
+
+      const startBackgroundRequests = (reuseFastPages: boolean) => ({
+        videoFullByAdded: fetchCompleteSources(
+          videoSources,
+          { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' },
+          reuseFastPages ? videoLegacyByAdded : []
+        ),
+        videoSeries: fetchSeriesSources(videoSources),
+        movieFullByAdded: fetchCompleteSources(
+          movieSources,
+          { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' },
+          reuseFastPages ? movieLegacyByAdded : []
+        ),
+        musicFullByAdded: fetchCompleteSources(
+          musicSources,
+          { pageSize: 250, sortBy: 'DateCreated', sortOrder: 'Descending' },
+          reuseFastPages ? musicRecentByAdded : []
+        ),
+        activityResponse: client.getPlaybackActivity(365).catch(() => [])
+      });
+
+      let backgroundRequests = progressivelyRenderHome ? null : startBackgroundRequests(false);
+      const musicByAddedRequest = progressivelyRenderHome
+        ? fetchSources(musicSources, {
+            limit: 100,
+            sortBy: 'DateCreated',
+            sortOrder: 'Descending'
+          }).then((items) => (musicRecentByAdded = items))
+        : backgroundRequests!.musicFullByAdded.then(
+            (items) => (musicRecentByAdded = items.slice(0, 100))
+          );
+
+      const fastSectionTasks = [
+        loadHomeSection(
+          videoResumeRequest,
+          loadGeneration,
+          (items) => (resume = continueWatching(items).slice(0, 24)),
+          (state) => (resumeState = state)
+        ),
+        loadHomeSection(
+          videoNextUpRequest,
+          loadGeneration,
+          (items) => (nextUp = items.slice(0, 24)),
+          (state) => (nextUpState = state)
+        ),
+        loadHomeSection(
+          Promise.all([videoByAddedRequest, movieByAddedRequest, musicByAddedRequest]),
+          loadGeneration,
+          ([videoItems, movieItems, musicItems]) => {
+            latestAdded = mergeItems(videoItems, movieItems, musicItems)
+              .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
+              .slice(0, 48);
+          },
+          (state) => (latestAddedState = state)
+        ),
+        loadHomeSection(
+          Promise.all([videoByReleaseRequest, videoByAddedRequest]).then(async ([releaseItems, addedItems]) => {
+            const videoItems = mergeItems(releaseItems.slice(0, 80), addedItems.slice(0, 80))
+              .sort(compareByContentDateDesc)
+              .slice(0, 80);
+            if (videoItems.length) return videoItems;
+            const [musicReleaseItems, musicAddedItems] = await Promise.all([
+              musicByReleaseRequest,
+              musicByAddedRequest
+            ]);
+            return mergeItems(musicReleaseItems, musicAddedItems)
+              .sort(compareByContentDateDesc)
+              .slice(0, 80);
+          }),
+          loadGeneration,
+          (items) => (recent = items),
+          (state) => (recentState = state)
+        )
+      ];
+
+      const fastRouteDataTask = Promise.all([
+        movieByAddedRequest,
+        movieResumeRequest,
+        musicByReleaseRequest,
+        musicByAddedRequest
+      ]).then(([movieItems, resumableMovies, musicReleaseItems, musicAddedItems]) => {
+        if (loadGeneration !== catalogLoadGeneration) return;
+        movies = movieItems.slice(0, 80);
+        movieResume = continueWatching(resumableMovies).slice(0, 18);
+        musicVideos = mergeItems(musicReleaseItems, musicAddedItems)
+          .sort(compareByContentDateDesc)
+          .slice(0, 100);
+      });
+
+      await Promise.allSettled([...fastSectionTasks, fastRouteDataTask]);
+      if (loadGeneration !== catalogLoadGeneration) return;
+
+      backgroundRequests ??= startBackgroundRequests(true);
+
+      let videoFullByAdded: JellyfinItem[] = [];
+      let movieFullByAdded: JellyfinItem[] = [];
+      let musicFullByAdded: JellyfinItem[] = [];
+      let videoSeries: JellyfinItem[] = [];
+      let activityResponse: PlaybackActivity[] = [];
+
+      const videoCatalogRequest = backgroundRequests.videoFullByAdded.then(
+        (items) => (videoFullByAdded = items)
+      );
+      const movieCatalogRequest = backgroundRequests.movieFullByAdded.then(
+        (items) => (movieFullByAdded = items)
+      );
+      const musicCatalogRequest = backgroundRequests.musicFullByAdded.then(
+        (items) => (musicFullByAdded = items)
+      );
+      const videoSeriesRequest = backgroundRequests.videoSeries.then((items) => (videoSeries = items));
+      const activityRequest = backgroundRequests.activityResponse.then((items) => (activityResponse = items));
+
+      const replayPicksTask = loadHomeSection(
+        Promise.all([videoCatalogRequest, musicCatalogRequest]),
+        loadGeneration,
+        ([videoItems, musicItems]) => {
+          videoPool = mergeItems(videoItems, videoResume, videoNextUp);
+          musicPool = mergeItems(musicItems, musicRecentByRelease);
+          libraryPool = mergeItems(videoPool, moviePool, musicPool);
+          popular = popularItems(mergeItems(videoPool, musicPool)).slice(0, 24);
+        },
+        (state) => (popularState = state)
+      );
+
+      const recommendationsTask = loadHomeSection(
+        Promise.all([videoCatalogRequest, musicCatalogRequest, videoSeriesRequest, activityRequest]),
+        loadGeneration,
+        ([videoItems, musicItems, seriesItems, playbackRows]) => {
+          activity = personalPlaybackActivity(playbackRows, session.userId, session.userName);
+          seriesPool = seriesItems;
+          videoPool = mergeItems(videoItems, videoResume, videoNextUp);
+          musicPool = mergeItems(musicItems, musicRecentByRelease);
+          libraryPool = mergeItems(videoPool, moviePool, musicPool);
+          refreshRecommendations();
+        },
+        (state) => (recommendedState = state)
+      );
+
+      const movieCatalogTask = Promise.all([movieCatalogRequest, activityRequest]).then(
+        ([movieItems, playbackRows]) => {
+          if (loadGeneration !== catalogLoadGeneration) return;
+          activity = personalPlaybackActivity(playbackRows, session.userId, session.userName);
+          moviePool = mergeItems(movieItems, movieResumeItems);
+          libraryPool = mergeItems(videoPool, moviePool, musicPool);
+        }
+      );
+
+      await Promise.allSettled([replayPicksTask, recommendationsTask, movieCatalogTask]);
+      if (loadGeneration !== catalogLoadGeneration) return;
 
       activity = personalPlaybackActivity(activityResponse, session.userId, session.userName);
       seriesPool = videoSeries;
@@ -381,17 +554,6 @@
       moviePool = mergeItems(movieFullByAdded, movieResumeItems);
       musicPool = mergeItems(musicFullByAdded, musicRecentByRelease);
       libraryPool = mergeItems(videoPool, moviePool, musicPool);
-
-      recent = mergeItems(videoRecentByRelease, videoRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
-      if (!recent.length) recent = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 80);
-      latestAdded = mergeItems(videoLegacyByAdded, movieLegacyByAdded, musicFullByAdded)
-        .sort((a, b) => dateValue(b.DateCreated) - dateValue(a.DateCreated))
-        .slice(0, 48);
-      resume = continueWatching(videoResume).slice(0, 24);
-      nextUp = videoNextUp.slice(0, 24);
-      movies = movieRecent;
-      movieResume = continueWatching(movieResumeItems).slice(0, 18);
-      musicVideos = mergeItems(musicRecentByRelease, musicRecentByAdded).sort(compareByContentDateDesc).slice(0, 100);
       refreshRecommendations();
       popular = popularItems(mergeItems(videoPool, musicPool)).slice(0, 24);
 
@@ -407,10 +569,46 @@
       reportRecommendationDiagnostics(libraryPool, legacyCatalog);
       void loadCatalogSimilaritySignals(libraryPool, legacyCatalog, similarityGeneration);
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
+      if (loadGeneration !== catalogLoadGeneration) return;
+      failPendingHomeSections();
+      if (!progressivelyRenderHome) {
+        error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
+      }
     } finally {
-      loading = false;
+      if (loadGeneration === catalogLoadGeneration) loading = false;
     }
+  }
+
+  function resetHomeSectionStates() {
+    resumeState = 'loading';
+    nextUpState = 'loading';
+    latestAddedState = 'loading';
+    recentState = 'loading';
+    recommendedState = 'loading';
+    popularState = 'loading';
+  }
+
+  function failPendingHomeSections() {
+    if (resumeState === 'loading') resumeState = 'error';
+    if (nextUpState === 'loading') nextUpState = 'error';
+    if (latestAddedState === 'loading') latestAddedState = 'error';
+    if (recentState === 'loading') recentState = 'error';
+    if (recommendedState === 'loading') recommendedState = 'error';
+    if (popularState === 'loading') popularState = 'error';
+  }
+
+  async function loadHomeSection<T>(
+    request: Promise<T>,
+    generation: number,
+    apply: (value: T) => void,
+    setState: (state: HomeSectionState) => void
+  ) {
+    const outcome = await applyProgressiveResult(
+      request,
+      () => generation === catalogLoadGeneration,
+      apply
+    );
+    if (outcome !== 'stale') setState(outcome);
   }
 
   async function fetchSources(
@@ -470,13 +668,14 @@
       itemTypes?: string;
       filters?: string;
       searchTerm?: string;
-    }
+    },
+    initialItems: JellyfinItem[] = []
   ) {
     const responses = await Promise.all(
       sources.map(async (source) => {
-        const items: JellyfinItem[] = [];
+        const items = initialItems.filter((item) => item.sourceLibraryId === source.id);
         const { itemTypes, pageSize, ...itemQueryOptions } = queryOptions;
-        for (let startIndex = 0; ; startIndex += pageSize) {
+        for (let startIndex = items.length; ; startIndex += pageSize) {
           try {
             const response = await client.getItems({
               parentId: source.id,
@@ -1782,6 +1981,10 @@
     void loadAll(loadingRoute, loadingLabel);
   }
 
+  function retryHomeFeed() {
+    void loadAll('home', 'Loading home feed');
+  }
+
 
   function readUrlRoute(): UrlRoute {
     const url = new URL(window.location.href);
@@ -2624,7 +2827,21 @@
         {/if}
       </section>
     {:else if route === 'home'}
-      {#if resume.length}
+      {#if resumeState === 'loading' || nextUpState === 'loading' || latestAddedState === 'loading' || recentState === 'loading' || recommendedState === 'loading' || popularState === 'loading'}
+        <span class="sr-only" role="status">Loading home feed sections</span>
+      {/if}
+
+      {#if resumeState === 'loading'}
+        <SkeletonFeedSection count={6} />
+      {:else if resumeState === 'error'}
+        <section class="feed-section">
+          <h2>Continue watching</h2>
+          <div class="empty-state compact">
+            <p>Continue watching could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
+          </div>
+        </section>
+      {:else if resume.length}
         <section class="feed-section">
           <h2>Continue watching</h2>
           <div class="video-grid horizontal-video-rail">
@@ -2635,7 +2852,17 @@
         </section>
       {/if}
 
-      {#if nextUp.length}
+      {#if nextUpState === 'loading'}
+        <SkeletonFeedSection count={8} showMeta />
+      {:else if nextUpState === 'error'}
+        <section class="feed-section">
+          <h2>Next Up</h2>
+          <div class="empty-state compact">
+            <p>Next Up could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
+          </div>
+        </section>
+      {:else if nextUp.length}
         <section class="feed-section">
           <div class="section-heading">
             <h2>Next Up</h2>
@@ -2656,7 +2883,17 @@
         </section>
       {/if}
 
-      {#if latestAdded.length}
+      {#if latestAddedState === 'loading'}
+        <SkeletonFeedSection count={10} showMeta />
+      {:else if latestAddedState === 'error'}
+        <section class="feed-section">
+          <h2>Latest added</h2>
+          <div class="empty-state compact">
+            <p>Latest additions could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
+          </div>
+        </section>
+      {:else if latestAdded.length}
         <section class="feed-section">
           <div class="section-heading">
             <h2>Latest added</h2>
@@ -2667,7 +2904,6 @@
               <VideoCard
                 {client}
                 {item}
-                poster={item.contentKind === 'movie'}
                 titleContext="recommendation"
                 titleChannel={channelName(item)}
                 on:select={(event) => openItem(event.detail)}
@@ -2678,39 +2914,73 @@
         </section>
       {/if}
 
-      <section class="feed-section">
-        <div class="section-heading recommendation-heading">
-          <div>
-            <h2>Recommended</h2>
-            <span>{musicSources.length ? 'Includes music-video matches' : 'Standard recommendations'}</span>
+      {#if recommendedState === 'loading'}
+        <SkeletonFeedSection count={10} showMeta />
+      {:else if recommendedState === 'error'}
+        <section class="feed-section">
+          <h2>Recommended</h2>
+          <div class="empty-state compact">
+            <p>Recommendations could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
           </div>
-        </div>
-        <div class="video-grid">
-          {#each recommended as recommendation (projectedRecommendationKey(recommendation))}
-            {#if recommendation.kind === 'item'}
-              <VideoCard {client} item={recommendation.item} recommendationReason={recommendation.item.reason} titleContext="recommendation" titleChannel={channelName(recommendation.item)} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
-            {:else}
-              <ShowRecommendationCard
-                {client}
-                {recommendation}
-                on:play={(event) => playShowRecommendation(event.detail)}
-                on:show={(event) => openChannel(event.detail)}
-              />
-            {/if}
-          {/each}
-        </div>
-      </section>
+        </section>
+      {:else}
+        <section class="feed-section">
+          <div class="section-heading recommendation-heading">
+            <div>
+              <h2>Recommended</h2>
+              <span>{musicSources.length ? 'Includes music-video matches' : 'Standard recommendations'}</span>
+            </div>
+          </div>
+          <div class="video-grid">
+            {#each recommended as recommendation (projectedRecommendationKey(recommendation))}
+              {#if recommendation.kind === 'item'}
+                <VideoCard {client} item={recommendation.item} recommendationReason={recommendation.item.reason} titleContext="recommendation" titleChannel={channelName(recommendation.item)} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+              {:else}
+                <ShowRecommendationCard
+                  {client}
+                  {recommendation}
+                  on:play={(event) => playShowRecommendation(event.detail)}
+                  on:show={(event) => openChannel(event.detail)}
+                />
+              {/if}
+            {/each}
+          </div>
+        </section>
+      {/if}
 
-      <section class="feed-section">
-        <h2>New videos</h2>
-        <div class="video-grid">
-          {#each recent as item (item.Id)}
-            <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
-          {/each}
-        </div>
-      </section>
+      {#if recentState === 'loading'}
+        <SkeletonFeedSection count={8} />
+      {:else if recentState === 'error'}
+        <section class="feed-section">
+          <h2>New videos</h2>
+          <div class="empty-state compact">
+            <p>New videos could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
+          </div>
+        </section>
+      {:else}
+        <section class="feed-section">
+          <h2>New videos</h2>
+          <div class="video-grid">
+            {#each recent as item (item.Id)}
+              <VideoCard {client} {item} on:select={(event) => openItem(event.detail)} on:channel={(event) => openChannel(event.detail)} />
+            {/each}
+          </div>
+        </section>
+      {/if}
 
-      {#if popular.length}
+      {#if popularState === 'loading'}
+        <SkeletonFeedSection count={8} />
+      {:else if popularState === 'error'}
+        <section class="feed-section">
+          <h2>Replay picks</h2>
+          <div class="empty-state compact">
+            <p>Replay picks could not be loaded.</p>
+            <button class="secondary-action" on:click={retryHomeFeed}>Try again</button>
+          </div>
+        </section>
+      {:else if popular.length}
         <section class="feed-section">
           <h2>Replay picks</h2>
           <div class="video-grid">
