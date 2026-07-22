@@ -1701,6 +1701,17 @@
     scheduleControls();
   }
 
+  function hideControlsOnMouseLeave() {
+    window.clearTimeout(controlsTimer);
+    controlsTimer = 0;
+    if (!isPlaying) return;
+    qualityMenuOpen = false;
+    audioMenuOpen = false;
+    subtitleMenuOpen = false;
+    aspectMenuOpen = false;
+    controlsVisible = false;
+  }
+
   function scheduleControls() {
     window.clearTimeout(controlsTimer);
     if (!isPlaying || qualityMenuOpen || subtitleMenuOpen || audioMenuOpen || aspectMenuOpen) return;
@@ -1975,8 +1986,9 @@
         tabindex="0"
         role="application"
         aria-label={`Video player for ${title}`}
+        on:mouseenter={showControls}
         on:mousemove={showControls}
-        on:mouseleave={scheduleControls}
+        on:mouseleave={hideControlsOnMouseLeave}
         on:focus={showControls}
         on:keydown={handleKeydown}
         on:wheel={handleWheel}
