@@ -1,0 +1,35 @@
+[Unit]
+Description=JellyTube web interface for Jellyfin
+Documentation=https://github.com/nilesjarvis/jellytube
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=jellytube
+Group=jellytube
+WorkingDirectory=/opt/jellytube/current
+Environment=NODE_ENV=production
+Environment=JELLYTUBE_DIST=/opt/jellytube/current/dist
+EnvironmentFile=-/etc/jellytube/jellytube.env
+ExecStart=/opt/jellytube/node/bin/node /opt/jellytube/current/scripts/serve-dist.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0027
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
