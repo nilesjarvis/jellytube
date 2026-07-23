@@ -2039,6 +2039,8 @@
           </video>
         </div>
 
+        <div class="player-title-overlay" aria-hidden="true" title={title}>{title}</div>
+
         {#if playbackFormatLogo && !loading && !error}
           <div
             class={`playback-format-logo format-${playbackFormatLogo.kind}`}
