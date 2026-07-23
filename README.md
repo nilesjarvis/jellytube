@@ -6,6 +6,35 @@
 
 JellyTube is a local, frontend-only Svelte application that turns selected Jellyfin libraries into a YouTube-style browsing and watching experience. It is designed for Jellyfin servers that already host downloaded YouTube archives, movies, episodic shows, and music videos.
 
+## One-Command Linux Installation
+
+On an x86-64 or ARM64 Linux device running systemd, install JellyTube with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nilesjarvis/jellytube/main/install.sh | sudo bash
+```
+
+The installer downloads and builds JellyTube, verifies and installs a private Node.js runtime, creates an unprivileged `jellytube` account, and enables `jellytube.service` at boot. JellyTube is then available at `http://localhost:4173` on the host or `http://<device-ip>:4173` over the local network. It does not install, modify, or restart Jellyfin.
+
+Manage the service with:
+
+```bash
+sudo systemctl status jellytube
+sudo systemctl restart jellytube
+sudo journalctl -u jellytube -f
+```
+
+Configuration is stored in `/etc/jellytube/jellytube.env`. To change the listening address or port, edit that file and restart the service. On the first installation, custom values can also be supplied to the one-command installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nilesjarvis/jellytube/main/install.sh \
+  | sudo env JELLYTUBE_HOST=127.0.0.1 JELLYTUBE_PORT=8088 bash
+```
+
+Rerun the installation command to upgrade. The installer keeps the existing configuration, installs each build as a separate release under `/opt/jellytube/releases`, and restores the previous active release if the new service fails to start or pass its health check.
+
+Because the command executes a remote script as root, inspect [`install.sh`](install.sh) before running it when required by your security policy.
+
 ## Preview
 
 These screenshots live in `screenshots/` and are embedded here so users can preview JellyTube directly from the README.
@@ -104,35 +133,6 @@ The smoke script requires a browser exposing a WebDriver BiDi endpoint on `BIDI_
   - **Home Videos & Photos** for general video archives
   - **Movies** for movie-style content
   - **Music Videos** for music-video collections
-
-## One-Command Linux Installation
-
-On an x86-64 or ARM64 Linux device running systemd, install JellyTube with:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nilesjarvis/jellytube/main/install.sh | sudo bash
-```
-
-The installer downloads and builds JellyTube, verifies and installs a private Node.js runtime, creates an unprivileged `jellytube` account, and enables `jellytube.service` at boot. JellyTube is then available at `http://localhost:4173` on the host or `http://<device-ip>:4173` over the local network. It does not install, modify, or restart Jellyfin.
-
-Manage the service with:
-
-```bash
-sudo systemctl status jellytube
-sudo systemctl restart jellytube
-sudo journalctl -u jellytube -f
-```
-
-Configuration is stored in `/etc/jellytube/jellytube.env`. To change the listening address or port, edit that file and restart the service. On the first installation, custom values can also be supplied to the one-command installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nilesjarvis/jellytube/main/install.sh \
-  | sudo env JELLYTUBE_HOST=127.0.0.1 JELLYTUBE_PORT=8088 bash
-```
-
-Rerun the installation command to upgrade. The installer keeps the existing configuration, installs each build as a separate release under `/opt/jellytube/releases`, and restores the previous active release if the new service fails to start or pass its health check.
-
-Because the command executes a remote script as root, inspect [`install.sh`](install.sh) before running it when required by your security policy.
 
 ## Setup From A Source Checkout
 
