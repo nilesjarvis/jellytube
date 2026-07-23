@@ -490,6 +490,10 @@ export class JellyfinClient {
         options.subtitleStreamIndex !== undefined && options.subtitleStreamIndex >= 0
           ? String(options.subtitleStreamIndex)
           : '',
+      SubtitleMethod:
+        options.subtitleStreamIndex !== undefined && options.subtitleStreamIndex >= 0
+          ? 'Encode'
+          : '',
       api_key: this.accessToken ?? '',
       VideoCodec: 'h264',
       AudioCodec: 'aac',

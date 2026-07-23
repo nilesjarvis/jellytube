@@ -2425,10 +2425,17 @@ test('Jellyfin playback requests carry selected audio indexes through negotiatio
     assert.equal(requests[0].body.AllowVideoStreamCopy, true);
     assert.equal('EnableDirectPlay' in requests[1].body, false);
 
-    const selectedUrl = new URL(client.getHlsUrl('video-1', 'source-1', { audioStreamIndex: 2 }));
+    const selectedUrl = new URL(client.getHlsUrl('video-1', 'source-1', {
+      audioStreamIndex: 2,
+      subtitleStreamIndex: 3
+    }));
     const defaultUrl = new URL(client.getHlsUrl('video-1', 'source-1'));
     assert.equal(selectedUrl.searchParams.get('AudioStreamIndex'), '2');
+    assert.equal(selectedUrl.searchParams.get('SubtitleStreamIndex'), '3');
+    assert.equal(selectedUrl.searchParams.get('SubtitleMethod'), 'Encode');
     assert.equal(defaultUrl.searchParams.has('AudioStreamIndex'), false);
+    assert.equal(defaultUrl.searchParams.has('SubtitleStreamIndex'), false);
+    assert.equal(defaultUrl.searchParams.has('SubtitleMethod'), false);
 
     const negotiatedUrl = new URL(client.getPlaybackUrl('/videos/video-1/master.m3u8?ApiKey=server-key'));
     assert.equal(negotiatedUrl.origin, 'http://jellyfin.test');
