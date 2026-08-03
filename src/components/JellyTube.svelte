@@ -13,7 +13,6 @@
     Podcast,
     RotateCcw,
     Search,
-    Server,
     Star,
     Sun,
     UserCircle
@@ -2160,9 +2159,8 @@
         {/if}
       </button>
       <div class="account-pill" title={`${session.serverName} · ${session.userName}`}>
-        <Server size={16} />
-        <span>{session.serverName}</span>
         <UserCircle size={18} />
+        <span>{session.userName}</span>
       </div>
     </div>
   </header>
