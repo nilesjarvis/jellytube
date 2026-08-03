@@ -2,9 +2,10 @@ import type {
   AuthResult,
   ItemResponse,
   JellyfinItem,
-  JellyfinPerson,
   JellyfinLibrary,
+  JellyfinMediaSegment,
   JellyfinMediaSource,
+  JellyfinPerson,
   JellyfinUser,
   LibraryResponse,
   PlaybackActivity,
@@ -312,8 +313,13 @@ export class JellyfinClient {
   async getItem(itemId: string) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<JellyfinItem>(`/Users/${this.userId}/Items/${itemId}`, {
-      Fields: `${itemFields},People,MediaSources`
+      Fields: `${itemFields},People,MediaSources,Chapters`
     });
+  }
+
+  /** Media segments (Intro Skipper plugin exposes detected intros through these). */
+  async getMediaSegments(itemId: string): Promise<JellyfinMediaSegment[]> {
+    return this.get<JellyfinMediaSegment[]>(`/MediaSegments/${itemId}`);
   }
 
   async getSimilarItems(itemId: string, limit = 48): Promise<ItemResponse> {
