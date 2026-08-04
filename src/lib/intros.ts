@@ -25,7 +25,9 @@ export function introChapter(item: JellyfinItem): JellyfinChapter | null {
 export function introWindowFromSegments(
   segments: JellyfinMediaSegment[] | null | undefined
 ): IntroWindow | null {
-  const intro = segments?.find((segment) => segment.Type === INTRO_SEGMENT_TYPE);
+  const intro = Array.isArray(segments)
+    ? segments.find((segment) => segment.Type === INTRO_SEGMENT_TYPE)
+    : null;
   if (!intro) return null;
   const start = ticksToSeconds(intro.StartTicks);
   const end = ticksToSeconds(intro.EndTicks);
@@ -33,12 +35,27 @@ export function introWindowFromSegments(
   return { start, end };
 }
 
-/** Converts an item's Intro chapter into a [start, end] window in seconds, or null. */
+/**
+ * Converts an item's Intro chapter into a [start, end] window in seconds, or
+ * null. Jellyfin chapters carry only a start position, so the intro end is
+ * inferred from the next chapter's start, falling back to the episode
+ * runtime when the Intro chapter is the last one. An explicit end position
+ * (if a server ever provides one) takes precedence.
+ */
 export function introWindowForItem(item: JellyfinItem): IntroWindow | null {
-  const chapter = introChapter(item);
-  if (!chapter) return null;
+  const chapters = item.Chapters ?? [];
+  const index = chapters.findIndex((candidate) =>
+    INTRO_CHAPTER_PATTERN.test(candidate.Name?.trim() ?? '')
+  );
+  if (index === -1) return null;
+  const chapter = chapters[index];
   const start = ticksToSeconds(chapter.StartPositionTicks);
-  const end = ticksToSeconds(chapter.EndPositionTicks) || ticksToSeconds(item.RunTimeTicks);
+  const explicitEnd = ticksToSeconds(chapter.EndPositionTicks);
+  const nextStart = ticksToSeconds(chapters[index + 1]?.StartPositionTicks);
+  const end =
+    (Number.isFinite(explicitEnd) && explicitEnd > start ? explicitEnd : NaN) ||
+    (Number.isFinite(nextStart) && nextStart > start ? nextStart : NaN) ||
+    ticksToSeconds(item.RunTimeTicks);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return { start, end };
 }

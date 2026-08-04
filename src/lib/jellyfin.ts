@@ -319,7 +319,9 @@ export class JellyfinClient {
 
   /** Media segments (Intro Skipper plugin exposes detected intros through these). */
   async getMediaSegments(itemId: string): Promise<JellyfinMediaSegment[]> {
-    return this.get<JellyfinMediaSegment[]>(`/MediaSegments/${itemId}`);
+    // The endpoint wraps the list in a QueryResult envelope: { Items: [...] }.
+    const result = await this.get<{ Items: JellyfinMediaSegment[] }>(`/MediaSegments/${itemId}`);
+    return result.Items ?? [];
   }
 
   async getSimilarItems(itemId: string, limit = 48): Promise<ItemResponse> {
