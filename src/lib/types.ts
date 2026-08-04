@@ -130,20 +130,6 @@ export type JellyfinChapter = {
   ImagePath?: string;
 };
 
-export type JellyfinIntroSegment = {
-  EpisodeId?: string;
-  Start?: number;
-  End?: number;
-};
-
-export type JellyfinIntroTimestamps = {
-  Introduction?: JellyfinIntroSegment;
-  Credits?: JellyfinIntroSegment;
-  Recap?: JellyfinIntroSegment;
-  Preview?: JellyfinIntroSegment;
-  Commercial?: JellyfinIntroSegment;
-};
-
 export type JellyfinMediaSegment = {
   Id?: string;
   ItemId?: string;

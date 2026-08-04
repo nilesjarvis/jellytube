@@ -1,4 +1,4 @@
-import type { JellyfinChapter, JellyfinItem, JellyfinMediaSegment } from './types';
+import type { JellyfinItem, JellyfinMediaSegment } from './types';
 
 const INTRO_CHAPTER_PATTERN = /^intro$/i;
 const INTRO_SEGMENT_TYPE = 'Intro';
@@ -8,14 +8,6 @@ export type IntroWindow = {
   start: number;
   end: number;
 };
-
-/** Finds the chapter that marks the opening sequence, if any. */
-export function introChapter(item: JellyfinItem): JellyfinChapter | null {
-  const chapter = item.Chapters?.find(
-    (candidate) => INTRO_CHAPTER_PATTERN.test(candidate.Name?.trim() ?? '')
-  );
-  return chapter ?? null;
-}
 
 /**
  * Converts the media segments response (Intro Skipper exposes its detections

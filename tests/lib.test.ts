@@ -85,7 +85,6 @@ import {
 } from '../src/lib/playbackAudio';
 import { rankSearchResults } from '../src/lib/search';
 import {
-  introChapter,
   introWindowForItem,
   introWindowForPlayback,
   introWindowFromSegments,
@@ -2460,31 +2459,6 @@ test('Jellyfin playback requests carry selected audio indexes through negotiatio
       Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: originalLocalStorage });
     }
   }
-});
-
-test('introChapter finds an "Intro" chapter case-insensitively', () => {
-  const item = {
-    Id: 'ep-1',
-    Name: 'S01E01',
-    Type: 'Episode',
-    Chapters: [
-      { StartPositionTicks: 0, EndPositionTicks: 2_500_000_000, Name: 'Cold Open' },
-      { StartPositionTicks: 2_500_000_000, EndPositionTicks: 7_600_000_000, Name: 'intro' },
-      { StartPositionTicks: 7_600_000_000, EndPositionTicks: 15_000_000_000, Name: 'Main Feature' }
-    ]
-  };
-  assert.equal(introChapter(item)?.Name, 'intro');
-});
-
-test('introChapter returns null without an Intro chapter', () => {
-  const item = {
-    Id: 'ep-2',
-    Name: 'S01E02',
-    Type: 'Episode',
-    Chapters: [{ StartPositionTicks: 0, EndPositionTicks: 9_000_000_000, Name: 'Cold Open' }]
-  };
-  assert.equal(introChapter(item), null);
-  assert.equal(introChapter({ Id: 'ep-3', Name: 'X', Type: 'Episode' }), null);
 });
 
 test('introWindowForItem derives the end from the next chapter start', () => {
