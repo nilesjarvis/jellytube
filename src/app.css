@@ -2224,6 +2224,40 @@ label {
   transform: translateY(-1px);
 }
 
+.skip-intro-button {
+  position: absolute;
+  right: 18px;
+  bottom: 96px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: rgba(3, 3, 5, 0.78);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.skip-intro-button:hover {
+  background: rgba(24, 24, 34, 0.92);
+  transform: scale(1.04);
+}
+
+.skip-intro-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
+}
+
 .player-controls-layer {
   position: absolute;
   left: 0;

@@ -17,6 +17,7 @@
     RotateCw,
     RectangleHorizontal,
     Settings,
+    SkipForward,
     Sparkles,
     TriangleAlert,
     Volume2,
@@ -40,6 +41,7 @@
     shouldAdvancePlayingNext,
     shouldShowPlayingNext
   } from '../lib/playingNext';
+  import { introWindowForPlayback, shouldShowSkipIntro } from '../lib/intros';
   import {
     CINEMATIC_FAILURE_LIMIT,
     CINEMATIC_FALLBACK_STYLE,
@@ -80,7 +82,13 @@
     playerSourceAspectRatio,
     type PlayerAspectOption
   } from '../lib/playerAspect';
-  import type { JellyfinItem, JellyfinMediaSource, JellyfinMediaStream, JellyfinPerson } from '../lib/types';
+  import type {
+    JellyfinItem,
+    JellyfinMediaSegment,
+    JellyfinMediaSource,
+    JellyfinMediaStream,
+    JellyfinPerson
+  } from '../lib/types';
   import {
     canDirectPlaySource,
     detectHlsRemuxCapabilities,
@@ -279,6 +287,8 @@
   let isMuted = localStorage.getItem('jellytube.playerMuted') === 'true';
   let volume = savedVolume();
   let currentTime = 0;
+  let introDismissed = false;
+  let introSegments: JellyfinMediaSegment[] | null = null;
   let duration = 0;
   let bufferedPercent = 0;
   let fullscreen = false;
@@ -291,6 +301,8 @@
   $: progress = playbackProgress(detailedItem);
   $: durationSeconds = duration || ticksToSeconds(detailedItem.RunTimeTicks);
   $: progressPercent = durationSeconds > 0 ? Math.min(100, (currentTime / durationSeconds) * 100) : 0;
+  $: intro = introWindowForPlayback(introSegments, detailedItem);
+  $: showSkipIntro = shouldShowSkipIntro(currentTime, intro, introDismissed);
   $: seekMax = durationSeconds || 0;
   $: seekStyle = `--progress: ${progressPercent}%; --buffered: ${Math.max(bufferedPercent, progressPercent)}%;`;
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
@@ -454,6 +466,8 @@
     subtitleMenuOpen = false;
     activeTextTrackUrl = '';
     currentTime = 0;
+    introDismissed = false;
+    introSegments = null;
     bufferedPercent = 0;
     duration = 0;
     playingNextAdvanceKey = '';
@@ -474,6 +488,13 @@
         sourceCollectionType: item.sourceCollectionType,
         contentKind: item.contentKind
       };
+      try {
+        introSegments = await client.getMediaSegments(item.Id);
+      } catch {
+        // The plugin may be missing, unanalyzed, or the session may have
+        // expired — playback must never depend on intro data.
+        introSegments = null;
+      }
       const startTicks = shouldStartFromBeginning(detailedItem)
         ? 0
         : detailedItem.UserData?.PlaybackPositionTicks ?? 0;
@@ -1530,6 +1551,14 @@
     dispatch('episodeSeason', season);
   }
 
+  function skipIntro() {
+    if (!video || !intro) return;
+    introDismissed = true;
+    video.currentTime = intro.end;
+    currentTime = intro.end;
+    syncBuffered();
+  }
+
   function seekBy(seconds: number) {
     if (!video || !durationSeconds) return;
     video.currentTime = Math.min(durationSeconds, Math.max(0, video.currentTime + seconds));
@@ -2165,6 +2194,13 @@
                 Not now
               </button>
             </div>
+          {/if}
+
+          {#if showSkipIntro}
+            <button class="skip-intro-button" aria-label="Skip intro" on:click|stopPropagation={skipIntro}>
+              <SkipForward size={18} />
+              <span>Skip Intro</span>
+            </button>
           {/if}
 
           <div class="player-controls-layer" aria-label="Playback controls">

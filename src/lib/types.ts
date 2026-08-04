@@ -123,6 +123,21 @@ export type JellyfinPerson = {
   PrimaryImageTag?: string;
 };
 
+export type JellyfinChapter = {
+  StartPositionTicks?: number;
+  EndPositionTicks?: number;
+  Name?: string;
+  ImagePath?: string;
+};
+
+export type JellyfinMediaSegment = {
+  Id?: string;
+  ItemId?: string;
+  Type?: string;
+  StartTicks?: number;
+  EndTicks?: number;
+};
+
 export type JellyfinItem = {
   Id: string;
   Name: string;
@@ -159,6 +174,7 @@ export type JellyfinItem = {
   MediaStreams?: JellyfinMediaStream[];
   MediaSources?: JellyfinMediaSource[];
   People?: JellyfinPerson[];
+  Chapters?: JellyfinChapter[];
   sourceLibraryId?: string;
   sourceLibraryName?: string;
   sourceCollectionType?: string;

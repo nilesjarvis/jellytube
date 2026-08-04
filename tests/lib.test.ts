@@ -84,6 +84,12 @@ import {
   serializePlaybackAudioPreference
 } from '../src/lib/playbackAudio';
 import { rankSearchResults } from '../src/lib/search';
+import {
+  introWindowForItem,
+  introWindowForPlayback,
+  introWindowFromSegments,
+  shouldShowSkipIntro
+} from '../src/lib/intros';
 import { showProgressForEpisodes } from '../src/lib/showProgress';
 import {
   countdownSecondsRemaining,
@@ -97,7 +103,7 @@ import {
   shouldFetchSearchSuggestions,
   suggestionNameLabel
 } from '../src/lib/searchSuggestions';
-import type { JellyfinItem, JellyfinMediaSource, JellyfinUser } from '../src/lib/types';
+import type { JellyfinItem, JellyfinMediaSegment, JellyfinMediaSource, JellyfinUser } from '../src/lib/types';
 
 function item(overrides: Partial<JellyfinItem> & Pick<JellyfinItem, 'Id' | 'Name'>): JellyfinItem {
   return {
@@ -2453,4 +2459,122 @@ test('Jellyfin playback requests carry selected audio indexes through negotiatio
       Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: originalLocalStorage });
     }
   }
+});
+
+test('introWindowForItem derives the end from the next chapter start', () => {
+  const item = {
+    Id: 'ep-1',
+    Name: 'S01E01',
+    Type: 'Episode',
+    RunTimeTicks: 22_000_000_000,
+    Chapters: [
+      { StartPositionTicks: 2_500_000_000, Name: 'Intro' },
+      { StartPositionTicks: 7_600_000_000, Name: 'Main Feature' }
+    ]
+  };
+  // Jellyfin chapters carry only start positions, so the intro ends where
+  // the following chapter begins.
+  assert.deepEqual(introWindowForItem(item), { start: 250, end: 760 });
+});
+
+test('introWindowForItem falls back to RunTimeTicks when Intro is the last chapter', () => {
+  const item = {
+    Id: 'ep-1',
+    Name: 'S01E01',
+    Type: 'Episode',
+    RunTimeTicks: 22_000_000_000,
+    Chapters: [{ StartPositionTicks: 2_500_000_000, Name: 'Intro' }]
+  };
+  assert.deepEqual(introWindowForItem(item), { start: 250, end: 2200 });
+});
+
+test('introWindowForItem honors an explicit chapter end when present', () => {
+  const item = {
+    Id: 'ep-1',
+    Name: 'S01E01',
+    Type: 'Episode',
+    RunTimeTicks: 22_000_000_000,
+    Chapters: [
+      { StartPositionTicks: 2_500_000_000, EndPositionTicks: 7_600_000_000, Name: 'Intro' },
+      { StartPositionTicks: 9_000_000_000, Name: 'Main Feature' }
+    ]
+  };
+  assert.deepEqual(introWindowForItem(item), { start: 250, end: 760 });
+});
+
+test('introWindowForItem rejects invalid or empty windows', () => {
+  assert.equal(
+    introWindowForItem({ Id: 'a', Name: 'A', Type: 'Episode', Chapters: [{ StartPositionTicks: 500, Name: 'Intro' }] }),
+    null
+  );
+  assert.equal(
+    introWindowForItem({
+      Id: 'b',
+      Name: 'B',
+      Type: 'Episode',
+      Chapters: [{ StartPositionTicks: 900, EndPositionTicks: 100, Name: 'Intro' }]
+    }),
+    null
+  );
+});
+
+test('shouldShowSkipIntro respects the intro window, dismissal, and grace period', () => {
+  const intro = { start: 250, end: 760 };
+  assert.equal(shouldShowSkipIntro(0, intro, false), false);
+  assert.equal(shouldShowSkipIntro(249, intro, false), false);
+  assert.equal(shouldShowSkipIntro(250, intro, false), true);
+  assert.equal(shouldShowSkipIntro(500, intro, false), true);
+  assert.equal(shouldShowSkipIntro(757, intro, false), true);
+  assert.equal(shouldShowSkipIntro(758, intro, false), false);
+  assert.equal(shouldShowSkipIntro(759, intro, false), false);
+  assert.equal(shouldShowSkipIntro(1200, intro, false), false);
+  assert.equal(shouldShowSkipIntro(300, intro, true), false);
+  assert.equal(shouldShowSkipIntro(300, null, false), false);
+});
+
+test('introWindowFromSegments picks the Intro segment and converts ticks to seconds', () => {
+  const segments = [
+    { Id: 'seg-2', ItemId: 'ep-1', Type: 'Outro', StartTicks: 12_450_000_000, EndTicks: 13_020_000_000 },
+    { Id: 'seg-1', ItemId: 'ep-1', Type: 'Intro', StartTicks: 845_000_000, EndTicks: 3_420_000_000 }
+  ];
+  assert.deepEqual(introWindowFromSegments(segments), { start: 84.5, end: 342 });
+});
+
+test('introWindowFromSegments returns null without a valid Intro segment', () => {
+  assert.equal(introWindowFromSegments(null), null);
+  assert.equal(introWindowFromSegments(undefined), null);
+  assert.equal(introWindowFromSegments([]), null);
+  assert.equal(introWindowFromSegments([{ Type: 'Outro', StartTicks: 1, EndTicks: 2 }]), null);
+  assert.equal(introWindowFromSegments([{ Type: 'Intro' }]), null);
+  assert.equal(introWindowFromSegments([{ Type: 'Intro', StartTicks: 100, EndTicks: 0 }]), null);
+  assert.equal(introWindowFromSegments([{ Type: 'Intro', StartTicks: 100, EndTicks: 50 }]), null);
+  assert.equal(
+    introWindowFromSegments([{ Type: 'Intro', StartTicks: Number.NaN, EndTicks: 50 }]),
+    null
+  );
+  // Regression guard: a QueryResult envelope (server wraps in { Items: [...] })
+  // must never throw — it should behave like "no intro data".
+  assert.equal(
+    introWindowFromSegments({ Items: [{ Type: 'Intro', StartTicks: 100, EndTicks: 200 }] } as unknown as JellyfinMediaSegment[]),
+    null
+  );
+});
+
+test('introWindowForPlayback prefers media segments over embedded chapters', () => {
+  const item = {
+    Id: 'ep-1',
+    Name: 'S01E01',
+    Type: 'Episode',
+    Chapters: [
+      { StartPositionTicks: 900_000_000, Name: 'Intro' },
+      { StartPositionTicks: 3_400_000_000, Name: 'Main Feature' }
+    ]
+  };
+  const segments = [{ Id: 'seg-1', Type: 'Intro', StartTicks: 845_000_000, EndTicks: 3_420_000_000 }];
+  assert.deepEqual(introWindowForPlayback(segments, item), { start: 84.5, end: 342 });
+  assert.deepEqual(introWindowForPlayback(null, item), { start: 90, end: 340 });
+  assert.equal(
+    introWindowForPlayback(null, { Id: 'ep-2', Name: 'S01E02', Type: 'Episode' }),
+    null
+  );
 });
