@@ -1,6 +1,8 @@
-import { contentDateValue } from './dates';
+import { contentDateValue, dateValue } from './dates';
+import { episodeInfo } from './episodes';
 import { groupByChannel } from './recommendations';
 import { normalizeSearch } from './search';
+import { showProgressForEpisodes, type ShowProgress } from './showProgress';
 import type { JellyfinItem } from './types';
 
 export type ChannelDirectoryKind = 'show' | 'music' | 'channel';
@@ -13,6 +15,9 @@ export type ChannelDirectoryEntry = {
   latestItem: JellyfinItem | null;
   sourceLibraryName: string;
   sortDate: number;
+  lastPlayedDate: number;
+  episodic: boolean;
+  progress: ShowProgress | null;
 };
 
 export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinItem[] = []) {
@@ -29,7 +34,10 @@ export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinI
       seriesItem: show,
       latestItem: null,
       sourceLibraryName: show.sourceLibraryName ?? '',
-      sortDate: contentDateValue(show)
+      sortDate: contentDateValue(show),
+      lastPlayedDate: 0,
+      episodic: false,
+      progress: null
     });
   }
 
@@ -39,6 +47,7 @@ export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinI
     const existing = entries.get(key);
     const latestItem = newestItem(existing?.latestItem ?? null, group.items[0] ?? null);
     const kind = existing?.kind === 'show' ? 'show' : kindForItems(group.items);
+    const progress = showProgressForEpisodes(group.items);
     entries.set(key, {
       name: existing?.name ?? group.name,
       kind,
@@ -46,7 +55,10 @@ export function channelDirectoryEntries(items: JellyfinItem[], series: JellyfinI
       seriesItem: existing?.seriesItem ?? null,
       latestItem,
       sourceLibraryName: existing?.sourceLibraryName || group.items[0]?.sourceLibraryName || '',
-      sortDate: Math.max(existing?.sortDate ?? 0, latestItem ? contentDateValue(latestItem) : 0)
+      sortDate: Math.max(existing?.sortDate ?? 0, latestItem ? contentDateValue(latestItem) : 0),
+      lastPlayedDate: Math.max(existing?.lastPlayedDate ?? 0, maxLastPlayedDate(group.items)),
+      episodic: Boolean(existing?.episodic) || isEpisodicGroup(group.items),
+      progress: progress ?? existing?.progress ?? null
     });
   }
 
@@ -93,4 +105,19 @@ function kindRank(kind: ChannelDirectoryKind) {
   if (kind === 'show') return 0;
   if (kind === 'channel') return 1;
   return 2;
+}
+
+function isEpisodicGroup(items: JellyfinItem[]) {
+  const episodicItems = items.filter((item) => episodeInfo(item) || item.Type === 'Episode');
+  if (episodicItems.length < 2) return false;
+  return episodicItems.length / items.length >= 0.6;
+}
+
+function maxLastPlayedDate(items: JellyfinItem[]) {
+  let max = 0;
+  for (const item of items) {
+    const played = dateValue(item.UserData?.LastPlayedDate);
+    if (played > max) max = played;
+  }
+  return max;
 }

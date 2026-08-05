@@ -724,6 +724,23 @@ label {
   gap: 28px 16px;
 }
 
+.show-card-grid.horizontal-show-rail {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  scroll-padding-inline: 2px;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  grid-auto-columns: minmax(150px, 180px);
+}
+
+.horizontal-show-rail .show-card {
+  scroll-snap-align: start;
+}
+
 .show-card {
   min-width: 0;
   display: grid;
@@ -745,6 +762,7 @@ label {
 }
 
 .show-card-poster {
+  position: relative;
   width: 100%;
   aspect-ratio: 2 / 3;
   display: block;
@@ -763,6 +781,16 @@ label {
   color: #fff;
   font-size: 2.75rem;
   font-weight: 800;
+}
+
+.show-card-poster > .show-card-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: block;
+  height: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--brand);
 }
 
 .show-card-copy {
@@ -785,6 +813,11 @@ label {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.35;
+}
+
+.show-card-copy .show-card-progress {
+  color: var(--brand);
+  font-weight: 600;
 }
 
 .show-card-overview {
@@ -1260,6 +1293,66 @@ label {
 
 .directory-filter {
   max-width: 520px;
+}
+
+.directory-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.directory-toolbar .directory-filter {
+  flex: 1 1 260px;
+}
+
+.directory-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.directory-sort label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.directory-sort select {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  outline: 0;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+}
+
+.directory-sort select:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+}
+
+.show-more-row {
+  display: grid;
+  place-items: center;
+  margin-top: 26px;
+}
+
+.show-more {
+  height: 40px;
+  padding: 0 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+  font: inherit;
+}
+
+.show-more:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .directory-filter input {

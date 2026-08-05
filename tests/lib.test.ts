@@ -1432,6 +1432,76 @@ test('channel directory filter matches show and source names', () => {
   ]);
 });
 
+test('show directory marks episodic groups without requiring series metadata', () => {
+  const episodes = [
+    episodeItem('s1', 1, 1, { SeriesName: 'Test Show' }),
+    episodeItem('s1', 1, 2, { SeriesName: 'Test Show' }),
+    episodeItem('s1', 1, 3, { SeriesName: 'Test Show' })
+  ];
+
+  const directory = channelDirectoryEntries(episodes, []);
+  const entry = directory.find((candidate) => candidate.name === 'Test Show');
+
+  assert.ok(entry);
+  assert.equal(entry.kind, 'show');
+  assert.equal(entry.episodic, true);
+  assert.equal(entry.seriesItem, null);
+  assert.equal(entry.progress?.totalCount, 3);
+  assert.equal(entry.progress?.kind, 'start');
+  assert.equal(entry.progress?.progressPercent, 0);
+});
+
+test('show directory hides non-episodic groups from the episodic view', () => {
+  const loneEpisode = episodeItem('s3', 1, 1, { SeriesName: 'Lone Show' });
+  const musicVideo = item({
+    Id: 'mv',
+    Name: 'Artist - Song',
+    Type: 'MusicVideo',
+    ArtistItems: [{ Name: 'Artist' }]
+  });
+
+  const directory = channelDirectoryEntries([loneEpisode, musicVideo], []);
+  const seriesEntry = directory.find((candidate) => candidate.name === 'Lone Show');
+
+  assert.ok(seriesEntry);
+  assert.equal(seriesEntry.kind, 'show');
+  assert.equal(seriesEntry.episodic, false);
+});
+
+test('show directory tracks watched progress and last played date', () => {
+  const watched = episodeItem('s2', 1, 1, {
+    SeriesName: 'Progress Show',
+    UserData: { Played: true, PlayedPercentage: 100, LastPlayedDate: '2026-07-01T00:00:00.000Z' }
+  });
+  const next = episodeItem('s2', 1, 2, { SeriesName: 'Progress Show' });
+
+  const directory = channelDirectoryEntries([watched, next], []);
+  const entry = directory.find((candidate) => candidate.name === 'Progress Show');
+
+  assert.ok(entry);
+  assert.equal(entry.episodic, true);
+  assert.equal(entry.progress?.kind, 'next');
+  assert.equal(entry.progress?.watchedCount, 1);
+  assert.equal(entry.progress?.totalCount, 2);
+  assert.equal(entry.progress?.label, 'Next S01E02');
+  assert.equal(entry.lastPlayedDate, Date.parse('2026-07-01T00:00:00.000Z'));
+});
+
+test('show directory reports in-progress episodes as resume', () => {
+  const inProgress = episodeItem('s4', 1, 1, {
+    SeriesName: 'Resume Show',
+    UserData: { Played: false, PlayedPercentage: 40, LastPlayedDate: '2026-07-02T00:00:00.000Z' }
+  });
+  const next = episodeItem('s4', 1, 2, { SeriesName: 'Resume Show' });
+
+  const directory = channelDirectoryEntries([inProgress, next], []);
+  const entry = directory.find((candidate) => candidate.name === 'Resume Show');
+
+  assert.ok(entry);
+  assert.equal(entry.progress?.kind, 'resume');
+  assert.equal(entry.progress?.label, 'Resume S01E01');
+});
+
 test('cinematic glow sampling only runs for active visible playback', () => {
   const active = {
     enabled: true,

@@ -143,6 +143,9 @@
   let selectedActor: JellyfinItem | null = null;
   let actorWork: JellyfinItem[] = [];
   let channelDirectoryQuery = '';
+  let showDirectoryQuery = '';
+  let showDirectorySort: 'recent' | 'name' | 'continue' = 'recent';
+  let showDirectoryVisible = 60;
   let availableLibraries: SelectedLibrary[] = [];
   let librarySelectionIds: string[] = [];
   let librarySettingsLoading = false;
@@ -251,9 +254,25 @@
   $: channelDirectory = channelDirectoryEntries(channelDirectoryPool, seriesPool);
   $: filteredChannelDirectory = filterChannelDirectory(channelDirectory, channelDirectoryQuery);
   $: channelDirectoryFilterActive = channelDirectoryQuery.trim().length > 0;
-  $: showDirectory = filteredChannelDirectory
-    .filter((entry) => entry.kind === 'show' && hasShowMetadata(entry))
-    .slice(0, 180);
+  $: showDirectoryFilterActive = showDirectoryQuery.trim().length > 0;
+  $: filteredShowDirectory = filterChannelDirectory(channelDirectory, showDirectoryQuery);
+  $: showDirectoryAll = filteredShowDirectory.filter((entry) => entry.kind === 'show' && entry.episodic);
+  $: showDirectorySorted = sortShowDirectory(showDirectoryAll, showDirectorySort);
+  $: showDirectory = showDirectorySorted.slice(0, showDirectoryVisible);
+  $: episodicShows = channelDirectory.filter((entry) => entry.kind === 'show' && entry.episodic);
+  $: showContinueEntries = [...episodicShows]
+    .filter(
+      (entry) =>
+        entry.progress && (entry.progress.kind === 'resume' || entry.progress.kind === 'next')
+    )
+    .sort((a, b) => b.lastPlayedDate - a.lastPlayedDate)
+    .slice(0, 18);
+  $: newestShows = sortShowDirectory(episodicShows, 'recent').slice(0, 12);
+  $: featuredShow = showContinueEntries[0] ?? newestShows[0] ?? null;
+  $: recommendedShows = recommended
+    .filter((entry): entry is ShowRecommendation => entry.kind === 'show')
+    .slice(0, 12);
+  $: subscriptionShows = filteredChannelDirectory.filter((entry) => entry.kind === 'show').slice(0, 180);
   $: creatorDirectory = filteredChannelDirectory.filter((entry) => entry.kind !== 'show').slice(0, 180);
   $: latestDirectoryVideos = [...channelDirectoryPool].sort(compareByContentDateDesc).slice(0, 48);
   $: episodeCollection = activePlaybackItem ? episodeCollectionForItem(activePlaybackItem, episodePool) : null;
@@ -1674,26 +1693,24 @@
     return parts;
   }
 
-  function hasShowMetadata(entry: ChannelDirectoryEntry) {
-    const series = entry.seriesItem;
-    if (!series) return false;
-    return Boolean(
-      series.Overview ||
-        series.ProductionYear ||
-        series.PremiereDate ||
-        series.EndDate ||
-        series.OfficialRating ||
-        typeof series.CommunityRating === 'number' ||
-        series.Status ||
-        series.Genres?.length ||
-        series.Studios?.length ||
-        client.getImageUrl(series, 320) ||
-        client.getBackdropUrl(series, 720)
-    );
-  }
-
   function showCardMeta(entry: ChannelDirectoryEntry) {
     return showHeroMeta(entry.seriesItem, entry.itemCount, 0).join(' • ');
+  }
+
+  function showCardProgressLabel(entry: ChannelDirectoryEntry) {
+    const progress = entry.progress;
+    if (!progress || !progress.totalCount) return '';
+    if (progress.kind === 'resume' || progress.kind === 'next') return progress.label;
+    if (progress.kind === 'replay') return `${progress.watchedCount} of ${progress.totalCount} watched`;
+    if (progress.watchedCount > 0) return `${progress.watchedCount} of ${progress.totalCount} episodes watched`;
+    return '';
+  }
+
+  function showFeatureActionLabel(entry: ChannelDirectoryEntry) {
+    const progress = entry.progress;
+    return progress && (progress.kind === 'resume' || progress.kind === 'next')
+      ? 'Continue'
+      : 'View show';
   }
 
   function showCardTags(entry: ChannelDirectoryEntry) {
@@ -1736,6 +1753,31 @@
 
   function cssString(value: string) {
     return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '');
+  }
+
+  function sortShowDirectory(entries: ChannelDirectoryEntry[], sort: 'recent' | 'name' | 'continue') {
+    const copy = [...entries];
+    if (sort === 'name') {
+      copy.sort((a, b) => a.name.localeCompare(b.name));
+      return copy;
+    }
+    if (sort === 'continue') {
+      copy.sort((a, b) => {
+        const progressDifference = showProgressRank(a) - showProgressRank(b);
+        if (progressDifference !== 0) return progressDifference;
+        const playedDifference = b.lastPlayedDate - a.lastPlayedDate;
+        if (playedDifference !== 0) return playedDifference;
+        return b.sortDate - a.sortDate || a.name.localeCompare(b.name);
+      });
+      return copy;
+    }
+    copy.sort((a, b) => b.sortDate - a.sortDate || a.name.localeCompare(b.name));
+    return copy;
+  }
+
+  function showProgressRank(entry: ChannelDirectoryEntry) {
+    const progress = entry.progress;
+    return progress && (progress.kind === 'resume' || progress.kind === 'next') ? 0 : 1;
   }
 
   function showProgressStatus(progress: ShowProgress | null) {
@@ -2178,7 +2220,7 @@
       <Music2 size={21} />
       <span>Music</span>
     </button>
-    <button class:active={route === 'shows'} on:click={() => goRoute('shows')} disabled={showDirectory.length === 0}>
+    <button class:active={route === 'shows'} on:click={() => goRoute('shows')} disabled={showDirectoryAll.length === 0}>
       <Podcast size={21} />
       <span>Shows</span>
     </button>
@@ -2496,23 +2538,39 @@
         </div>
       </section>
     {:else if route === 'shows'}
-      <section class="feed-section subscriptions-page">
+      <section class="feed-section show-landing">
         <div class="section-heading">
           <div>
-            <h2>Episodic shows</h2>
-            <span>{showDirectory.length} shows across selected libraries</span>
+            <h2>Episodic Shows</h2>
+            <span>{episodicShows.length} shows across selected libraries</span>
           </div>
         </div>
 
-        <div class="directory-filter">
-          <input bind:value={channelDirectoryQuery} placeholder="Filter shows" aria-label="Filter shows" />
-        </div>
-      </section>
+        {#if featuredShow}
+          <button class="movie-feature" on:click={() => openChannel(featuredShow.name)}>
+            <span class="movie-feature-poster">
+              {#if showImageUrl(featuredShow, 420)}
+                <img src={showImageUrl(featuredShow, 420)} alt="" loading="lazy" />
+              {:else}
+                <span>{featuredShow.name.slice(0, 1)}</span>
+              {/if}
+            </span>
+            <span class="movie-feature-copy">
+              <span class="content-pill show-pill">Show</span>
+              <strong>{featuredShow.name}</strong>
+              <span>{showCardMeta(featuredShow)}{showCardProgressLabel(featuredShow) ? ` • ${showCardProgressLabel(featuredShow)}` : ''}</span>
+              {#if featuredShow.seriesItem?.Overview}
+                <small>{featuredShow.seriesItem.Overview}</small>
+              {/if}
+              <span class="primary-action movie-feature-action">{showFeatureActionLabel(featuredShow)}</span>
+            </span>
+          </button>
+        {/if}
 
-      {#if showDirectory.length}
-        <section class="feed-section">
-          <div class="show-card-grid">
-            {#each showDirectory as entry (entry.name)}
+        {#if showContinueEntries.length}
+          <h3>Continue watching</h3>
+          <div class="show-card-grid horizontal-show-rail">
+            {#each showContinueEntries as entry (entry.name)}
               <button class="show-card" on:click={() => openChannel(entry.name)}>
                 <span class="show-card-poster">
                   {#if showImageUrl(entry, 360)}
@@ -2520,12 +2578,73 @@
                   {:else}
                     <span>{entry.name.slice(0, 1)}</span>
                   {/if}
+                  {#if (entry.progress?.progressPercent ?? 0) > 0}
+                    <span class="show-card-progress-bar" style="width: {Math.min(100, entry.progress!.progressPercent)}%;"></span>
+                  {/if}
+                </span>
+                <span class="show-card-copy">
+                  <span class="content-pill show-pill">Show</span>
+                  <strong>{entry.name}</strong>
+                  {#if showCardProgressLabel(entry)}
+                    <small class="show-card-progress">{showCardProgressLabel(entry)}</small>
+                  {/if}
+                </span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      {#if recommendedShows.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <div>
+              <h2>Recommended shows</h2>
+              <span>Picks based on your viewing</span>
+            </div>
+          </div>
+          <div class="video-grid">
+            {#each recommendedShows as recommendation (projectedRecommendationKey(recommendation))}
+              <ShowRecommendationCard
+                {client}
+                {recommendation}
+                on:play={(event) => playShowRecommendation(event.detail)}
+                on:show={(event) => openChannel(event.detail)}
+              />
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      {#if newestShows.length}
+        <section class="feed-section">
+          <div class="section-heading">
+            <div>
+              <h2>New shows</h2>
+              <span>Recently added episodes</span>
+            </div>
+          </div>
+          <div class="show-card-grid">
+            {#each newestShows as entry (entry.name)}
+              <button class="show-card" on:click={() => openChannel(entry.name)}>
+                <span class="show-card-poster">
+                  {#if showImageUrl(entry, 360)}
+                    <img src={showImageUrl(entry, 360)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{entry.name.slice(0, 1)}</span>
+                  {/if}
+                  {#if (entry.progress?.progressPercent ?? 0) > 0}
+                    <span class="show-card-progress-bar" style="width: {Math.min(100, entry.progress!.progressPercent)}%;"></span>
+                  {/if}
                 </span>
                 <span class="show-card-copy">
                   <span class="content-pill show-pill">Show</span>
                   <strong>{entry.name}</strong>
                   {#if showCardMeta(entry)}
                     <small>{showCardMeta(entry)}</small>
+                  {/if}
+                  {#if showCardProgressLabel(entry)}
+                    <small class="show-card-progress">{showCardProgressLabel(entry)}</small>
                   {/if}
                   {#if entry.seriesItem?.Overview}
                     <span class="show-card-overview">{entry.seriesItem.Overview}</span>
@@ -2542,9 +2661,82 @@
             {/each}
           </div>
         </section>
-      {:else}
-        <div class="empty-state compact">No metadata-rich episodic shows found.</div>
       {/if}
+
+      <section class="feed-section">
+        <div class="section-heading">
+          <div>
+            <h2>All shows</h2>
+            <span>{showDirectorySorted.length} shows</span>
+          </div>
+        </div>
+
+        <div class="directory-toolbar">
+          <div class="directory-filter">
+            <input bind:value={showDirectoryQuery} placeholder="Filter shows" aria-label="Filter shows" />
+          </div>
+          <div class="directory-sort">
+            <label for="show-sort">Sort</label>
+            <select id="show-sort" bind:value={showDirectorySort} aria-label="Sort shows">
+              <option value="recent">Recently added</option>
+              <option value="name">A-Z</option>
+              <option value="continue">Continue watching</option>
+            </select>
+          </div>
+        </div>
+
+        {#if showDirectory.length}
+          <div class="show-card-grid">
+            {#each showDirectory as entry (entry.name)}
+              <button class="show-card" on:click={() => openChannel(entry.name)}>
+                <span class="show-card-poster">
+                  {#if showImageUrl(entry, 360)}
+                    <img src={showImageUrl(entry, 360)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{entry.name.slice(0, 1)}</span>
+                  {/if}
+                  {#if (entry.progress?.progressPercent ?? 0) > 0}
+                    <span class="show-card-progress-bar" style="width: {Math.min(100, entry.progress!.progressPercent)}%;"></span>
+                  {/if}
+                </span>
+                <span class="show-card-copy">
+                  <span class="content-pill show-pill">Show</span>
+                  <strong>{entry.name}</strong>
+                  {#if showCardMeta(entry)}
+                    <small>{showCardMeta(entry)}</small>
+                  {/if}
+                  {#if showCardProgressLabel(entry)}
+                    <small class="show-card-progress">{showCardProgressLabel(entry)}</small>
+                  {/if}
+                  {#if entry.seriesItem?.Overview}
+                    <span class="show-card-overview">{entry.seriesItem.Overview}</span>
+                  {/if}
+                  {#if showCardTags(entry).length}
+                    <span class="show-card-tags">
+                      {#each showCardTags(entry) as tag (tag)}
+                        <span>{tag}</span>
+                      {/each}
+                    </span>
+                  {/if}
+                </span>
+              </button>
+            {/each}
+          </div>
+          {#if showDirectorySorted.length > showDirectory.length}
+            <div class="show-more-row">
+              <button class="show-more" on:click={() => (showDirectoryVisible += 60)}>
+                Show more ({showDirectorySorted.length - showDirectory.length} more)
+              </button>
+            </div>
+          {/if}
+        {:else}
+          <div class="empty-state compact">
+            {showDirectoryFilterActive
+              ? 'No shows match your filter.'
+              : 'No episodic shows found in the selected libraries.'}
+          </div>
+        {/if}
+      </section>
     {:else if route === 'subscriptions'}
       <section class="feed-section subscriptions-page">
         <div class="section-heading">
@@ -2559,14 +2751,14 @@
         </div>
       </section>
 
-      {#if showDirectory.length}
+      {#if subscriptionShows.length}
         <section class="feed-section">
           <div class="section-heading">
             <h2>Shows</h2>
-            <span>{showDirectory.length} shown</span>
+            <span>{subscriptionShows.length} shown</span>
           </div>
           <div class="subscription-channel-grid">
-            {#each showDirectory as entry (entry.name)}
+            {#each subscriptionShows as entry (entry.name)}
               <button class="subscription-card directory-card" on:click={() => openChannel(entry.name)}>
                 <span class="subscription-avatar">
                   {#if entry.latestItem && client.getImageUrl(entry.latestItem, 220)}
@@ -2613,7 +2805,7 @@
         </section>
       {/if}
 
-      {#if !showDirectory.length && !creatorDirectory.length}
+      {#if !subscriptionShows.length && !creatorDirectory.length}
         <div class="empty-state compact">No shows or channels found.</div>
       {/if}
 
