@@ -7,10 +7,13 @@
   export let song: JellyfinItem;
   export let active = false;
   export let playingNow = false;
+  /** When set, shows a plain rank (e.g. a countdown list) instead of the album track number. */
+  export let rank: number | null = null;
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem }>();
 
-  $: trackNumber = song.IndexNumber ? String(song.IndexNumber).padStart(2, '0') : '';
+  $: trackNumber =
+    rank !== null ? String(rank) : song.IndexNumber ? String(song.IndexNumber).padStart(2, '0') : '';
   $: artist = song.AlbumArtist || song.Artists?.join(', ') || '';
 </script>
 

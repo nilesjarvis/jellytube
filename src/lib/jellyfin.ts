@@ -428,15 +428,29 @@ export class JellyfinClient {
     });
   }
 
-  /** Albums by a music artist. */
-  async getArtistAlbums(artistId: string, limit = 100) {
+  /** Albums by a music artist across a library source. */
+  async getArtistAlbums(artistId: string, sourceId: string, limit = 100) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
-    return this.get<ItemResponse>(`/Artists/${artistId}/Albums`, {
-      userId: this.userId,
-      Fields: itemFields,
-      SortBy: 'PremiereDate',
-      SortOrder: 'Descending',
-      Limit: String(limit)
+    return this.getItems({
+      parentId: sourceId,
+      itemTypes: 'MusicAlbum',
+      artistIds: artistId,
+      limit,
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending'
+    });
+  }
+
+  /** Songs by a music artist across a library source. */
+  async getArtistSongs(artistId: string, sourceId: string, limit = 200) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.getItems({
+      parentId: sourceId,
+      itemTypes: 'Audio',
+      artistIds: artistId,
+      limit,
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending'
     });
   }
 

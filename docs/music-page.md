@@ -14,8 +14,10 @@ staying visually consistent with the YouTube-style design.
   least one Music library is connected.
 - The **Music page** (`src/components/music/MusicPage.svelte`) browses albums,
   artists, and recent songs. Clicking an album plays its tracks; clicking a
-  song plays it within the song queue; clicking an artist browses their albums
-  or plays an artist mix.
+  song plays it within the song queue; clicking an artist opens a dedicated,
+  hero-backed **artist view** (blurred-artwork backdrop, round avatar, album &
+  song counts, bio, Play / Shuffle actions, a ranked Top songs list, and their
+  albums). Browse cards carry a play chip that shuffles the artist's songs.
 - A **persistent now-playing bar** (`src/components/music/MusicPlayer.svelte`)
   plays audio via a plain `<audio>` element with direct `/Audio/…/stream`
   URLs, and includes play/pause, prev/next, seek, volume, shuffle, repeat,
@@ -33,8 +35,9 @@ staying visually consistent with the YouTube-style design.
 
 ## Data flow
 - `JellyfinClient`: `getMusicArtists`, `getMusicAlbums`, `getMusicSongs`,
-  `getAlbumTracks`, `getArtistAlbums`, `getAudioStreamUrl`, plus `artistIds`
-  support in `getItems`.
+  `getAlbumTracks`, `getArtistAlbums`, `getArtistSongs`, `getAudioStreamUrl`,
+  plus `artistIds` support in `getItems`. Artist albums/songs are queried
+  per-library source via the Items endpoint with `ArtistIds`.
 - `musicStreamFor` (src/lib/music/stream.ts) prefers a static direct stream and
   falls back to Jellyfin's transcoded URL, mirroring the video player's
   robustness for unusual containers.
