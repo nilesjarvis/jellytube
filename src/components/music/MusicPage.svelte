@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { ArrowLeft, Clock, Disc3, ListMusic, Music2, Play, Shuffle } from 'lucide-svelte';
   import type { JellyfinClient } from '../../lib/jellyfin';
   import type { SelectedLibrary, JellyfinItem } from '../../lib/types';
@@ -11,6 +11,11 @@
 
   export let client: JellyfinClient;
   export let sources: SelectedLibrary[];
+  // URL-driven sub-view so browser back/forward works: null = browse grid,
+  // otherwise the album/artist being displayed. Passed down from the app router.
+  export let item: { kind: 'album' | 'artist'; id: string } | null = null;
+
+  const dispatch = createEventDispatcher<{ navigate: { kind: 'album' | 'artist'; id: string } | null }>();
 
   let loading = true;
   let error = '';
@@ -125,7 +130,7 @@
   }
 
   // ---- Artist navigation ----
-  async function openArtist(artist: JellyfinItem) {
+  async function loadArtist(artist: JellyfinItem) {
     activeArtist = artist;
     activeAlbum = null;
     artistAlbums = [];
@@ -148,6 +153,11 @@
     } finally {
       if (activeArtist?.Id === artist.Id) artistBusy = false;
     }
+  }
+
+  async function openArtist(artist: JellyfinItem) {
+    await loadArtist(artist);
+    dispatch('navigate', { kind: 'artist', id: artist.Id });
   }
 
   function closeArtist() {
@@ -207,7 +217,7 @@
   }
 
   // ---- Album navigation ----
-  async function openAlbum(album: JellyfinItem) {
+  async function loadAlbum(album: JellyfinItem) {
     activeAlbum = album;
     albumInfo = null;
     albumTracks = [];
@@ -225,6 +235,73 @@
       albumTracks = [];
     } finally {
       if (activeAlbum?.Id === album.Id) albumBusy = false;
+    }
+  }
+
+  async function openAlbum(album: JellyfinItem) {
+    await loadAlbum(album);
+    dispatch('navigate', { kind: 'album', id: album.Id });
+  }
+
+  // Load an album from only its id (e.g. deep link), falling back to a direct fetch.
+  async function openAlbumById(id: string) {
+    try {
+      const detail = await client.getItem(id);
+      await loadAlbum(detail);
+    } catch {
+      closeAlbum();
+    }
+  }
+
+  // Load an artist from only its id (e.g. deep link or back to a search-resolved artist).
+  async function openArtistById(id: string) {
+    try {
+      const detail = await client.getItem(id);
+      await loadArtist(detail);
+    } catch {
+      // nothing to show — leave as-is
+    }
+  }
+
+  // Sync the visible view to the URL (browser back/forward or deep link).
+  $: syncFromUrl(item);
+
+  async function syncFromUrl(next: { kind: 'album' | 'artist'; id: string } | null) {
+    if (!next) {
+      if (activeAlbum || activeArtist) {
+        closeAlbum();
+        closeArtist();
+      }
+      return;
+    }
+    if (next.kind === 'album') {
+      if (activeAlbum?.Id === next.id && !albumBusy) {
+        closeArtist();
+        return;
+      }
+      closeArtist();
+      const album =
+        albums.find((candidate) => candidate.Id === next.id) ||
+        artistAlbums.find((candidate) => candidate.Id === next.id);
+      if (album) await loadAlbum(album);
+      else await openAlbumById(next.id);
+    } else {
+      if (activeArtist?.Id === next.id && !artistBusy) {
+        closeAlbum();
+        return;
+      }
+      closeAlbum();
+      const artist = artists.find((candidate) => candidate.Id === next.id);
+      if (artist) await loadArtist(artist);
+      else await openArtistById(next.id);
+    }
+  }
+
+  function goBackInMusic() {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      dispatch('navigate', null);
     }
   }
 
@@ -282,7 +359,7 @@
 {:else if activeAlbum && !albumBusy}
   <!-- ======================= ALBUM PAGE ======================= -->
   <div class="music-artist-hero" style="--artist-backdrop:{albumBackdrop(client, activeAlbum)};">
-    <button class="music-artist-back" on:click={closeAlbum} aria-label="Back to music">
+    <button class="music-artist-back" on:click={goBackInMusic} aria-label="Back to music">
       <ArrowLeft size={20} />
     </button>
     <span class="music-album-art-big">
@@ -362,7 +439,7 @@
 {:else if activeArtist && !artistBusy}
   <!-- ======================= ARTIST PAGE ======================= -->
   <div class="music-artist-hero" style="--artist-backdrop:{artistBackdrop(client, activeArtist)};">
-    <button class="music-artist-back" on:click={closeArtist} aria-label="Back to music">
+    <button class="music-artist-back" on:click={goBackInMusic} aria-label="Back to music">
       <ArrowLeft size={20} />
     </button>
     <span class="music-artist-avatar">

@@ -100,10 +100,11 @@
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
   type HomeSectionState = 'loading' | 'ready' | 'error';
+  type MusicItemSubview = { kind: 'album' | 'artist'; id: string };
   type UrlRoute =
     | { view: 'home' }
     | { view: 'movies' }
-    | { view: 'music' }
+    | { view: 'music'; item?: MusicItemSubview }
     | { view: 'musicvideos' }
     | { view: 'shows' }
     | { view: 'subscriptions' }
@@ -129,6 +130,7 @@
   let error = '';
   let menuOpen = false;
   let route: Route = 'home';
+  let musicItem: MusicItemSubview | null = null;
   let loadingRoute: Route = 'home';
   let loadingLabel = 'Loading content';
   let query = '';
@@ -965,7 +967,14 @@
       return { view: 'home' };
     }
 
-    if (nextRoute.view === 'movies' || nextRoute.view === 'music' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
+    if (nextRoute.view === 'music') {
+      showSimpleRoute('music');
+      musicItem = nextRoute.item ?? null;
+      scrollToTop(options.scroll);
+      return nextRoute;
+    }
+
+    if (nextRoute.view === 'movies' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
       return nextRoute;
@@ -1436,6 +1445,13 @@
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
+  }
+
+  function onMusicNavigate(item: MusicItemSubview | null) {
+    musicItem = item;
+    // Push the music sub-view (album/artist) URL without re-applying the route,
+    // so browser back/forward can return to the music page correctly.
+    writeUrl({ view: 'music', item: item ?? undefined }, 'push');
   }
 
   async function openLibrarySettings() {
@@ -2096,7 +2112,13 @@
     if (section === 'search') return { view: 'search', query: url.searchParams.get('q') ?? '' };
     if (section === 'movies') return { view: 'movies' };
     if (section === 'musicvideos') return { view: 'musicvideos' };
-    if (section === 'music') return { view: 'music' };
+    if (section === 'music') {
+      const sub = parts[1];
+      if ((sub === 'album' || sub === 'artist') && parts[2]) {
+        return { view: 'music', item: { kind: sub, id: parts[2] } };
+      }
+      return { view: 'music' };
+    }
     if (section === 'shows') return { view: 'shows' };
     if (section === 'subscriptions') return { view: 'subscriptions' };
     if (section === 'libraries') return { view: 'libraries' };
@@ -2122,7 +2144,10 @@
     if (nextRoute.view === 'home') return '/';
     if (nextRoute.view === 'movies') return '/movies';
     if (nextRoute.view === 'musicvideos') return '/musicvideos';
-    if (nextRoute.view === 'music') return '/music';
+    if (nextRoute.view === 'music') {
+      const item = nextRoute.item;
+      return item ? `/music/${item.kind}/${encodeURIComponent(item.id)}` : '/music';
+    }
     if (nextRoute.view === 'shows') return '/shows';
     if (nextRoute.view === 'subscriptions') return '/subscriptions';
     if (nextRoute.view === 'libraries') return '/libraries';
@@ -2501,7 +2526,7 @@
       </section>
     {:else if route === 'music'}
       {#if audioSources.length}
-        <MusicPage {client} sources={audioSources} />
+        <MusicPage {client} sources={audioSources} item={musicItem} on:navigate={(event) => onMusicNavigate(event.detail)} />
       {:else}
         <div class="empty-state">
           <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
