@@ -8,6 +8,7 @@
     LogOut,
     Menu,
     Moon,
+    Music,
     Music2,
     Play,
     Podcast,
@@ -95,7 +96,7 @@
 
   export let session: AppSession;
 
-  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
+  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
   type HomeSectionState = 'loading' | 'ready' | 'error';
@@ -103,6 +104,7 @@
     | { view: 'home' }
     | { view: 'movies' }
     | { view: 'music' }
+    | { view: 'musicvideos' }
     | { view: 'shows' }
     | { view: 'subscriptions' }
     | { view: 'libraries' }
@@ -208,9 +210,6 @@
     return filtered.length ? filtered : seasons;
   }
 
-  let musicTab: 'videos' | 'audio' = session.selectedLibraries.some((source) => source.contentKind === 'musicVideo')
-    ? 'videos'
-    : 'audio';
   $: videoSources = session.selectedLibraries.filter((source) => source.contentKind === 'video');
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
@@ -331,6 +330,8 @@
       document.title = `${searchedFor} - JellyTube`;
     } else if (route === 'movies') {
       document.title = 'Movies - JellyTube';
+    } else if (route === 'musicvideos') {
+      document.title = 'Music Videos - JellyTube';
     } else if (route === 'music') {
       document.title = 'Music - JellyTube';
     } else if (route === 'shows') {
@@ -964,7 +965,7 @@
       return { view: 'home' };
     }
 
-    if (nextRoute.view === 'movies' || nextRoute.view === 'music' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
+    if (nextRoute.view === 'movies' || nextRoute.view === 'music' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
       return nextRoute;
@@ -1416,6 +1417,7 @@
     if (
       nextRoute === 'movies' ||
       nextRoute === 'music' ||
+      nextRoute === 'musicvideos' ||
       nextRoute === 'shows' ||
       nextRoute === 'subscriptions' ||
       nextRoute === 'libraries'
@@ -1428,7 +1430,7 @@
     }
   }
 
-  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'shows' | 'subscriptions') {
+  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions') {
     route = nextRoute;
     selectedChannelSeason = 0;
     selectedChannel = '';
@@ -2093,6 +2095,7 @@
 
     if (section === 'search') return { view: 'search', query: url.searchParams.get('q') ?? '' };
     if (section === 'movies') return { view: 'movies' };
+    if (section === 'musicvideos') return { view: 'musicvideos' };
     if (section === 'music') return { view: 'music' };
     if (section === 'shows') return { view: 'shows' };
     if (section === 'subscriptions') return { view: 'subscriptions' };
@@ -2118,6 +2121,7 @@
   function routeToUrl(nextRoute: UrlRoute) {
     if (nextRoute.view === 'home') return '/';
     if (nextRoute.view === 'movies') return '/movies';
+    if (nextRoute.view === 'musicvideos') return '/musicvideos';
     if (nextRoute.view === 'music') return '/music';
     if (nextRoute.view === 'shows') return '/shows';
     if (nextRoute.view === 'subscriptions') return '/subscriptions';
@@ -2152,7 +2156,7 @@
 
   function loadingLabelForRoute(nextRoute: Route) {
     if (nextRoute === 'movies') return 'Loading movies';
-    if (nextRoute === 'music') return 'Loading music videos';
+    if (nextRoute === 'musicvideos') return 'Loading music videos';
     if (nextRoute === 'shows') return 'Loading shows';
     if (nextRoute === 'subscriptions') return 'Loading subscriptions';
     if (nextRoute === 'libraries') return 'Loading libraries';
@@ -2266,11 +2270,19 @@
       <span>Movies</span>
     </button>
     <button
-      class:active={route === 'music'}
-      on:click={() => goRoute('music')}
-      disabled={musicSources.length === 0 && audioSources.length === 0}
+      class:active={route === 'musicvideos'}
+      on:click={() => goRoute('musicvideos')}
+      disabled={musicSources.length === 0}
     >
       <Music2 size={21} />
+      <span>Music Videos</span>
+    </button>
+    <button
+      class:active={route === 'music'}
+      on:click={() => goRoute('music')}
+      disabled={audioSources.length === 0}
+    >
+      <Music size={21} />
       <span>Music</span>
     </button>
     <button class:active={route === 'shows'} on:click={() => goRoute('shows')} disabled={showDirectoryAll.length === 0}>
@@ -2488,32 +2500,14 @@
         </div>
       </section>
     {:else if route === 'music'}
-      <div class="music-tabs" role="tablist" aria-label="Music">
-        <button
-          class:active={musicTab === 'videos'}
-          role="tab"
-          aria-selected={musicTab === 'videos'}
-          on:click={() => (musicTab = 'videos')}
-          disabled={musicSources.length === 0}
-        >Music Videos</button>
-        <button
-          class:active={musicTab === 'audio'}
-          role="tab"
-          aria-selected={musicTab === 'audio'}
-          on:click={() => (musicTab = 'audio')}
-          disabled={audioSources.length === 0}
-        >Music</button>
-      </div>
-
-      {#if musicTab === 'audio'}
-        {#if audioSources.length}
-          <MusicPage {client} sources={audioSources} />
-        {:else}
-          <div class="empty-state">
-            <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
-          </div>
-        {/if}
+      {#if audioSources.length}
+        <MusicPage {client} sources={audioSources} />
       {:else}
+        <div class="empty-state">
+          <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
+        </div>
+      {/if}
+    {:else if route === 'musicvideos'}
       {#if favoriteMusicMixes.length}
         <section class="feed-section favorite-mixes-section">
           <div class="section-heading">
@@ -2616,7 +2610,6 @@
           {/each}
         </div>
       </section>
-      {/if}
     {:else if route === 'shows'}
       <section class="feed-section show-landing">
         <div class="section-heading">
