@@ -227,6 +227,7 @@
   let error = '';
   let fallbackNotice = '';
   let detailedItem: JellyfinItem = item;
+  let seriesCast: JellyfinPerson[] = [];
   let mediaSource: JellyfinMediaSource | null = null;
   let remuxCapabilities: HlsRemuxCapabilities | null = null;
   let negotiatedRemuxSource: JellyfinMediaSource | null = null;
@@ -348,6 +349,24 @@
   $: isEpisode = detailedItem.Type === 'Episode' || Boolean(episodeInfo(detailedItem));
   $: cast = detailedItem.Type === 'Movie' || detailedItem.Type === 'Episode' ? actorsForItem(detailedItem) : [];
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
+
+  // TV shows keep their cast on the series item; an episode's People hold only
+  // episode-specific (often guest) actors. Load the series cast so it can be
+  // shown below the episode cast. Jellyfin does not cascade series people onto
+  // episodes, and no fallback should be attempted when the item is not an
+  // episode or has no series.
+  async function loadSeriesCast(playbackItem: JellyfinItem) {
+    seriesCast = [];
+    const seriesId = playbackItem.SeriesId;
+    if (playbackItem.Type !== 'Episode' || !seriesId) return;
+    try {
+      const series = await client.getItem(seriesId);
+      if (series.Id === seriesId) seriesCast = actorsForItem(series);
+    } catch {
+      // Metadata/network may be unavailable; the series cast is supplemental.
+      seriesCast = [];
+    }
+  }
   $: title = displayTitle(detailedItem, {
     context: detailedItem.Type === 'Episode' ? 'series' : isMovie ? 'feed' : 'channel',
     channel: contextLabel
@@ -409,6 +428,7 @@
   onMount(() => {
     video?.setAttribute('webkit-playsinline', 'true');
     void loadPlayback(autoplay);
+    void loadSeriesCast(item);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     video?.addEventListener('webkitbeginfullscreen', handleFullscreenChange);
@@ -2636,6 +2656,9 @@
     {/if}
 
     <ActorCast {client} actors={cast} on:select={(event) => dispatch('actor', event.detail.actor)} />
+    {#if seriesCast.length > 0}
+      <ActorCast heading="Series cast" {client} actors={seriesCast} on:select={(event) => dispatch('actor', event.detail.actor)} />
+    {/if}
   </div>
   </div>
 

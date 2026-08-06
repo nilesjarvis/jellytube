@@ -5,6 +5,7 @@
 
   export let client: JellyfinClient;
   export let actors: JellyfinPerson[];
+  export let heading = 'Cast';
 
   const dispatch = createEventDispatcher<{ select: { actor: JellyfinPerson } }>();
 
@@ -22,9 +23,9 @@
 </script>
 
 {#if actors.length > 0}
-  <section class="actor-cast" aria-label="Cast">
+  <section class="actor-cast" aria-label={heading}>
     <div class="cast-heading">
-      <h2>Cast</h2>
+      <h2>{heading}</h2>
       <span>{actors.length} {actors.length === 1 ? 'actor' : 'actors'}</span>
     </div>
 
