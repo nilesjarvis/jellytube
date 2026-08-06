@@ -89,6 +89,9 @@
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import WatchPage from './WatchPage.svelte';
+  import MusicPage from './music/MusicPage.svelte';
+  import MusicPlayer from './music/MusicPlayer.svelte';
+  import { musicPlayerState } from '../lib/music/store';
 
   export let session: AppSession;
 
@@ -205,9 +208,13 @@
     return filtered.length ? filtered : seasons;
   }
 
+  let musicTab: 'videos' | 'audio' = session.selectedLibraries.some((source) => source.contentKind === 'musicVideo')
+    ? 'videos'
+    : 'audio';
   $: videoSources = session.selectedLibraries.filter((source) => source.contentKind === 'video');
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
+  $: audioSources = session.selectedLibraries.filter((source) => source.contentKind === 'audio');
   $: latestAddedCategorySections = latestAddedSections(latestAdded);
   $: channelItems = selectedChannel ? searchPool.filter((item) => channelMatches(item, selectedChannel)) : [];
   $: channelLatest = [...channelItems].sort(
@@ -2258,7 +2265,11 @@
       <Clapperboard size={21} />
       <span>Movies</span>
     </button>
-    <button class:active={route === 'music'} on:click={() => goRoute('music')} disabled={musicSources.length === 0}>
+    <button
+      class:active={route === 'music'}
+      on:click={() => goRoute('music')}
+      disabled={musicSources.length === 0 && audioSources.length === 0}
+    >
       <Music2 size={21} />
       <span>Music</span>
     </button>
@@ -2292,7 +2303,7 @@
     </button>
   </aside>
 
-  <main class="content">
+  <main class="content" class:music-playing={!!$musicPlayerState.queue && !activePlaybackItem}>
     {#if activePlaybackItem}
       {#key activePlaybackItem.Id}
         <WatchPage
@@ -2477,6 +2488,32 @@
         </div>
       </section>
     {:else if route === 'music'}
+      <div class="music-tabs" role="tablist" aria-label="Music">
+        <button
+          class:active={musicTab === 'videos'}
+          role="tab"
+          aria-selected={musicTab === 'videos'}
+          on:click={() => (musicTab = 'videos')}
+          disabled={musicSources.length === 0}
+        >Music Videos</button>
+        <button
+          class:active={musicTab === 'audio'}
+          role="tab"
+          aria-selected={musicTab === 'audio'}
+          on:click={() => (musicTab = 'audio')}
+          disabled={audioSources.length === 0}
+        >Music</button>
+      </div>
+
+      {#if musicTab === 'audio'}
+        {#if audioSources.length}
+          <MusicPage {client} sources={audioSources} />
+        {:else}
+          <div class="empty-state">
+            <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
+          </div>
+        {/if}
+      {:else}
       {#if favoriteMusicMixes.length}
         <section class="feed-section favorite-mixes-section">
           <div class="section-heading">
@@ -2579,6 +2616,7 @@
           {/each}
         </div>
       </section>
+      {/if}
     {:else if route === 'shows'}
       <section class="feed-section show-landing">
         <div class="section-heading">
@@ -3227,4 +3265,7 @@
     {/if}
   </main>
 
+  {#if !activePlaybackItem}
+    <MusicPlayer {client} />
+  {/if}
 </div>

@@ -552,6 +552,10 @@ label {
   padding: 26px 26px 48px;
 }
 
+.content.music-playing {
+  padding-bottom: 96px;
+}
+
 .feed-section {
   margin-bottom: 36px;
 }
@@ -4071,4 +4075,33 @@ html.tv-input .episode-tile:focus-visible .episode-thumb img {
 html.tv-input .video-card:has(.thumbnail-button:focus-visible),
 html.tv-input .mix-card-wrap:has(.mix-card:focus-visible) {
   z-index: 2;
+}
+
+.music-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.music-tabs button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--surface-2);
+}
+.music-tabs button:hover:not(:disabled) {
+  background: var(--soft);
+}
+.music-tabs button.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.music-tabs button:disabled {
+  opacity: 0.45;
 }

@@ -159,6 +159,7 @@ export type ItemQuery = {
   searchTerm?: string;
   filters?: string;
   personIds?: string;
+  artistIds?: string;
 };
 
 export type SearchSuggestion = {
@@ -240,7 +241,8 @@ export class JellyfinClient {
       StartIndex: String(query.startIndex ?? 0),
       ...(query.searchTerm ? { SearchTerm: query.searchTerm } : {}),
       ...(query.filters ? { Filters: query.filters } : {}),
-      ...(query.personIds ? { PersonIds: query.personIds } : {})
+      ...(query.personIds ? { PersonIds: query.personIds } : {}),
+      ...(query.artistIds ? { ArtistIds: query.artistIds } : {})
     });
   }
 
@@ -423,6 +425,18 @@ export class JellyfinClient {
       Fields: itemFields,
       SortBy: 'SortName',
       SortOrder: 'Ascending'
+    });
+  }
+
+  /** Albums by a music artist. */
+  async getArtistAlbums(artistId: string, limit = 100) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Artists/${artistId}/Albums`, {
+      userId: this.userId,
+      Fields: itemFields,
+      SortBy: 'PremiereDate',
+      SortOrder: 'Descending',
+      Limit: String(limit)
     });
   }
 

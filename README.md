@@ -96,6 +96,7 @@ These screenshots live in `screenshots/` and are embedded here so users can prev
 - **Multiple Jellyfin library support** for Shows, Home Videos & Photos, Movies, and Music Videos libraries.
 - **Dedicated Movies area** with poster-style cards, resume progress, featured/resume picks, and movie-only recommendations.
 - **Music video mixes** that group videos by artist/channel and play as queue-backed playlists.
+- **Audio Music** support for Jellyfin `music` libraries with an album/artist/song browse page and a persistent now-playing player (direct `/Audio` streaming, queue, shuffle/repeat, Media Session controls).
 - **Subscriptions directory** that works as a searchable show/channel directory instead of a follow/unfollow system.
 - **Season-aware show pages** for episodic libraries, including season selection, latest episode shortcuts, and lazy full-series loading.
 - **Rich watch page** with direct play where possible, source-quality HEVC/HDR remuxing on compatible displays, Jellyfin HLS fallback, persisted audio-language, caption, and aspect-ratio choices, resume position, queue/episode shelves, autoplay-next, volume persistence, 10-second seek controls, fullscreen, and responsive mobile layout.

@@ -13,6 +13,7 @@ import {
   setRepeat,
   toggleShuffle
 } from '../src/lib/music/queue';
+import { musicStreamFor } from '../src/lib/music/stream';
 import {
   contentKindForCollection,
   itemTypesForCollection,
@@ -132,6 +133,56 @@ test('getAudioStreamUrl builds a direct /Audio stream URL', () => {
     assert.match(url, /static=true/);
     assert.match(url, /mediaSourceId=src-2/);
     assert.match(url, /api_key=tok123/);
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
+test('musicStreamFor prefers a direct audio stream when available', () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  try {
+    const client = new JellyfinClient('http://media.local', 'tok');
+    const stream = musicStreamFor(client, 'song-1', {
+      MediaSources: [
+        { Id: 'src-direct', SupportsDirectPlay: true, Container: 'flac' },
+        { Id: 'src-trans', SupportsTranscoding: true, TranscodingUrl: '/Audio/song-1/stream.aac' }
+      ]
+    });
+    assert.ok(stream);
+    assert.equal(stream!.playMethod, 'DirectPlay');
+    assert.match(stream!.src, /Audio\/song-1\/stream\.flac/);
+    assert.match(stream!.src, /mediaSourceId=src-direct/);
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
+test('musicStreamFor falls back to Jellyfin transcoding URL without direct play', () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  try {
+    const client = new JellyfinClient('http://media.local', 'tok');
+    const stream = musicStreamFor(client, 'song-2', {
+      MediaSources: [
+        { Id: 'src', SupportsTranscoding: true, TranscodingUrl: '/Audio/song-2/stream.aac', TranscodingContainer: 'aac' }
+      ]
+    });
+    assert.ok(stream);
+    assert.equal(stream!.playMethod, 'Transcode');
+    assert.equal(stream!.src, 'http://media.local/Audio/song-2/stream.aac?api_key=tok');
   } finally {
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
