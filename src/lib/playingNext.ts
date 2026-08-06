@@ -13,6 +13,15 @@ export function episodePlayingNextItem(
   return orderedEpisodes[currentIndex + 1] ?? null;
 }
 
+export function episodePlayingPreviousItem(
+  currentItem: JellyfinItem,
+  orderedEpisodes: JellyfinItem[]
+): JellyfinItem | null {
+  const currentIndex = orderedEpisodes.findIndex((episode) => episode.Id === currentItem.Id);
+  if (currentIndex <= 0) return null;
+  return orderedEpisodes[currentIndex - 1] ?? null;
+}
+
 export function seriesNextUpItem(
   currentItem: JellyfinItem,
   nextUpItems: JellyfinItem[]

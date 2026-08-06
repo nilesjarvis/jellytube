@@ -94,6 +94,7 @@ import { showProgressForEpisodes } from '../src/lib/showProgress';
 import {
   countdownSecondsRemaining,
   episodePlayingNextItem,
+  episodePlayingPreviousItem,
   seriesNextUpItem,
   shouldAdvancePlayingNext,
   shouldShowPlayingNext
@@ -1710,6 +1711,7 @@ test('playing next selects the next episode from the active season before the co
   });
 
   assert.equal(episodePlayingNextItem(current, [current, next])?.Id, 's01e03');
+  assert.equal(episodePlayingPreviousItem(current, [current, next]), null);
   assert.equal(shouldShowPlayingNext({ currentTime: 1160, duration: 1200, nextItem: next, autoplayNext: true }), true);
   assert.equal(shouldShowPlayingNext({ currentTime: 1159, duration: 1200, nextItem: next, autoplayNext: true }), false);
   assert.equal(shouldShowPlayingNext({ currentTime: 1190, duration: 1200, nextItem: next, autoplayNext: true }), false);
@@ -1736,6 +1738,37 @@ test('playing next stays hidden without autoplay, without a next episode, or aft
   assert.equal(shouldAdvancePlayingNext({ currentTime: 1190, duration: 1200, nextItem: current, autoplayNext: false }), false);
   assert.equal(shouldAdvancePlayingNext({ currentTime: 1190, duration: 1200, nextItem: null, autoplayNext: true }), false);
   assert.equal(shouldAdvancePlayingNext({ currentTime: 1200, duration: 1200, nextItem: current, autoplayNext: true }), false);
+});
+
+test('playing previous selects the previous episode from the active season and stays hidden at the season start', () => {
+  const current = item({
+    Id: 's01e02',
+    Name: 'Show S01E02 - Second',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 2
+  });
+  const previous = item({
+    Id: 's01e01',
+    Name: 'Show S01E01 - Pilot',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 1
+  });
+  const next = item({
+    Id: 's01e03',
+    Name: 'Show S01E03 - Third',
+    SeriesId: 'show',
+    SeriesName: 'Show',
+    ParentIndexNumber: 1,
+    IndexNumber: 3
+  });
+
+  assert.equal(episodePlayingPreviousItem(current, [previous, current, next])?.Id, 's01e01');
+  assert.equal(episodePlayingPreviousItem(previous, [previous, current, next]), null);
+  assert.equal(episodePlayingPreviousItem(current, [current]), null);
 });
 
 test('series next up finds the server-selected episode for the show instead of the next old episode', () => {

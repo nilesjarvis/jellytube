@@ -17,6 +17,7 @@
     RotateCw,
     RectangleHorizontal,
     Settings,
+    SkipBack,
     SkipForward,
     Sparkles,
     TriangleAlert,
@@ -38,6 +39,7 @@
     PLAYING_NEXT_COUNTDOWN_SECONDS,
     countdownSecondsRemaining,
     episodePlayingNextItem,
+    episodePlayingPreviousItem,
     shouldAdvancePlayingNext,
     shouldShowPlayingNext
   } from '../lib/playingNext';
@@ -337,6 +339,7 @@
   );
   $: isMovie = detailedItem.Type === 'Movie' || detailedItem.contentKind === 'movie';
   $: isMusicVideo = detailedItem.Type === 'MusicVideo' || detailedItem.contentKind === 'musicVideo';
+  $: isEpisode = detailedItem.Type === 'Episode' || Boolean(episodeInfo(detailedItem));
   $: cast = detailedItem.Type === 'Movie' || detailedItem.Type === 'Episode' ? actorsForItem(detailedItem) : [];
   $: contextLabel = isMovie ? detailedItem.sourceLibraryName || 'YouTube Movies' : channelName(detailedItem);
   $: title = displayTitle(detailedItem, {
@@ -348,7 +351,9 @@
     episodeSeasons[0]?.items ??
     [];
   $: nextEpisodeInSeason = episodePlayingNextItem(item, selectedEpisodeItems);
+  $: previousEpisodeInSeason = episodePlayingPreviousItem(item, selectedEpisodeItems);
   $: episodePlayingNext = nextEpisodeInSeason ?? (hasNextQueued ? queue[queueIndex + 1] : null);
+  $: episodePrevious = previousEpisodeInSeason ?? (queueIndex > 0 ? queue[queueIndex - 1] : null);
   $: playingNextCountdown = countdownSecondsRemaining(currentTime, durationSeconds);
   $: showPlayingNextOverlay = shouldShowPlayingNext({
     currentTime,
@@ -362,6 +367,12 @@
     ? displayTitle(episodePlayingNext, { context: 'series' })
     : '';
   $: playingNextCode = episodePlayingNext ? episodeCode(episodePlayingNext) : '';
+  $: previousEpisodeLabel = episodePrevious
+    ? `Previous episode: ${episodeCode(episodePrevious)} · ${displayTitle(episodePrevious, { context: 'series' })}`
+    : '';
+  $: nextEpisodeLabel = episodePlayingNext
+    ? `Next episode: ${episodeCode(episodePlayingNext)} · ${displayTitle(episodePlayingNext, { context: 'series' })}`
+    : '';
   $: playingNextThumbnailUrl = episodePlayingNext ? client.getImageUrl(episodePlayingNext, 320) : '';
   $: cinematicReady = cinematicMode && cinematicAvailability === 'dynamic';
   $: cinematicControlLabel =
@@ -1240,6 +1251,20 @@
 
   function playNextEpisodeNow() {
     advanceToPlayingNext();
+  }
+
+  function playPreviousEpisode() {
+    if (!episodePrevious) return;
+    dispatch('episodeSelect', episodePrevious);
+  }
+
+  function playNextEpisode() {
+    if (!episodePlayingNext) return;
+    if (hasNextQueued && queue[queueIndex + 1]?.Id === episodePlayingNext.Id) {
+      dispatch('next');
+      return;
+    }
+    dispatch('episodeSelect', episodePlayingNext);
   }
 
   function maybeAdvancePlayingNextBeforeEnd() {
@@ -2247,6 +2272,27 @@
                   <span>10</span>
                 </span>
               </button>
+
+              {#if isEpisode && episodePrevious}
+                <button
+                  class="player-control episode-nav-control"
+                  aria-label="Previous episode"
+                  title={previousEpisodeLabel}
+                  on:click={playPreviousEpisode}
+                >
+                  <SkipBack size={22} />
+                </button>
+              {/if}
+              {#if isEpisode && episodePlayingNext}
+                <button
+                  class="player-control episode-nav-control"
+                  aria-label="Next episode"
+                  title={nextEpisodeLabel}
+                  on:click={playNextEpisode}
+                >
+                  <SkipForward size={22} />
+                </button>
+              {/if}
 
               <div class="volume-control">
                 <button class="player-control" aria-label={isMuted ? 'Unmute' : 'Mute'} on:click={toggleMute}>
