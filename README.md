@@ -100,6 +100,7 @@ These screenshots live in `screenshots/` and are embedded here so users can prev
 - **Season-aware show pages** for episodic libraries, including season selection, latest episode shortcuts, and lazy full-series loading.
 - **Rich watch page** with direct play where possible, source-quality HEVC/HDR remuxing on compatible displays, Jellyfin HLS fallback, persisted audio-language, caption, and aspect-ratio choices, resume position, queue/episode shelves, autoplay-next, volume persistence, 10-second seek controls, fullscreen, and responsive mobile layout.
 - **Persistent mini-player** keeps the current video playing in the bottom-right corner while you browse; drag its top or left edges to resize it, and JellyTube remembers the preferred size.
+- **TV-friendly hoverless mode** — auto-detects TV browsers (LG webOS, Samsung Tizen) to keep player controls on screen, show the target episode code on the previous/next buttons, add episode-strip scroll buttons, and give focused cards a 10-foot outline.
 - **Browser-native navigation** so search, channel, library, and watch routes survive refresh and work with back/forward buttons.
 - **Light, dark, and system themes** saved in browser storage.
 

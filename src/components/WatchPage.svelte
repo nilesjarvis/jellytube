@@ -5,6 +5,8 @@
     ArrowLeft,
     Captions,
     Check,
+    ChevronLeft,
+    ChevronRight,
     Loader2,
     Languages,
     Maximize,
@@ -59,6 +61,7 @@
     shouldSampleCinematicGlow
   } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
+  import { prefersTvInput } from '../lib/inputMode';
   import {
     containerDefaultAudioStream,
     initialPlaybackAudioId,
@@ -461,6 +464,13 @@
     if (nextLeft === strip.scrollLeft) return;
     event.preventDefault();
     strip.scrollLeft = nextLeft;
+  }
+
+  function scrollEpisodeStrip(direction: number) {
+    episodeStrip?.scrollBy({
+      left: direction * Math.round(episodeStrip.clientWidth * 0.8),
+      behavior: 'smooth'
+    });
   }
 
   async function loadPlayback(autoPlay = false) {
@@ -1756,6 +1766,7 @@
   }
 
   function hideControlsOnMouseLeave() {
+    if (prefersTvInput()) return;
     window.clearTimeout(controlsTimer);
     controlsTimer = 0;
     if (!isPlaying) return;
@@ -1767,6 +1778,7 @@
   }
 
   function scheduleControls() {
+    if (prefersTvInput()) return;
     window.clearTimeout(controlsTimer);
     if (!isPlaying || qualityMenuOpen || subtitleMenuOpen || audioMenuOpen || aspectMenuOpen) return;
     controlsTimer = window.setTimeout(() => {
@@ -2276,21 +2288,23 @@
               {#if isEpisode && episodePrevious}
                 <button
                   class="player-control episode-nav-control"
-                  aria-label="Previous episode"
+                  aria-label={previousEpisodeLabel}
                   title={previousEpisodeLabel}
                   on:click={playPreviousEpisode}
                 >
                   <SkipBack size={22} />
+                  <span class="episode-nav-label">{episodeCode(episodePrevious)}</span>
                 </button>
               {/if}
               {#if isEpisode && episodePlayingNext}
                 <button
                   class="player-control episode-nav-control"
-                  aria-label="Next episode"
+                  aria-label={nextEpisodeLabel}
                   title={nextEpisodeLabel}
                   on:click={playNextEpisode}
                 >
                   <SkipForward size={22} />
+                  <span class="episode-nav-label">{episodeCode(episodePlayingNext)}</span>
                 </button>
               {/if}
 
@@ -2593,6 +2607,22 @@
             </button>
           {/each}
         </div>
+        <button
+          class="episode-strip-scroll episode-strip-prev"
+          aria-label="Scroll episodes back"
+          title="Scroll episodes back"
+          on:click={() => scrollEpisodeStrip(-1)}
+        >
+          <ChevronLeft size={22} />
+        </button>
+        <button
+          class="episode-strip-scroll episode-strip-next"
+          aria-label="Scroll episodes forward"
+          title="Scroll episodes forward"
+          on:click={() => scrollEpisodeStrip(1)}
+        >
+          <ChevronRight size={22} />
+        </button>
       </section>
     {/if}
 
