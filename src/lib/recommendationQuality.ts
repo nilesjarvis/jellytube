@@ -159,6 +159,7 @@ export function recommendationQualityReport({
         video: catalogKindMetrics(catalog, legacyIds, 'video'),
         movie: catalogKindMetrics(catalog, legacyIds, 'movie'),
         musicVideo: catalogKindMetrics(catalog, legacyIds, 'musicVideo'),
+        audio: catalogKindMetrics(catalog, legacyIds, 'audio'),
         other: catalogKindMetrics(catalog, legacyIds, 'other')
       },
       metadataCoverage: allCoverage.metadata,
@@ -366,6 +367,7 @@ function temporalBacktest(
     video: { full: [], legacy: [] },
     movie: { full: [], legacy: [] },
     musicVideo: { full: [], legacy: [] },
+    audio: { full: [], legacy: [] },
     other: { full: [], legacy: [] }
   };
 
@@ -397,6 +399,7 @@ function temporalBacktest(
       video: summarizeBacktest(resultsByKind.video.full, resultsByKind.video.legacy),
       movie: summarizeBacktest(resultsByKind.movie.full, resultsByKind.movie.legacy),
       musicVideo: summarizeBacktest(resultsByKind.musicVideo.full, resultsByKind.musicVideo.legacy),
+      audio: summarizeBacktest(resultsByKind.audio.full, resultsByKind.audio.legacy),
       other: summarizeBacktest(resultsByKind.other.full, resultsByKind.other.legacy)
     }
   };

@@ -72,6 +72,7 @@ export function libraryKindLabel(collectionType?: string) {
   if (collectionType === 'homevideos') return 'Home Videos & Photos';
   if (collectionType === 'movies') return 'Movies';
   if (collectionType === 'musicvideos') return 'Music Videos';
+  if (collectionType === 'music') return 'Music';
   return 'Library';
 }
 
@@ -92,12 +93,14 @@ export function contentKindForCollection(collectionType?: string): ContentKind |
   if (collectionType === 'tvshows' || collectionType === 'homevideos') return 'video';
   if (collectionType === 'movies') return 'movie';
   if (collectionType === 'musicvideos') return 'musicVideo';
+  if (collectionType === 'music') return 'audio';
   return null;
 }
 
 export function itemTypesForCollection(collectionType?: string) {
   if (collectionType === 'movies') return 'Movie';
   if (collectionType === 'musicvideos') return 'MusicVideo';
+  if (collectionType === 'music') return 'Audio';
   return 'Video,Episode';
 }
 
@@ -124,6 +127,10 @@ const itemFields = [
   'ProviderIds',
   'Artists',
   'ArtistItems',
+  'Album',
+  'AlbumId',
+  'AlbumArtist',
+  'AlbumArtists',
   'SeriesName',
   'SeriesId',
   'SeasonName',
@@ -358,6 +365,67 @@ export class JellyfinClient {
     });
   }
 
+  async getMusicArtists(sourceId: string, limit = 80, startIndex = 0) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Artists`, {
+      userId: this.userId,
+      ParentId: sourceId,
+      SortBy: 'SortName',
+      SortOrder: 'Ascending',
+      Fields: 'PrimaryImageAspectRatio',
+      Limit: String(limit),
+      StartIndex: String(startIndex),
+      Recursive: 'true'
+    });
+  }
+
+  async getMusicAlbums(
+    sourceId: string,
+    options: { limit?: number; startIndex?: number; sortBy?: string; sortOrder?: 'Ascending' | 'Descending' } = {}
+  ) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'MusicAlbum',
+      Fields: itemFields,
+      SortBy: options.sortBy ?? 'PremiereDate',
+      SortOrder: options.sortOrder ?? 'Descending',
+      Limit: String(options.limit ?? 80),
+      StartIndex: String(options.startIndex ?? 0)
+    });
+  }
+
+  async getMusicSongs(
+    sourceId: string,
+    options: { limit?: number; startIndex?: number; sortBy?: string; sortOrder?: 'Ascending' | 'Descending' } = {}
+  ) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'Audio',
+      Fields: itemFields,
+      SortBy: options.sortBy ?? 'DateCreated',
+      SortOrder: options.sortOrder ?? 'Descending',
+      Limit: String(options.limit ?? 80),
+      StartIndex: String(options.startIndex ?? 0)
+    });
+  }
+
+  /** All tracks in a music album (ParentId = album). */
+  async getAlbumTracks(albumId: string) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: albumId,
+      Recursive: 'true',
+      IncludeItemTypes: 'Audio',
+      Fields: itemFields,
+      SortBy: 'SortName',
+      SortOrder: 'Ascending'
+    });
+  }
+
   async getPlaybackInfo(
     itemId: string,
     positionTicks = 0,
@@ -462,6 +530,16 @@ export class JellyfinClient {
   getStreamUrl(itemId: string, mediaSourceId: string, container = 'mp4') {
     const extension = container.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'mp4';
     return this.url(`/Videos/${itemId}/stream.${extension}`, {
+      static: 'true',
+      mediaSourceId,
+      api_key: this.accessToken ?? ''
+    });
+  }
+
+  /** Direct audio stream URL for a song (used by the music player). */
+  getAudioStreamUrl(itemId: string, mediaSourceId: string, container = 'mp3') {
+    const extension = container.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'mp3';
+    return this.url(`/Audio/${itemId}/stream.${extension}`, {
       static: 'true',
       mediaSourceId,
       api_key: this.accessToken ?? ''

@@ -33,7 +33,7 @@ export type JellyfinLibrary = {
   ImageTags?: Record<string, string>;
 };
 
-export type ContentKind = 'video' | 'movie' | 'musicVideo';
+export type ContentKind = 'video' | 'movie' | 'musicVideo' | 'audio';
 
 export type SelectedLibrary = {
   id: string;
@@ -165,6 +165,12 @@ export type JellyfinItem = {
   Tags?: string[];
   Artists?: string[];
   ArtistItems?: Array<{ Id?: string; Name: string }>;
+  Album?: string;
+  AlbumId?: string;
+  AlbumArtist?: string;
+  AlbumArtists?: Array<{ Id?: string; Name: string }>;
+  TrackNumber?: number;
+  DiscNumber?: number;
   Studios?: Array<{ Id?: string; Name: string }>;
   ProviderIds?: Record<string, string>;
   ImageTags?: Record<string, string>;
