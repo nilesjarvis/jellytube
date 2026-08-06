@@ -357,15 +357,17 @@
     };
   });
 
-  const GRID_CARD_SELECTOR = '.video-card, .episode-tile, .mix-card-wrap';
-  const GRID_CONTAINER_SELECTOR = '.video-grid, .movie-grid, .episode-strip, .mix-grid, .actor-grid';
+  const GRID_CARD_SELECTOR = '.video-card, .episode-tile, .mix-card-wrap, .actor-card';
+  const GRID_CONTAINER_SELECTOR = '.video-grid, .movie-grid, .episode-strip, .mix-grid, .actor-rail';
 
   function handleGridArrowKeydown(event: KeyboardEvent) {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    // The player shell owns its own arrow-key handling (seek, resize handles, menus).
-    if (target.closest('.watch-layout')) return;
+    // Only the player shell owns its own arrow-key handling (seek, resize handles,
+    // menus). The watch layout also contains the episode strip and recommendation
+    // grids, so arrow navigation must still work on those cards.
+    if (target.closest('.player-shell')) return;
     if (target.closest('[role="menu"], [role="dialog"]')) return;
     if (
       target instanceof HTMLInputElement ||
@@ -386,7 +388,7 @@
     if (!nextCard) return;
     event.preventDefault();
     const focusTarget =
-      nextCard.querySelector<HTMLElement>('.thumbnail-button, .mix-card') ?? nextCard;
+      nextCard.querySelector<HTMLElement>('.thumbnail-button, .mix-card, .actor-button') ?? nextCard;
     focusTarget.focus({ preventScroll: true });
     nextCard.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }

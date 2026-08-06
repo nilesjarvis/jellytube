@@ -3974,7 +3974,11 @@ label {
   display: none;
 }
 
-@media (hover: none) {
+/* Expanded labels only apply where there is room to spare. On narrow
+   portrait screens (phones/small tablets, ~420px and below) the control
+   row is already crowded, so keep the prev/next buttons compact so
+   trailing controls (quality, fullscreen) stay reachable. */
+@media (hover: none) and (min-width: 421px) {
   .episode-nav-control {
     width: auto;
     padding: 0 12px;
@@ -3988,6 +3992,12 @@ label {
     font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.02em;
+  }
+}
+
+@media (hover: none) and (max-width: 420px) {
+  .episode-nav-label {
+    display: none;
   }
 }
 
