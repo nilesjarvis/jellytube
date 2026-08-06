@@ -494,6 +494,21 @@ export class JellyfinClient {
     );
   }
 
+  /** Playback info tuned for audio music (uses an audio device profile). */
+  async getAudioPlaybackInfo(itemId: string, positionTicks = 0) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.post<PlaybackInfo>(
+      `/Items/${itemId}/PlaybackInfo`,
+      { DeviceProfile: musicDeviceProfile() },
+      {
+        userId: this.userId,
+        StartTimeTicks: String(positionTicks),
+        IsPlayback: 'true',
+        AutoOpenLiveStream: 'true'
+      }
+    );
+  }
+
   async getPlaybackActivity(days = 365) {
     const timezoneOffset = new Date().getTimezoneOffset();
     return this.get<PlaybackActivity[]>('/user_usage_stats/user_activity', {
@@ -746,6 +761,36 @@ function directPlayProfilesFor(
   }
 
   return profiles;
+}
+
+/** Audio-only device profile so Jellyfin offers direct/transcoded audio streams
+ * for music playback. The video profile used by WatchPage advertises only video
+ * containers, so audio items would otherwise stream as unsupported. */
+export function musicDeviceProfile(maxStreamingBitrate = 400_000_000) {
+  return {
+    MaxStreamingBitrate: maxStreamingBitrate,
+    EnableDirectPlay: true,
+    EnableDirectStream: true,
+    EnableTranscoding: true,
+    DirectPlayProfiles: [
+      {
+        Container: 'mp3,aac,mp4,m4a,m4b,flac,ogg,opus,webm,wav',
+        Type: 'Audio'
+      }
+    ],
+    TranscodingProfiles: [
+      {
+        Container: 'aac',
+        Type: 'Audio',
+        AudioCodec: 'aac',
+        Context: 'Streaming',
+        MaxAudioChannels: '2'
+      }
+    ],
+    ContainerProfiles: [],
+    CodecProfiles: [],
+    SubtitleProfiles: []
+  };
 }
 
 export function browserDeviceProfile(

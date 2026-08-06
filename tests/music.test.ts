@@ -14,6 +14,8 @@ import {
   toggleShuffle
 } from '../src/lib/music/queue';
 import { musicStreamFor } from '../src/lib/music/stream';
+import { displayTitle } from '../src/lib/recommendations';
+import { musicDeviceProfile } from '../src/lib/jellyfin';
 import {
   contentKindForCollection,
   itemTypesForCollection,
@@ -189,4 +191,26 @@ test('musicStreamFor falls back to Jellyfin transcoding URL without direct play'
       value: originalLocalStorage
     });
   }
+});
+
+test('musicDeviceProfile advertises audio direct play and an aac transcode fallback', () => {
+  const profile = musicDeviceProfile();
+  assert.equal(profile.EnableTranscoding, true);
+  const audioDirect = profile.DirectPlayProfiles.find((p: { Type: string }) => p.Type === 'Audio');
+  assert.ok(audioDirect, 'has an audio direct-play profile');
+  assert.match(audioDirect.Container, /flac/);
+  const transcode = profile.TranscodingProfiles.find((p: { Type: string }) => p.Type === 'Audio');
+  assert.ok(transcode, 'has an audio transcode profile');
+  assert.equal(transcode.Container, 'aac');
+  assert.equal(transcode.AudioCodec, 'aac');
+});
+
+test('displayTitle keeps audio song titles plain (no episode formatting)', () => {
+  const song: JellyfinItem = {
+    Id: 'song', Name: 'Calypso / Agamemnon', Type: 'Audio',
+    IndexNumber: 5, ParentIndexNumber: 1, Album: 'The Odyssey (Original Motion Picture Soundtrack)',
+    AlbumArtist: 'Ludwig Goransson', Artists: ['Ludwig Goransson']
+  };
+  assert.equal(displayTitle(song), 'Calypso / Agamemnon');
+  assert.equal(displayTitle(song, { context: 'series' }), 'Calypso / Agamemnon');
 });

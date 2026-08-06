@@ -97,7 +97,7 @@ function formatTime(seconds: number): string {
     error = '';
     const expected = track.Id;
     return client
-      .getPlaybackInfo(track.Id)
+      .getAudioPlaybackInfo(track.Id)
       .then((info: PlaybackInfo) => {
         const stream = musicStreamFor(client, track.Id, info);
         if (loadedId !== expected || destroyed) return;

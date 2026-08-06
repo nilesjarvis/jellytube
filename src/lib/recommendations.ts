@@ -262,6 +262,9 @@ export function watchRecommendationCandidates(
 
 
 export function displayTitle(item: JellyfinItem, options: DisplayTitleOptions = {}) {
+  // Audio songs carry disc/track numbers that the episode formatter would
+  // misread as a season/episode; always use the plain song title for music.
+  if (item.Type === 'Audio' || item.contentKind === 'audio') return item.Name;
   const inEpisodeContext =
     options.context === 'series' ||
     options.context === 'channel' ||
