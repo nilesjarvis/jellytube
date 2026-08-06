@@ -23,10 +23,29 @@ export type MusicPlayerState = {
   playing: boolean;
   /** Current track id, tracked separately so consumers can react to changes. */
   currentId: string | null;
+  /**
+   * Playback position of the track that was playing when the player was torn
+   * down (e.g. a video was opened, which unmounts the audio element). Stored so
+   * the same track can resume from where it left off when the player returns.
+   */
+  resume: { trackId: string; ticks: number } | null;
 };
 
 function initialState(): MusicPlayerState {
-  return { queue: null, playing: false, currentId: null };
+  return { queue: null, playing: false, currentId: null, resume: null };
+}
+
+/** Remember where a track was when the player element is destroyed. */
+export function saveMusicResume(trackId: string, ticks: number): void {
+  musicPlayerState.update((state) => ({
+    ...state,
+    resume: { trackId, ticks: Math.max(0, Math.floor(ticks)) }
+  }));
+}
+
+/** Discard any pending resume position (a fresh play intent). */
+export function clearMusicResume(): void {
+  musicPlayerState.update((state) => (state.resume ? { ...state, resume: null } : state));
 }
 
 export const musicPlayerState = writable<MusicPlayerState>(initialState());
@@ -44,6 +63,7 @@ export function playTracks(tracks: JellyfinItem[], startIndex = 0, autoplay = tr
     return;
   }
   const queue = createQueue(tracks, startIndex);
+  clearMusicResume();
   musicPlayerState.update((state) => ({
     ...state,
     queue,
@@ -73,6 +93,7 @@ export function advanceMusic(): void {
     if (!current) return { ...state, queue, currentId: null, playing: false };
     return { ...state, queue, currentId: current.Id, playing: true };
   });
+  clearMusicResume();
 }
 
 export function stepMusicBack(): void {
@@ -83,6 +104,7 @@ export function stepMusicBack(): void {
     if (!current) return state;
     return { ...state, queue, currentId: current.Id, playing: true };
   });
+  clearMusicResume();
 }
 
 export function seekMusicTo(trackId: string): void {
@@ -92,6 +114,7 @@ export function seekMusicTo(trackId: string): void {
     if (!queue) return state;
     return { ...state, queue, currentId: trackId, playing: true };
   });
+  clearMusicResume();
 }
 
 export function toggleMusicShuffle(): void {

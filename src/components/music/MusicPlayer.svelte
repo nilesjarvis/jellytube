@@ -17,9 +17,11 @@
   import type { JellyfinClient } from '../../lib/jellyfin';
   import {
     advanceMusic,
+    clearMusicResume,
     musicPlayerState,
     pause,
     play,
+    saveMusicResume,
     seekMusicTo,
     setMusicRepeat,
     stepMusicBack,
@@ -65,10 +67,18 @@ function formatTime(seconds: number): string {
   let currentSeconds = 0;
   let durationSeconds = 0;
   let volume = clampVolume(Number(localStorage.getItem('jellytube.musicVolume') ?? 0.8) || 0.8);
-  let muted = false;
+  let muted = localStorage.getItem('jellytube.musicMuted') === 'true';
   let started = false;
   let reportTimer: number | undefined;
   let destroyed = false;
+  // True only once the <audio> src actually points at the current track, so the
+  // transport/auto-play never act on a stale (previously loaded) source.
+  let readyToPlay = false;
+  // Track id currently being retried via a forced-transcode (AAC) stream (once per track).
+  let transcodeRetryFor: string | null = null;
+  // Consecutive tracks that failed to load; bounds the auto-skip loop.
+  let consecutiveLoadFailures = 0;
+  let errorTimer: number | undefined;
 
   $: queue = $state.queue;
   $: current = queue ? currentTrack(queue) : null;
@@ -81,8 +91,8 @@ function formatTime(seconds: number): string {
   $: effectiveVolume = muted ? 0 : volume;
 
   $: if (audioEl && queue) {
-    const ready = loadedId === current?.Id;
-    if (ready && playing && audioEl.src && audioEl.paused) void audioEl.play().catch(() => undefined);
+    const ready = readyToPlay && loadedId === current?.Id;
+    if (ready && playing && audioEl.paused) void audioEl.play().catch(() => undefined);
     else if (ready && !playing && !audioEl.paused) audioEl.pause();
   }
 
@@ -91,33 +101,112 @@ function formatTime(seconds: number): string {
   $: if (current) void loadIfNeeded(current);
   $: updateMediaSession(current, $state.playing);
 
+  function showError(message: string) {
+    error = message;
+    if (errorTimer !== undefined) {
+      window.clearTimeout(errorTimer);
+      errorTimer = undefined;
+    }
+    errorTimer = window.setTimeout(() => {
+      error = '';
+      errorTimer = undefined;
+    }, 6000);
+  }
+
+  function isRepeatOne(): boolean {
+    return queue?.repeat === 'one';
+  }
+
   function loadIfNeeded(track: JellyfinItem) {
     if (!track || loadedId === track.Id || !audioEl) return Promise.resolve();
     loadedId = track.Id;
+    readyToPlay = false;
     error = '';
     const expected = track.Id;
+    const forceTranscode = transcodeRetryFor === track.Id;
     return client
-      .getAudioPlaybackInfo(track.Id)
+      .getAudioPlaybackInfo(track.Id, 0, forceTranscode)
       .then((info: PlaybackInfo) => {
-        const stream = musicStreamFor(client, track.Id, info);
+        const stream = musicStreamFor(client, track.Id, info, { forceTranscode });
         if (loadedId !== expected || destroyed) return;
         if (!stream) {
-          error = 'This song cannot be streamed.';
-          pause();
+          handleLoadError(track);
           return;
         }
         started = false;
+        currentSeconds = 0;
+        durationSeconds = 0;
         audioEl.src = stream.src;
-        audioEl.currentTime = 0;
+        readyToPlay = true;
+        // Resume where we left off if the player was torn down mid-track (e.g.
+        // a video was opened) and this is the same track that was playing.
+        if ($state.resume?.trackId === track.Id) {
+          const resumeSeconds = $state.resume.ticks / 10_000_000;
+          if (Number.isFinite(resumeSeconds) && resumeSeconds > 0) {
+            currentSeconds = resumeSeconds;
+            audioEl.currentTime = resumeSeconds;
+          }
+          clearMusicResume();
+        } else {
+          audioEl.currentTime = 0;
+        }
         if ($state.playing) void audioEl.play().catch(() => undefined);
       })
       .catch(() => {
-        if (loadedId === expected && !destroyed) {
-          loadedId = null;
-          error = 'Could not load this song.';
-          pause();
-        }
+        if (loadedId === expected && !destroyed) handleLoadError(track);
       });
+  }
+
+  /**
+   * Recover from a track that refused to load. The direct stream is retried once
+   * via a forced-transcode (AAC) stream; if that also fails the track is skipped
+   * (linear/repeat-all play) or playback is stopped (single-track repeat, or too
+   * many consecutive failures) so the player never hangs or loops forever.
+   */
+  function handleLoadError(track: JellyfinItem) {
+    if (destroyed || !track || loadedId !== track.Id) return;
+
+    if (transcodeRetryFor !== track.Id && !isRepeatOne()) {
+      transcodeRetryFor = track.Id;
+      loadedId = null;
+      void loadIfNeeded(track);
+      return;
+    }
+
+    consecutiveLoadFailures += 1;
+    const failureLimit = Math.max(queue?.tracks.length ?? 0, 3) + 1;
+
+    if (consecutiveLoadFailures >= failureLimit) {
+      showError('Too many songs failed to load. Playback stopped.');
+      loadedId = null;
+      readyToPlay = false;
+      pause();
+      void reportStop();
+      return;
+    }
+
+    showError(
+      isRepeatOne()
+        ? 'This song cannot be played.'
+        : `Could not play “${displayTitle(track)}”.`
+    );
+    loadedId = null;
+    readyToPlay = false;
+
+    if (isRepeatOne()) {
+      pause();
+      void reportStop();
+      return;
+    }
+    void reportStop();
+    advanceMusic();
+  }
+
+  /** Media decode/fetch failures surfaced by the <audio> element. */
+  function onAudioError() {
+    if (destroyed || !current || loadedId !== current.Id || !readyToPlay) return;
+    if (!audioEl.error) return;
+    handleLoadError(current);
   }
 
   function onTimeUpdate() {
@@ -136,6 +225,10 @@ function formatTime(seconds: number): string {
   }
 
   function onPlay() {
+    // A successful start resets the failure bookkeeping and direct-play retry,
+    // so a track revisited later can try direct play again.
+    consecutiveLoadFailures = 0;
+    transcodeRetryFor = null;
     reportStart();
   }
 
@@ -151,6 +244,7 @@ function formatTime(seconds: number): string {
 
   function toggleMute() {
     muted = !muted;
+    localStorage.setItem('jellytube.musicMuted', String(muted));
   }
 
   function cycleRepeat() {
@@ -240,6 +334,10 @@ function formatTime(seconds: number): string {
 
   function saveVolume(value: number) {
     volume = clampVolume(value);
+    if (muted && volume > 0) {
+      muted = false;
+      localStorage.setItem('jellytube.musicMuted', 'false');
+    }
     localStorage.setItem('jellytube.musicVolume', String(volume));
   }
 
@@ -250,6 +348,9 @@ function formatTime(seconds: number): string {
 
   onDestroy(() => {
     destroyed = true;
+    // Remember where the current track stopped so a video detour (which
+    // unmounts the whole player) can resume on return.
+    if (current && audioEl) saveMusicResume(current.Id, Math.round((audioEl.currentTime || 0) * 10_000_000));
     reportStop();
   });
 </script>
@@ -260,6 +361,7 @@ function formatTime(seconds: number): string {
   on:ended={onEnded}
   on:play={onPlay}
   on:pause={onPause}
+  on:error={onAudioError}
   preload="metadata"
 ></audio>
 
@@ -388,6 +490,7 @@ function formatTime(seconds: number): string {
     bottom: 0;
     z-index: 40;
     display: grid;
+    grid-template-areas: "now transport side";
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
     align-items: center;
     gap: 20px;
@@ -396,6 +499,9 @@ function formatTime(seconds: number): string {
     background: var(--surface);
     box-shadow: 0 -6px 18px var(--shadow);
   }
+  .music-now { grid-area: now; }
+  .music-transport { grid-area: transport; }
+  .music-side { grid-area: side; }
   .music-now {
     min-width: 0;
     display: flex;
@@ -582,23 +688,43 @@ function formatTime(seconds: number): string {
       gap: 12px;
       padding: 8px 12px;
     }
-    .music-volume,
     .music-position {
       display: none;
     }
-    .music-close {
-      display: none;
+    .music-volume {
+      max-width: 64px;
     }
   }
+  /* On phones, stack the player into rows so every control stays reachable:
+     now-playing + close on top, transport below, then volume/queue. */
   @media (max-width: 640px) {
     .music-player {
       grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "now close"
+        "transport transport"
+        "side side";
+      row-gap: 8px;
+      padding: 8px 12px 10px;
+    }
+    .music-close {
+      position: static; /* keep the stop button visible on every screen */
+      width: 34px;
+      height: 34px;
     }
     .music-now-meta small {
       display: none;
     }
+    .music-transport {
+      justify-items: center;
+    }
     .music-side {
-      display: none;
+      display: flex;
+      justify-content: center;
+    }
+    .music-volume {
+      display: block;
+      max-width: 110px;
     }
   }
 </style>

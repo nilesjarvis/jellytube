@@ -17,11 +17,32 @@
 
   const dispatch = createEventDispatcher<{ navigate: { kind: 'album' | 'artist'; id: string } | null }>();
 
-  let loading = true;
   let error = '';
   let albums: JellyfinItem[] = [];
   let artists: JellyfinItem[] = [];
   let songs: JellyfinItem[] = [];
+  // Per-section lazy load states so each grid populates as soon as its
+  // request resolves, instead of blocking the whole page on the slowest one.
+  let albumsState: 'loading' | 'ready' | 'error' = 'loading';
+  let albumsStart = 0;
+  let albumsHasMore = false;
+  let albumsLoadingMore = false;
+  let artistsState: 'loading' | 'ready' | 'error' = 'loading';
+  let songsState: 'loading' | 'ready' | 'error' = 'loading';
+  // Extra discovery sections.
+  let recommended: JellyfinItem[] = [];
+  let recommendedState: 'loading' | 'ready' | 'error' = 'loading';
+  let favorites: JellyfinItem[] = [];
+  let favoritesState: 'loading' | 'ready' | 'error' = 'loading';
+  let mostPlayed: JellyfinItem[] = [];
+  let mostPlayedState: 'loading' | 'ready' | 'error' = 'loading';
+  let genres: JellyfinItem[] = [];
+  let genresState: 'loading' | 'ready' | 'error' = 'loading';
+  // Genre drill-down (filters the main album grid in place).
+  let activeGenre: JellyfinItem | null = null;
+  let genreAlbums: JellyfinItem[] = [];
+  let genreAlbumsBusy = false;
+  let genreError = false;
 
   // Artist view
   let artistAlbums: JellyfinItem[] = [];
@@ -29,6 +50,8 @@
   let artistInfo: JellyfinItem | null = null;
   let activeArtist: JellyfinItem | null = null;
   let artistBusy = false;
+  // Expand the artist "Top songs" list beyond its preview of 8.
+  let showAllArtistSongs = false;
 
   // Album view
   let activeAlbum: JellyfinItem | null = null;
@@ -41,30 +64,220 @@
   $: musicPlaying = $musicPlayerState.playing;
   $: albumDuration = albumTracks.reduce((sum, track) => sum + (track.RunTimeTicks || 0), 0);
 
-  async function reload() {
+  // Kick off each library section independently so the browser can paint the
+  // albums grid as soon as it arrives, while artists/songs still load behind it.
+  function reload() {
     if (!sources.length) {
-      loading = false;
       albums = [];
       artists = [];
       songs = [];
+      albumsState = 'ready';
+      artistsState = 'ready';
+      songsState = 'ready';
       return;
     }
-    loading = true;
     error = '';
+    activeGenre = null;
+    genreAlbums = [];
+    genreError = false;
+    albums = [];
+    artists = [];
+    songs = [];
+    recommended = [];
+    favorites = [];
+    mostPlayed = [];
+    genres = [];
+    albumsStart = 0;
+    albumsHasMore = false;
+    albumsLoadingMore = false;
+    albumsState = 'loading';
+    artistsState = 'loading';
+    songsState = 'loading';
+    recommendedState = 'loading';
+    favoritesState = 'loading';
+    mostPlayedState = 'loading';
+    genresState = 'loading';
+    void loadAlbums();
+    void loadArtists();
+    void loadSongs();
+    void loadGenres();
+    void loadFavorites();
+    void loadMostPlayed();
+  }
+
+  /** Page size per library source for the album grid's "load more". */
+  const ALBUM_PAGE_SIZE = 80;
+
+  async function loadAlbums(append = false) {
+    const start = append ? albumsStart : 0;
     try {
-      const [albumGroups, artistGroups, songGroups] = await Promise.all([
-        Promise.all(sources.map((source) => client.getMusicAlbums(source.id, { limit: 120 }))),
-        Promise.all(sources.map((source) => client.getMusicArtists(source.id, 120))),
-        Promise.all(sources.map((source) => client.getMusicSongs(source.id, { limit: 80 })))
-      ]);
-      albums = merge(albumGroups.map((group) => group.Items ?? []));
-      artists = merge(artistGroups.map((group) => group.Items ?? []));
-      songs = merge(songGroups.map((group) => group.Items ?? [])).slice(0, 120);
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : 'Could not load music.';
+      const groups = await Promise.all(
+        sources.map((source) => client.getMusicAlbums(source.id, { limit: ALBUM_PAGE_SIZE, startIndex: start }))
+      );
+      const page = merge(groups.map((group) => group.Items ?? []));
+      albums = append ? uniqueAlbums(albums.concat(page)) : page;
+      albumsStart = start + (page.length || ALBUM_PAGE_SIZE);
+      albumsHasMore = groups.some((group) => (group.Items ?? []).length >= ALBUM_PAGE_SIZE);
+      albumsState = 'ready';
+      // Recommendations seed from the library's albums, so load them next
+      // (only on the initial page — appending just extends an existing set).
+      if (!append) void loadRecommended();
+    } catch {
+      albumsState = append ? 'ready' : 'error';
+      if (append) albumsHasMore = false;
     } finally {
-      loading = false;
+      albumsLoadingMore = false;
     }
+  }
+
+  async function loadMoreAlbums() {
+    if (albumsLoadingMore || !albumsHasMore) return;
+    albumsLoadingMore = true;
+    await loadAlbums(true);
+  }
+
+  function uniqueAlbums(list: JellyfinItem[]): JellyfinItem[] {
+    const seen = new Set<string>();
+    const out: JellyfinItem[] = [];
+    for (const item of list) {
+      if (seen.has(item.Id)) continue;
+      seen.add(item.Id);
+      out.push(item);
+    }
+    return out;
+  }
+
+  async function loadArtists() {
+    try {
+      const groups = await Promise.all(sources.map((source) => client.getMusicArtists(source.id, 120)));
+      artists = merge(groups.map((group) => group.Items ?? []));
+      artistsState = 'ready';
+    } catch {
+      artistsState = 'error';
+    }
+  }
+
+  async function loadSongs() {
+    try {
+      const groups = await Promise.all(sources.map((source) => client.getMusicSongs(source.id, { limit: 80 })));
+      songs = merge(groups.map((group) => group.Items ?? [])).slice(0, 120);
+      songsState = 'ready';
+    } catch {
+      songsState = 'error';
+    }
+  }
+
+
+  // --- Lazy discovery sections -------------------------------------------------
+
+  // Fire "Recommended for you" only after the albums grid arrrives, since it seeds
+  // from the library's most-played / favorited albums.
+  async function loadRecommended() {
+    const seeds = recommendSeeds(albums);
+    if (!seeds.length) {
+      recommended = [];
+      recommendedState = 'ready';
+      return;
+    }
+    try {
+      const groups = await Promise.all(
+        seeds.map((seed) =>
+          client.getSimilarItems(seed.Id, 24, 'MusicAlbum').then((response) => response.Items ?? [])
+        )
+      );
+      const seen = new Set(albums.map((album) => album.Id));
+      const merged: JellyfinItem[] = [];
+      for (const group of groups) {
+        for (const item of group) {
+          if (seen.has(item.Id) || item.Type !== 'MusicAlbum') continue;
+          seen.add(item.Id);
+          merged.push(item);
+        }
+      }
+      recommended = merged.slice(0, 20);
+    } catch {
+      recommendedState = 'error';
+      return;
+    }
+    recommendedState = 'ready';
+  }
+
+  function recommendSeeds(source: JellyfinItem[]): JellyfinItem[] {
+    const scored = [...source]
+      .filter((album) => (album.UserData?.PlayCount ?? 0) > 0 || album.UserData?.IsFavorite)
+      .sort(
+        (a, b) =>
+          Number(Boolean(b.UserData?.IsFavorite)) - Number(Boolean(a.UserData?.IsFavorite)) ||
+          (b.UserData?.PlayCount ?? 0) - (a.UserData?.PlayCount ?? 0)
+      );
+    return scored.slice(0, 4);
+  }
+
+  async function loadFavorites() {
+    try {
+      const groups = await Promise.all(
+        sources.map((source) => client.getMusicAlbums(source.id, { limit: 60, filters: 'IsFavorite' }))
+      );
+      favorites = merge(groups.map((group) => group.Items ?? [])).slice(0, 40);
+      favoritesState = 'ready';
+    } catch {
+      favoritesState = 'error';
+    }
+  }
+
+  async function loadMostPlayed() {
+    try {
+      const groups = await Promise.all(
+        sources.map((source) => client.getMusicAlbums(source.id, { limit: 30, sortBy: 'PlayCount' }))
+      );
+      mostPlayed = merge(groups.map((group) => group.Items ?? []))
+        .filter((album) => (album.UserData?.PlayCount ?? 0) > 0)
+        .slice(0, 24);
+      mostPlayedState = 'ready';
+    } catch {
+      mostPlayedState = 'error';
+    }
+  }
+
+  async function loadGenres() {
+    try {
+      const groups = await Promise.all(
+        sources.map((source) => client.getMusicGenres(source.id, 50))
+      );
+      genres = merge(groups.map((group) => group.Items ?? []))
+        .sort((a, b) => (b.ChildCount ?? 0) - (a.ChildCount ?? 0))
+        .slice(0, 40);
+      genresState = 'ready';
+    } catch {
+      genresState = 'error';
+    }
+  }
+
+  // --- Genre drill-down --------------------------------------------------------
+
+  async function openGenre(genre: JellyfinItem) {
+    if (activeGenre?.Name === genre.Name) return;
+    activeGenre = genre;
+    genreAlbums = [];
+    genreError = false;
+    genreAlbumsBusy = true;
+    try {
+      const groups = await Promise.all(
+        sources.map((source) => client.getGenreAlbums(genre.Name, source.id, 80))
+      );
+      genreAlbums = merge(groups.map((group) => group.Items ?? []));
+      genreAlbumsBusy = false;
+    } catch {
+      genreAlbums = [];
+      genreError = true;
+      genreAlbumsBusy = false;
+    }
+  }
+
+  function clearGenre() {
+    activeGenre = null;
+    genreAlbums = [];
+    genreError = false;
   }
 
   // ---- Playback ----
@@ -136,6 +349,7 @@
     artistAlbums = [];
     artistSongs = [];
     artistInfo = null;
+    showAllArtistSongs = false;
     artistBusy = true;
     window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
@@ -165,6 +379,7 @@
     artistAlbums = [];
     artistSongs = [];
     artistInfo = null;
+    showAllArtistSongs = false;
   }
 
   function primaryArtistName(album: JellyfinItem) {
@@ -337,22 +552,13 @@
   }
 </script>
 
-{#if loading}
-  <div class="feed-section">
-    <div class="section-heading"><h2>Music</h2><span>Loading your library…</span></div>
-    <div class="music-albums-grid">
-      {#each Array.from({ length: 8 }) as _}
-        <span class="music-skeleton"></span>
-      {/each}
-    </div>
-  </div>
-{:else if !sources.length}
+{#if !sources.length}
   <div class="empty-state music-empty">
     <Music2 size={40} />
     <h2>No music library connected</h2>
     <p>Add a Jellyfin <strong>Music</strong> library to browse albums, artists, and songs here.</p>
   </div>
-{:else if error}
+{:else if error && !activeAlbum && !activeArtist}
   <div class="empty-state music-empty">
     <p>{error}</p>
   </div>
@@ -476,9 +682,14 @@
       <div class="section-heading">
         <h2>Top songs</h2>
         <span>{artistSongs.length} in the library</span>
+        {#if artistSongs.length > 8}
+          <button class="text-action" on:click={() => (showAllArtistSongs = !showAllArtistSongs)}>
+            {showAllArtistSongs ? 'Show less' : 'Show all'}
+          </button>
+        {/if}
       </div>
       <div class="music-song-list">
-        {#each artistSongs.slice(0, 8) as song, index (song.Id)}
+        {#each artistSongs.slice(0, showAllArtistSongs ? artistSongs.length : 8) as song, index (song.Id)}
           <MusicSongRow
             {song}
             rank={index + 1}
@@ -534,6 +745,9 @@
 
 {:else}
   <!-- ======================= BROWSE ======================= -->
+
+  <!-- The masthead (Music + genre chips) and each discovery section load lazily
+       and populate independently, mirroring the rest of the pager. -->
   <section class="feed-section">
     <div class="section-heading">
       <div class="music-page-title">
@@ -541,62 +755,211 @@
         <span>{sources.length} selected music {sources.length === 1 ? 'library' : 'libraries'}</span>
       </div>
       <div class="section-actions">
-        <button class="text-action" on:click={() => playTrackList(songs, 0)}>
-          <Play size={15} fill="currentColor" /> Play all songs
+        <button class="text-action" on:click={() => playTrackList(songs, 0)} disabled={songsState !== 'ready' || songs.length === 0}>
+          <Play size={15} fill="currentColor" /> Play new songs
         </button>
       </div>
     </div>
-    <div class="music-albums-grid">
-      {#each albums as album (album.Id)}
-        <MusicAlbumCard {client} {album}
-          on:play={(event) => playAlbum(event.detail)}
-          on:open={(event) => openAlbum(event.detail)}
-          on:artist={(event) => openArtistFromAlbum(event.detail)}
-        />
-      {/each}
-    </div>
-  </section>
 
-  {#if artists.length}
-    <section class="feed-section">
-      <div class="section-heading"><h2>Artists</h2><span>{artists.length} in the library</span></div>
-      <div class="music-artists-grid">
-        {#each artists as artist (artist.Id)}
-          <div class="music-artist">
-            <button class="music-artist-art-btn" aria-label={"Open artist " + artist.Name} on:click={() => openArtist(artist)}>
-              <span class="music-artist-art">
-                {#if client.getImageUrl(artist, 320)}
-                  <img src={client.getImageUrl(artist, 320)} alt="" loading="lazy" />
-                {:else}
-                  <span>{artist.Name.slice(0, 1)}</span>
-                {/if}
-              </span>
-            </button>
-            <button class="music-artist-play" aria-label={"Play " + artist.Name} title={"Shuffle " + artist.Name} on:click={() => void playArtistShuffled(artist)}>
-              <Play size={17} fill="currentColor" />
-            </button>
-            <button class="music-artist-name" on:click={() => openArtist(artist)}>
-              {artist.Name}
-            </button>
-          </div>
+    {#if genresState === 'ready' && genres.length}
+      <div class="music-genre-row">
+        <button class="music-genre-chip" class:active={!activeGenre} on:click={clearGenre}>All</button>
+        {#each genres as genre (genre.Name)}
+          <button
+            class="music-genre-chip"
+            class:active={activeGenre?.Name === genre.Name}
+            on:click={() => (activeGenre?.Name === genre.Name ? clearGenre() : openGenre(genre))}
+          >
+            {genre.Name}{#if genre.ChildCount}<span class="music-genre-count">{genre.ChildCount}</span>{/if}
+          </button>
         {/each}
       </div>
-    </section>
-  {/if}
+    {/if}
 
-  {#if songs.length}
-    <section class="feed-section">
-      <div class="section-heading"><h2>New songs</h2><span>{songs.length} recent</span></div>
-      <div class="music-song-list">
-        {#each songs as song, index (song.Id)}
-          <MusicSongRow
-            {song}
-            active={song.Id === musicCurrentId}
-            playingNow={song.Id === musicCurrentId && musicPlaying}
-            on:select={() => playTrackList(songs, index)}
+    {#if activeGenre}
+      {#if genreAlbumsBusy}
+        <div class="music-albums-grid">
+          {#each Array.from({ length: 8 }) as _}
+            <span class="music-skeleton"></span>
+          {/each}
+        </div>
+      {:else if genreAlbums.length}
+        <div class="music-genre-note">
+          {genreAlbums.length} {genreAlbums.length === 1 ? 'album' : 'albums'} in {activeGenre.Name}
+        </div>
+        <div class="music-albums-grid">
+          {#each genreAlbums as album (album.Id)}
+            <MusicAlbumCard {client} {album}
+              on:play={(event) => playAlbum(event.detail)}
+              on:open={(event) => openAlbum(event.detail)}
+              on:artist={(event) => openArtistFromAlbum(event.detail)}
+            />
+          {/each}
+        </div>
+      {:else if genreError}
+        <div class="music-section-note">Couldn’t load {activeGenre.Name} albums.</div>
+      {:else}
+        <div class="music-section-note">No {activeGenre.Name} albums in this library.</div>
+      {/if}
+    {:else if albumsState === 'loading'}
+      <div class="music-albums-grid">
+        {#each Array.from({ length: 8 }) as _}
+          <span class="music-skeleton"></span>
+        {/each}
+      </div>
+    {:else if albumsState === 'error'}
+      <div class="music-section-note">Couldn’t load albums.</div>
+    {:else if albums.length}
+      <div class="music-albums-grid">
+        {#each albums as album (album.Id)}
+          <MusicAlbumCard {client} {album}
+            on:play={(event) => playAlbum(event.detail)}
+            on:open={(event) => openAlbum(event.detail)}
+            on:artist={(event) => openArtistFromAlbum(event.detail)}
           />
         {/each}
       </div>
+      {#if albumsHasMore}
+        <div class="music-load-more-row">
+          <button class="secondary-action" on:click={loadMoreAlbums} disabled={albumsLoadingMore}>
+            {albumsLoadingMore ? 'Loading…' : 'Load more albums'}
+          </button>
+        </div>
+      {/if}
+    {:else}
+      <div class="music-section-note">No albums in this library.</div>
+    {/if}
+  </section>
+
+  {#if recommendedState === 'loading' || recommended.length}
+    <section class="feed-section">
+      <div class="section-heading"><h2>Recommended for you</h2><span>Picked from similar music</span></div>
+      {#if recommendedState === 'loading'}
+        <div class="music-albums-grid">
+          {#each Array.from({ length: 8 }) as _}
+            <span class="music-skeleton"></span>
+          {/each}
+        </div>
+      {:else}
+        <div class="music-albums-grid">
+          {#each recommended as album (album.Id)}
+            <MusicAlbumCard {client} {album}
+              on:play={(event) => playAlbum(event.detail)}
+              on:open={(event) => openAlbum(event.detail)}
+              on:artist={(event) => openArtistFromAlbum(event.detail)}
+            />
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if artistsState === 'loading' || artists.length}
+    <section class="feed-section">
+      <div class="section-heading">
+        <h2>Artists</h2>
+        {#if artistsState === 'ready'}<span>{artists.length} in the library</span>{/if}
+      </div>
+      {#if artistsState === 'loading'}
+        <div class="music-artists-grid">
+          {#each Array.from({ length: 8 }) as _}
+            <span class="music-skeleton music-artist-skeleton"></span>
+          {/each}
+        </div>
+      {:else if artists.length}
+        <div class="music-artists-grid">
+          {#each artists as artist (artist.Id)}
+            <div class="music-artist">
+              <button class="music-artist-art-btn" aria-label={"Open artist " + artist.Name} on:click={() => openArtist(artist)}>
+                <span class="music-artist-art">
+                  {#if client.getImageUrl(artist, 320)}
+                    <img src={client.getImageUrl(artist, 320)} alt="" loading="lazy" />
+                  {:else}
+                    <span>{artist.Name.slice(0, 1)}</span>
+                  {/if}
+                </span>
+              </button>
+              <button class="music-artist-play" aria-label={"Play " + artist.Name} title={"Shuffle " + artist.Name} on:click={() => void playArtistShuffled(artist)}>
+                <Play size={17} fill="currentColor" />
+              </button>
+              <button class="music-artist-name" on:click={() => openArtist(artist)}>
+                {artist.Name}
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if songsState === 'loading' || songs.length}
+    <section class="feed-section">
+      <div class="section-heading">
+        <h2>New songs</h2>
+        {#if songsState === 'ready'}<span>{songs.length} recent</span>{/if}
+      </div>
+      {#if songsState === 'loading'}
+        {#each Array.from({ length: 6 }) as _}
+          <span class="music-song-skeleton"></span>
+        {/each}
+      {:else if songs.length}
+        <div class="music-song-list">
+          {#each songs as song, index (song.Id)}
+            <MusicSongRow
+              {song}
+              active={song.Id === musicCurrentId}
+              playingNow={song.Id === musicCurrentId && musicPlaying}
+              on:select={() => playTrackList(songs, index)}
+            />
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if mostPlayedState === 'loading' || mostPlayed.length}
+    <section class="feed-section">
+      <div class="section-heading"><h2>Most played</h2><span>In your library</span></div>
+      {#if mostPlayedState === 'loading'}
+        <div class="music-albums-grid">
+          {#each Array.from({ length: 6 }) as _}
+            <span class="music-skeleton"></span>
+          {/each}
+        </div>
+      {:else}
+        <div class="music-albums-grid">
+          {#each mostPlayed as album (album.Id)}
+            <MusicAlbumCard {client} {album}
+              on:play={(event) => playAlbum(event.detail)}
+              on:open={(event) => openAlbum(event.detail)}
+              on:artist={(event) => openArtistFromAlbum(event.detail)}
+            />
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
+  {#if favoritesState === 'loading' || favorites.length}
+    <section class="feed-section">
+      <div class="section-heading"><h2>Your favorites</h2><span>Albums you liked</span></div>
+      {#if favoritesState === 'loading'}
+        <div class="music-albums-grid">
+          {#each Array.from({ length: 6 }) as _}
+            <span class="music-skeleton"></span>
+          {/each}
+        </div>
+      {:else}
+        <div class="music-albums-grid">
+          {#each favorites as album (album.Id)}
+            <MusicAlbumCard {client} {album}
+              on:play={(event) => playAlbum(event.detail)}
+              on:open={(event) => openAlbum(event.detail)}
+              on:artist={(event) => openArtistFromAlbum(event.detail)}
+            />
+          {/each}
+        </div>
+      {/if}
     </section>
   {/if}
 {/if}
@@ -920,6 +1283,75 @@
   }
   .music-skeleton {
     height: 150px;
+  }
+  .music-artist-skeleton {
+    width: 100%;
+    aspect-ratio: 1;
+    height: auto;
+    border-radius: 50%;
+  }
+  .music-section-note {
+    padding: 18px 4px;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  /* ---- Genre browsing ---- */
+  .music-genre-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 2px 14px;
+    scrollbar-width: thin;
+  }
+  .music-genre-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 650;
+    background: var(--soft);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .music-genre-chip:hover {
+    border-color: var(--focus);
+  }
+  .music-genre-chip.active {
+    color: var(--bg);
+    background: var(--brand);
+    border-color: var(--brand);
+  }
+  .music-genre-count {
+    font-size: 0.76rem;
+    font-weight: 700;
+    opacity: 0.7;
+  }
+  .music-genre-note {
+    padding: 0 4px 14px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .section-actions .text-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .music-load-more-row {
+    display: flex;
+    justify-content: center;
+    padding-top: 18px;
+  }
+  .music-load-more-row .secondary-action:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }

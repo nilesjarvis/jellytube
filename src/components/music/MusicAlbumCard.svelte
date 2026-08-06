@@ -18,18 +18,20 @@
 </script>
 
 <div class="music-album-card">
-  <button class="music-album-art-btn" aria-label={"Play album " + title} on:click={() => dispatch('play', album)}>
-    <span class="music-album-art">
-      {#if imageUrl}
-        <img src={imageUrl} alt="" loading="lazy" />
-      {:else}
-        <span class="music-art-fallback">{title.slice(0, 1)}</span>
-      {/if}
-      <span class="music-play-overlay">
-        <Play size={22} fill="currentColor" aria-hidden="true" />
+  <span class="music-album-art-wrap">
+    <button class="music-album-art-btn" aria-label={"Open album " + title} on:click={() => dispatch('open', album)}>
+      <span class="music-album-art">
+        {#if imageUrl}
+          <img src={imageUrl} alt="" loading="lazy" />
+        {:else}
+          <span class="music-art-fallback">{title.slice(0, 1)}</span>
+        {/if}
       </span>
-    </span>
-  </button>
+    </button>
+    <button class="music-album-play" aria-label={"Play album " + title} title={"Play " + title} on:click={() => dispatch('play', album)}>
+      <Play size={18} fill="currentColor" aria-hidden="true" />
+    </button>
+  </span>
 
   <button class="music-album-title" on:click={() => dispatch('open', album)}>{title}</button>
 
@@ -43,6 +45,10 @@
     min-width: 0;
     display: grid;
     gap: 7px;
+  }
+  .music-album-art-wrap {
+    position: relative;
+    display: block;
   }
   .music-album-art-btn {
     width: 100%;
@@ -75,25 +81,43 @@
     font-weight: 800;
     color: var(--muted);
   }
-  .music-play-overlay {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.45));
-    opacity: 0;
-    transition: opacity 0.15s ease;
+  .music-album-art-btn:hover .music-album-art {
+    transform: scale(1.02);
   }
-  .music-play-overlay :global(svg) {
-    fill: currentColor;
-  }
-  .music-album-art-btn:hover .music-play-overlay,
-  .music-album-art-btn:focus-visible .music-play-overlay {
-    opacity: 1;
+  .music-album-art-btn:focus-visible .music-album-art {
+    box-shadow: 0 0 0 3px var(--focus);
   }
   .music-album-art-btn:focus-visible {
     outline: none;
+  }
+  .music-album-art {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .music-album-play {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: var(--bg);
+    background: var(--text);
+    box-shadow: 0 4px 12px var(--shadow);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  }
+  .music-album-card:hover .music-album-play,
+  .music-album-card:focus-within .music-album-play {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .music-album-play:hover {
+    background: var(--brand);
   }
   .music-album-title,
   .music-album-artist {
