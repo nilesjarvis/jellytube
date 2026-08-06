@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ArrowLeft, Disc3, ListMusic, Music2, Play, Shuffle } from 'lucide-svelte';
+  import { ArrowLeft, Clock, Disc3, ListMusic, Music2, Play, Shuffle } from 'lucide-svelte';
   import type { JellyfinClient } from '../../lib/jellyfin';
   import type { SelectedLibrary, JellyfinItem } from '../../lib/types';
-  import { playTracks } from '../../lib/music/store';
+  import { musicPlayerState, playTracks } from '../../lib/music/store';
+  import { formatDuration } from '../../lib/recommendations';
+  import { normalizeSearch } from '../../lib/search';
   import MusicAlbumCard from './MusicAlbumCard.svelte';
   import MusicSongRow from './MusicSongRow.svelte';
 
@@ -15,11 +17,24 @@
   let albums: JellyfinItem[] = [];
   let artists: JellyfinItem[] = [];
   let songs: JellyfinItem[] = [];
+
+  // Artist view
   let artistAlbums: JellyfinItem[] = [];
   let artistSongs: JellyfinItem[] = [];
   let artistInfo: JellyfinItem | null = null;
   let activeArtist: JellyfinItem | null = null;
   let artistBusy = false;
+
+  // Album view
+  let activeAlbum: JellyfinItem | null = null;
+  let albumInfo: JellyfinItem | null = null;
+  let albumTracks: JellyfinItem[] = [];
+  let albumBusy = false;
+
+  $: musicQueue = $musicPlayerState.queue;
+  $: musicCurrentId = $musicPlayerState.currentId;
+  $: musicPlaying = $musicPlayerState.playing;
+  $: albumDuration = albumTracks.reduce((sum, track) => sum + (track.RunTimeTicks || 0), 0);
 
   async function reload() {
     if (!sources.length) {
@@ -47,18 +62,23 @@
     }
   }
 
+  // ---- Playback ----
+  function playTrackList(list: JellyfinItem[], startIndex: number) {
+    if (list.length) playTracks(list, startIndex, true);
+  }
+
   async function playAlbum(album: JellyfinItem) {
     try {
       const response = await client.getAlbumTracks(album.Id);
       const tracks = response.Items ?? [];
-      if (tracks.length) playTracks(tracks, 0, true);
+      playTrackList(tracks, 0);
     } catch {
       error = 'Could not load this album.';
     }
   }
 
-  function playSongs(list: JellyfinItem[], startIndex: number) {
-    if (list.length) playTracks(list, startIndex, true);
+  function playAlbumTracks(startIndex: number) {
+    playTrackList(albumTracks, startIndex);
   }
 
   async function fetchArtistAlbums(artist: JellyfinItem) {
@@ -79,7 +99,7 @@
     if (!artist) return;
     try {
       const tracks = await fetchArtistSongs(artist);
-      if (tracks.length) playTracks(tracks, 0, true);
+      playTrackList(tracks, 0);
     } catch {
       error = 'Could not start this artist mix.';
     }
@@ -89,7 +109,7 @@
     if (!artist) return;
     try {
       const tracks = shuffled(await fetchArtistSongs(artist));
-      if (tracks.length) playTracks(tracks, 0, true);
+      playTrackList(tracks, 0);
     } catch {
       error = 'Could not shuffle this artist.';
     }
@@ -104,8 +124,10 @@
     return out;
   }
 
+  // ---- Artist navigation ----
   async function openArtist(artist: JellyfinItem) {
     activeArtist = artist;
+    activeAlbum = null;
     artistAlbums = [];
     artistSongs = [];
     artistInfo = null;
@@ -135,9 +157,81 @@
     artistInfo = null;
   }
 
-  function artistBackdrop(client: JellyfinClient, artist: JellyfinItem) {
-    const url = client.getImageUrl(artist, 900);
-    return url ? `url("${url}")` : 'none';
+  function primaryArtistName(album: JellyfinItem) {
+    return album.AlbumArtist || album.Artists?.[0] || '';
+  }
+
+  async function openArtistFromName(name: string) {
+    const normalized = normalizeSearch(name);
+    if (!normalized) return;
+    const loadedMatch = artists.find((artist) => normalizeSearch(artist.Name) === normalized);
+    if (loadedMatch) {
+      await openArtist(loadedMatch);
+      return;
+    }
+    for (const source of sources) {
+      try {
+        const response = await client.getItems({
+          parentId: source.id,
+          itemTypes: 'MusicArtist',
+          searchTerm: name,
+          limit: 5,
+          sortBy: 'SortName',
+          sortOrder: 'Ascending'
+        });
+        const found = (response.Items ?? []).find(
+          (artist) => normalizeSearch(artist.Name) === normalized
+        );
+        if (found) {
+          await openArtist(found);
+          return;
+        }
+      } catch {
+        // keep searching other sources
+      }
+    }
+  }
+
+  async function openArtistFromAlbum(album: JellyfinItem | null) {
+    if (!album) return;
+    const name = primaryArtistName(album);
+    if (!name) return;
+    const normalized = normalizeSearch(name);
+    // Albums link to their primary artist via ArtistItems; use that id directly.
+    const linked = album.ArtistItems?.find((item) => normalizeSearch(item.Name) === normalized);
+    if (linked?.Id) {
+      await openArtist({ Id: linked.Id, Name: linked.Name, Type: 'MusicArtist' });
+      return;
+    }
+    await openArtistFromName(name);
+  }
+
+  // ---- Album navigation ----
+  async function openAlbum(album: JellyfinItem) {
+    activeAlbum = album;
+    albumInfo = null;
+    albumTracks = [];
+    albumBusy = true;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      const [detail, trackResponse] = await Promise.all([
+        client.getItem(album.Id).catch(() => null),
+        client.getAlbumTracks(album.Id)
+      ]);
+      if (activeAlbum?.Id !== album.Id) return;
+      albumInfo = detail;
+      albumTracks = trackResponse.Items ?? [];
+    } catch {
+      albumTracks = [];
+    } finally {
+      if (activeAlbum?.Id === album.Id) albumBusy = false;
+    }
+  }
+
+  function closeAlbum() {
+    activeAlbum = null;
+    albumInfo = null;
+    albumTracks = [];
   }
 
   onMount(reload);
@@ -153,6 +247,16 @@
       }
     }
     return out;
+  }
+
+  function albumBackdrop(client: JellyfinClient, album: JellyfinItem) {
+    const url = client.getImageUrl(album, 900);
+    return url ? `url("${url}")` : 'none';
+  }
+
+  function artistBackdrop(client: JellyfinClient, artist: JellyfinItem) {
+    const url = client.getImageUrl(artist, 900);
+    return url ? `url("${url}")` : 'none';
   }
 </script>
 
@@ -175,156 +279,248 @@
   <div class="empty-state music-empty">
     <p>{error}</p>
   </div>
-{:else}
-  {#if activeArtist}
-    <div class="music-artist-hero" style="--artist-backdrop:{artistBackdrop(client, activeArtist)};">
-      <button class="music-artist-back" on:click={closeArtist} aria-label="Back to music">
-        <ArrowLeft size={20} />
-      </button>
-      <span class="music-artist-avatar">
-        {#if client.getImageUrl(activeArtist, 420)}
-          <img src={client.getImageUrl(activeArtist, 420)} alt="" loading="lazy" />
-        {:else}
-          <span>{activeArtist.Name.slice(0, 1)}</span>
+{:else if activeAlbum && !albumBusy}
+  <!-- ======================= ALBUM PAGE ======================= -->
+  <div class="music-artist-hero" style="--artist-backdrop:{albumBackdrop(client, activeAlbum)};">
+    <button class="music-artist-back" on:click={closeAlbum} aria-label="Back to music">
+      <ArrowLeft size={20} />
+    </button>
+    <span class="music-album-art-big">
+      {#if client.getImageUrl(activeAlbum, 420)}
+        <img src={client.getImageUrl(activeAlbum, 420)} alt="" loading="lazy" />
+      {:else}
+        <span>{activeAlbum.Name.slice(0, 1)}</span>
+      {/if}
+    </span>
+    <div class="music-artist-copy">
+      <span class="content-pill">Album</span>
+      <h1>{activeAlbum.Name}</h1>
+      <div class="music-album-byline">
+        {#if primaryArtistName(activeAlbum)}
+          <button class="music-artist-link" on:click={() => openArtistFromAlbum(activeAlbum)}>
+            {primaryArtistName(activeAlbum)}
+          </button>
         {/if}
-      </span>
-      <div class="music-artist-copy">
-        <span class="content-pill">Artist</span>
-        {#if artistBusy}
-          <span class="music-artist-name-skeleton"></span>
-          <span class="music-artist-bio-skeleton"></span>
-        {:else}
-          <h1>{activeArtist.Name}</h1>
-          <div class="music-artist-meta">
-            {#if artistAlbums.length}<span><Disc3 size={15} /> {artistAlbums.length} {artistAlbums.length === 1 ? 'album' : 'albums'}</span>{/if}
-            {#if artistSongs.length}<span><ListMusic size={15} /> {artistSongs.length} {artistSongs.length === 1 ? 'song' : 'songs'}</span>{/if}
-            {#if artistInfo?.Genres?.length}<span>{artistInfo.Genres[0]}</span>{/if}
-          </div>
-          {#if artistInfo?.Overview}
-            <p class="music-artist-bio">{artistInfo.Overview}</p>
-          {/if}
-          <div class="music-artist-actions">
-            <button class="primary-action" on:click={() => playArtist(activeArtist)}>
-              <Play size={18} fill="currentColor" /> Play
-            </button>
-            <button class="secondary-action music-artist-shuffle" on:click={() => playArtistShuffled(activeArtist)}>
-              <Shuffle size={16} /> Shuffle
-            </button>
-          </div>
+        {#if albumInfo?.ProductionYear || albumInfo?.Genres?.length}
+          <span class="music-album-meta-line">
+            {#if albumInfo?.ProductionYear}{albumInfo.ProductionYear}{/if}
+            {#if albumInfo?.ProductionYear && albumInfo?.Genres?.length} · {/if}
+            {#if albumInfo?.Genres?.length}{albumInfo.Genres[0]}{/if}
+          </span>
         {/if}
+      </div>
+      <div class="music-artist-meta">
+        <span><Disc3 size={15} /> {albumTracks.length} {albumTracks.length === 1 ? 'track' : 'tracks'}</span>
+        {#if albumDuration}<span><Clock size={15} /> {formatDuration(albumDuration)}</span>{/if}
+      </div>
+      {#if albumInfo?.Overview}
+        <p class="music-artist-bio">{albumInfo.Overview}</p>
+      {/if}
+      <div class="music-artist-actions">
+        <button class="primary-action" on:click={() => playAlbumTracks(0)}>
+          <Play size={18} fill="currentColor" /> Play
+        </button>
+        <button class="secondary-action music-artist-shuffle" on:click={() => playTrackList(shuffled(albumTracks), 0)}>
+          <Shuffle size={16} /> Shuffle
+        </button>
       </div>
     </div>
+  </div>
 
-    {#if artistBusy}
-      <section class="feed-section">
-        <div class="section-heading"><h2>Top songs</h2></div>
-        {#each Array.from({ length: 5 }) as _}
-          <span class="music-song-skeleton"></span>
-        {/each}
-      </section>
-      <section class="feed-section">
-        <div class="section-heading"><h2>Albums</h2></div>
-        <div class="music-albums-grid">
-          {#each Array.from({ length: 6 }) as _}
-            <span class="music-skeleton"></span>
-          {/each}
-        </div>
-      </section>
-    {:else}
-      {#if artistSongs.length}
-        <section class="feed-section">
-          <div class="section-heading">
-            <h2>Top songs</h2>
-            <span>{artistSongs.length} in the library</span>
-          </div>
-          <div class="music-song-list">
-            {#each artistSongs.slice(0, 8) as song, index (song.Id)}
-              <MusicSongRow {song} rank={index + 1} on:select={() => playSongs(artistSongs, index)} />
-            {/each}
-          </div>
-        </section>
-      {/if}
+  <section class="feed-section">
+    <div class="section-heading">
+      <h2>Tracks</h2>
+      <span>{albumTracks.length} songs</span>
+    </div>
+    <div class="music-song-list">
+      {#each albumTracks as song, index (song.Id)}
+        <MusicSongRow
+          {song}
+          active={song.Id === musicCurrentId}
+          playingNow={song.Id === musicCurrentId && musicPlaying}
+          on:select={() => playAlbumTracks(index)}
+        />
+      {/each}
+    </div>
+  </section>
 
-      {#if artistAlbums.length}
-        <section class="feed-section">
-          <div class="section-heading">
-            <h2>Albums</h2>
-            <span>{artistAlbums.length} total</span>
-          </div>
-          <div class="music-albums-grid">
-            {#each artistAlbums as album (album.Id)}
-              <MusicAlbumCard {client} {album} on:select={(event) => playAlbum(event.detail)} />
-            {/each}
-          </div>
-        </section>
+{:else if activeAlbum && albumBusy}
+  <div class="music-artist-hero">
+    <span class="music-avatar-skeleton"></span>
+    <div class="music-artist-copy">
+      <span class="music-artist-name-skeleton"></span>
+      <span class="music-artist-bio-skeleton"></span>
+    </div>
+  </div>
+  <section class="feed-section">
+    <div class="section-heading"><h2>Tracks</h2></div>
+    {#each Array.from({ length: 5 }) as _}
+      <span class="music-song-skeleton"></span>
+    {/each}
+  </section>
+
+{:else if activeArtist && !artistBusy}
+  <!-- ======================= ARTIST PAGE ======================= -->
+  <div class="music-artist-hero" style="--artist-backdrop:{artistBackdrop(client, activeArtist)};">
+    <button class="music-artist-back" on:click={closeArtist} aria-label="Back to music">
+      <ArrowLeft size={20} />
+    </button>
+    <span class="music-artist-avatar">
+      {#if client.getImageUrl(activeArtist, 420)}
+        <img src={client.getImageUrl(activeArtist, 420)} alt="" loading="lazy" />
+      {:else}
+        <span>{activeArtist.Name.slice(0, 1)}</span>
       {/if}
-    {/if}
-  {:else}
+    </span>
+    <div class="music-artist-copy">
+      <span class="content-pill">Artist</span>
+      <h1>{activeArtist.Name}</h1>
+      <div class="music-artist-meta">
+        {#if artistAlbums.length}<span><Disc3 size={15} /> {artistAlbums.length} {artistAlbums.length === 1 ? 'album' : 'albums'}</span>{/if}
+        {#if artistSongs.length}<span><ListMusic size={15} /> {artistSongs.length} {artistSongs.length === 1 ? 'song' : 'songs'}</span>{/if}
+        {#if artistInfo?.Genres?.length}<span>{artistInfo.Genres[0]}</span>{/if}
+      </div>
+      {#if artistInfo?.Overview}
+        <p class="music-artist-bio">{artistInfo.Overview}</p>
+      {/if}
+      <div class="music-artist-actions">
+        <button class="primary-action" on:click={() => playArtist(activeArtist)}>
+          <Play size={18} fill="currentColor" /> Play
+        </button>
+        <button class="secondary-action music-artist-shuffle" on:click={() => playArtistShuffled(activeArtist)}>
+          <Shuffle size={16} /> Shuffle
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {#if artistSongs.length}
     <section class="feed-section">
       <div class="section-heading">
-        <div class="music-page-title">
-          <h2>Music</h2>
-          <span>{sources.length} selected music {sources.length === 1 ? 'library' : 'libraries'}</span>
-        </div>
-        <div class="section-actions">
-          <button class="text-action" on:click={() => playSongs(songs, 0)}>
-            <Play size={15} fill="currentColor" /> Play all songs
-          </button>
-        </div>
+        <h2>Top songs</h2>
+        <span>{artistSongs.length} in the library</span>
       </div>
-      <div class="music-albums-grid">
-        {#each albums as album (album.Id)}
-          <MusicAlbumCard {client} {album} on:select={(event) => playAlbum(event.detail)} />
+      <div class="music-song-list">
+        {#each artistSongs.slice(0, 8) as song, index (song.Id)}
+          <MusicSongRow
+            {song}
+            rank={index + 1}
+            active={song.Id === musicCurrentId}
+            playingNow={song.Id === musicCurrentId && musicPlaying}
+            on:select={() => playTrackList(artistSongs, index)}
+          />
         {/each}
       </div>
     </section>
+  {/if}
 
-    {#if artists.length}
-      <section class="feed-section">
-        <div class="section-heading"><h2>Artists</h2><span>{artists.length} in the library</span></div>
-        <div class="music-artists-grid">
-          {#each artists as artist (artist.Id)}
-            <div class="music-artist">
-              <button
-                class="music-artist-art-btn"
-                aria-label={"Open artist " + artist.Name}
-                on:click={() => openArtist(artist)}
-              >
-                <span class="music-artist-art">
-                  {#if client.getImageUrl(artist, 320)}
-                    <img src={client.getImageUrl(artist, 320)} alt="" loading="lazy" />
-                  {:else}
-                    <span>{artist.Name.slice(0, 1)}</span>
-                  {/if}
-                </span>
-              </button>
-              <button
-                class="music-artist-play"
-                aria-label={"Play " + artist.Name}
-                title={"Shuffle " + artist.Name}
-                on:click={() => void playArtistShuffled(artist)}
-              >
-                <Play size={17} fill="currentColor" />
-              </button>
-              <button class="music-artist-name" on:click={() => openArtist(artist)}>
-                {artist.Name}
-              </button>
-            </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
+  {#if artistAlbums.length}
+    <section class="feed-section">
+      <div class="section-heading">
+        <h2>Albums</h2>
+        <span>{artistAlbums.length} total</span>
+      </div>
+      <div class="music-albums-grid">
+        {#each artistAlbums as album (album.Id)}
+          <MusicAlbumCard {client} {album}
+            on:play={(event) => playAlbum(event.detail)}
+            on:open={(event) => openAlbum(event.detail)}
+            on:artist={(event) => openArtistFromAlbum(event.detail)}
+          />
+        {/each}
+      </div>
+    </section>
+  {/if}
 
-    {#if songs.length}
-      <section class="feed-section">
-        <div class="section-heading"><h2>New songs</h2><span>{songs.length} recent</span></div>
-        <div class="music-song-list">
-          {#each songs as song, index (song.Id)}
-            <MusicSongRow {song} on:select={() => playSongs(songs, index)} />
-          {/each}
-        </div>
-      </section>
-    {/if}
+{:else if activeArtist && artistBusy}
+  <div class="music-artist-hero">
+    <span class="music-avatar-skeleton"></span>
+    <div class="music-artist-copy">
+      <span class="music-artist-name-skeleton"></span>
+      <span class="music-artist-bio-skeleton"></span>
+    </div>
+  </div>
+  <section class="feed-section">
+    <div class="section-heading"><h2>Top songs</h2></div>
+    {#each Array.from({ length: 5 }) as _}
+      <span class="music-song-skeleton"></span>
+    {/each}
+  </section>
+  <section class="feed-section">
+    <div class="section-heading"><h2>Albums</h2></div>
+    <div class="music-albums-grid">
+      {#each Array.from({ length: 6 }) as _}
+        <span class="music-skeleton"></span>
+      {/each}
+    </div>
+  </section>
+
+{:else}
+  <!-- ======================= BROWSE ======================= -->
+  <section class="feed-section">
+    <div class="section-heading">
+      <div class="music-page-title">
+        <h2>Music</h2>
+        <span>{sources.length} selected music {sources.length === 1 ? 'library' : 'libraries'}</span>
+      </div>
+      <div class="section-actions">
+        <button class="text-action" on:click={() => playTrackList(songs, 0)}>
+          <Play size={15} fill="currentColor" /> Play all songs
+        </button>
+      </div>
+    </div>
+    <div class="music-albums-grid">
+      {#each albums as album (album.Id)}
+        <MusicAlbumCard {client} {album}
+          on:play={(event) => playAlbum(event.detail)}
+          on:open={(event) => openAlbum(event.detail)}
+          on:artist={(event) => openArtistFromAlbum(event.detail)}
+        />
+      {/each}
+    </div>
+  </section>
+
+  {#if artists.length}
+    <section class="feed-section">
+      <div class="section-heading"><h2>Artists</h2><span>{artists.length} in the library</span></div>
+      <div class="music-artists-grid">
+        {#each artists as artist (artist.Id)}
+          <div class="music-artist">
+            <button class="music-artist-art-btn" aria-label={"Open artist " + artist.Name} on:click={() => openArtist(artist)}>
+              <span class="music-artist-art">
+                {#if client.getImageUrl(artist, 320)}
+                  <img src={client.getImageUrl(artist, 320)} alt="" loading="lazy" />
+                {:else}
+                  <span>{artist.Name.slice(0, 1)}</span>
+                {/if}
+              </span>
+            </button>
+            <button class="music-artist-play" aria-label={"Play " + artist.Name} title={"Shuffle " + artist.Name} on:click={() => void playArtistShuffled(artist)}>
+              <Play size={17} fill="currentColor" />
+            </button>
+            <button class="music-artist-name" on:click={() => openArtist(artist)}>
+              {artist.Name}
+            </button>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if songs.length}
+    <section class="feed-section">
+      <div class="section-heading"><h2>New songs</h2><span>{songs.length} recent</span></div>
+      <div class="music-song-list">
+        {#each songs as song, index (song.Id)}
+          <MusicSongRow
+            {song}
+            active={song.Id === musicCurrentId}
+            playingNow={song.Id === musicCurrentId && musicPlaying}
+            on:select={() => playTrackList(songs, index)}
+          />
+        {/each}
+      </div>
+    </section>
   {/if}
 {/if}
 
@@ -344,7 +540,7 @@
     gap: 22px 16px;
   }
 
-  /* ---- Artist hero ---- */
+  /* ---- Shared hero ---- */
   .music-artist-hero {
     --artist-backdrop: none;
     position: relative;
@@ -373,7 +569,7 @@
     background-position: center;
     background-size: cover;
     opacity: 0.22;
-    filter: saturate(1.15) blur(10px);
+    filter: saturate(1.15) blur(12px);
     transform: scale(1.12);
   }
   .music-artist-hero::after {
@@ -402,16 +598,16 @@
     color: var(--text);
     background: var(--soft);
   }
-  .music-artist-avatar {
+  .music-artist-avatar,
+  .music-album-art-big {
     position: relative;
     width: 100%;
-    max-width: 220px;
+    max-width: 230px;
     aspect-ratio: 1;
     align-self: center;
     display: grid;
     place-items: center;
     overflow: hidden;
-    border-radius: 50%;
     border: 4px solid color-mix(in srgb, var(--surface) 85%, transparent);
     background: var(--soft);
     box-shadow: 0 20px 44px var(--shadow);
@@ -419,7 +615,14 @@
     font-size: 3.4rem;
     font-weight: 800;
   }
-  .music-artist-avatar img {
+  .music-artist-avatar {
+    border-radius: 50%;
+  }
+  .music-album-art-big {
+    border-radius: 10px;
+  }
+  .music-artist-avatar img,
+  .music-album-art-big img {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -461,6 +664,38 @@
     margin-right: 4px;
     color: color-mix(in srgb, var(--muted) 60%, transparent);
   }
+  .music-album-byline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 1.02rem;
+    font-weight: 700;
+  }
+  .music-artist-link {
+    padding: 0;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    background: transparent;
+  }
+  .music-artist-link:hover {
+    color: var(--focus);
+    text-decoration: underline;
+  }
+  .music-album-meta-line {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .music-album-meta-line::before {
+    content: "•";
+    margin-right: 8px;
+    color: color-mix(in srgb, var(--muted) 60%, transparent);
+  }
   .music-artist-bio {
     display: -webkit-box;
     max-width: 820px;
@@ -483,7 +718,8 @@
     color: var(--text);
   }
 
-  /* ---- Artist skeletons ---- */
+  /* ---- Skeletons ---- */
+  .music-avatar-skeleton,
   .music-artist-name-skeleton,
   .music-artist-bio-skeleton,
   .music-song-skeleton,
@@ -492,6 +728,13 @@
     border-radius: 8px;
     background: var(--soft);
     animation: pulse 1.2s ease-in-out infinite;
+  }
+  .music-avatar-skeleton {
+    width: 100%;
+    max-width: 230px;
+    aspect-ratio: 1;
+    align-self: center;
+    border-radius: 10px;
   }
   .music-artist-name-skeleton {
     width: 45%;
@@ -605,6 +848,9 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+  .music-song-list :global(.music-song-row.active) {
+    background: var(--soft-2);
+  }
   @media (max-width: 720px) {
     .music-artist-hero {
       grid-template-columns: 1fr;
@@ -612,7 +858,8 @@
       gap: 18px;
       padding: 22px;
     }
-    .music-artist-avatar {
+    .music-artist-avatar,
+    .music-album-art-big {
       width: 150px;
       margin: 8px auto 0;
     }

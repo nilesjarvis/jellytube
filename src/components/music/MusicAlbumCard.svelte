@@ -8,52 +8,48 @@
   export let client: JellyfinClient;
   export let album: JellyfinItem;
 
-  const dispatch = createEventDispatcher<{ select: JellyfinItem }>();
+  // play = play the album, open = go to the album page, artist = go to the artist
+  const dispatch = createEventDispatcher<{ play: JellyfinItem; open: JellyfinItem; artist: JellyfinItem }>();
 
   $: artist = album.AlbumArtist || album.Artists?.join(', ') || '';
-  $: year = album.ProductionYear ? String(album.ProductionYear) : '';
   $: imageUrl = client.getImageUrl(album, 360);
   $: title = displayTitle(album);
+  $: hasArtist = artist.length > 0;
 </script>
 
-<button class="music-album-card" aria-label={`Play ${title}`} on:click={() => dispatch('select', album)}>
-  <span class="music-album-art">
-    {#if imageUrl}
-      <img src={imageUrl} alt="" loading="lazy" />
-    {:else}
-      <span class="music-art-fallback">{title.slice(0, 1)}</span>
-    {/if}
-    <span class="music-play-overlay">
-      <Play size={22} fill="currentColor" aria-hidden="true" />
+<div class="music-album-card">
+  <button class="music-album-art-btn" aria-label={"Play album " + title} on:click={() => dispatch('play', album)}>
+    <span class="music-album-art">
+      {#if imageUrl}
+        <img src={imageUrl} alt="" loading="lazy" />
+      {:else}
+        <span class="music-art-fallback">{title.slice(0, 1)}</span>
+      {/if}
+      <span class="music-play-overlay">
+        <Play size={22} fill="currentColor" aria-hidden="true" />
+      </span>
     </span>
-  </span>
-  <strong class="music-album-title">{title}</strong>
-  {#if artist || year}
-    <span class="music-album-sub">{artist}{artist && year ? ' · ' : ''}{year}</span>
+  </button>
+
+  <button class="music-album-title" on:click={() => dispatch('open', album)}>{title}</button>
+
+  {#if hasArtist}
+    <button class="music-album-artist" on:click={() => dispatch('artist', album)}>{artist}</button>
   {/if}
-</button>
+</div>
 
 <style>
   .music-album-card {
     min-width: 0;
     display: grid;
-    gap: 8px;
+    gap: 7px;
+  }
+  .music-album-art-btn {
+    width: 100%;
     padding: 0;
     border: 0;
-    color: var(--text);
-    text-align: left;
-    background: transparent;
-  }
-  .music-album-card:hover .music-play-overlay {
-    opacity: 1;
-  }
-  .music-album-card:focus-visible .music-play-overlay {
-    opacity: 1;
-  }
-  .music-album-card:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 4px;
     border-radius: 8px;
+    background: transparent;
   }
   .music-album-art {
     position: relative;
@@ -92,19 +88,40 @@
   .music-play-overlay :global(svg) {
     fill: currentColor;
   }
-  .music-album-title {
-    overflow: hidden;
-    font-size: 0.95rem;
-    font-weight: 600;
-    line-height: 1.25;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .music-album-art-btn:hover .music-play-overlay,
+  .music-album-art-btn:focus-visible .music-play-overlay {
+    opacity: 1;
   }
-  .music-album-sub {
+  .music-album-art-btn:focus-visible {
+    outline: none;
+  }
+  .music-album-title,
+  .music-album-artist {
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    background: transparent;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .music-album-title {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.25;
+  }
+  .music-album-title:hover {
+    color: var(--muted);
+  }
+  .music-album-artist {
+    margin-top: -3px;
     color: var(--muted);
     font-size: 0.85rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  }
+  .music-album-artist:hover,
+  .music-album-artist:focus-visible {
+    color: var(--focus);
+    text-decoration: underline;
   }
 </style>

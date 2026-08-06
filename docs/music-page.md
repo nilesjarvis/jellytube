@@ -13,11 +13,15 @@ staying visually consistent with the YouTube-style design.
   and **Music** (new audio browse + player). The audio tab appears whenever at
   least one Music library is connected.
 - The **Music page** (`src/components/music/MusicPage.svelte`) browses albums,
-  artists, and recent songs. Clicking an album plays its tracks; clicking a
-  song plays it within the song queue; clicking an artist opens a dedicated,
-  hero-backed **artist view** (blurred-artwork backdrop, round avatar, album &
-  song counts, bio, Play / Shuffle actions, a ranked Top songs list, and their
-  albums). Browse cards carry a play chip that shuffles the artist's songs.
+  artists, and recent songs. Album cards have distinct targets: the **cover art
+  plays the album**, the **title opens the album page**, and the **artist name
+  opens the artist page**.
+- The **album view** shows a hero (cover art, artist link, year · genre, track
+  count and total duration, bio, Play / Shuffle) plus the full track list with a
+  live highlight for the currently-playing song.
+- The **artist view** shows a blurred-artwork hero (round avatar, album & song
+  counts, bio, Play / Shuffle, a ranked Top songs list) and their albums. Back
+  from an album returns to the artist you came from.
 - A **persistent now-playing bar** (`src/components/music/MusicPlayer.svelte`)
   plays audio via a plain `<audio>` element with direct `/Audio/…/stream`
   URLs, and includes play/pause, prev/next, seek, volume, shuffle, repeat,
