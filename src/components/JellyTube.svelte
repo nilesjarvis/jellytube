@@ -71,6 +71,7 @@
   } from '../lib/showRecommendations';
   import { normalizeSearch, rankSearchResults, searchLoadedItems } from '../lib/search';
   import { saveSession } from '../lib/session';
+  import { applyTvInputClass, onTvInputChange } from '../lib/inputMode';
   import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
   import { applyProgressiveResult } from '../lib/progressiveLoad';
   import { latestAddedSections } from '../lib/homeLatest';
@@ -338,6 +339,9 @@
 
   onMount(() => {
     applyTheme();
+    applyTvInputClass();
+    const removeTvInputListener = onTvInputChange(applyTvInputClass);
+    document.addEventListener('keydown', handleGridArrowKeydown);
     const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleSystemThemeChange = () => {
       if (themeMode === 'system') applyTheme();
@@ -346,10 +350,46 @@
     window.addEventListener('popstate', handlePopState);
     void initializeApp();
     return () => {
+      removeTvInputListener();
+      document.removeEventListener('keydown', handleGridArrowKeydown);
       colorSchemeQuery.removeEventListener('change', handleSystemThemeChange);
       window.removeEventListener('popstate', handlePopState);
     };
   });
+
+  const GRID_CARD_SELECTOR = '.video-card, .episode-tile, .mix-card-wrap';
+  const GRID_CONTAINER_SELECTOR = '.video-grid, .movie-grid, .episode-strip, .mix-grid, .actor-grid';
+
+  function handleGridArrowKeydown(event: KeyboardEvent) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    // The player shell owns its own arrow-key handling (seek, resize handles, menus).
+    if (target.closest('.watch-layout')) return;
+    if (target.closest('[role="menu"], [role="dialog"]')) return;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    ) {
+      return;
+    }
+    const grid = target.closest<HTMLElement>(GRID_CONTAINER_SELECTOR);
+    const currentCard = target.closest<HTMLElement>(GRID_CARD_SELECTOR);
+    if (!grid || !currentCard) return;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(GRID_CARD_SELECTOR));
+    const currentIndex = cards.indexOf(currentCard);
+    if (currentIndex < 0) return;
+    const nextIndex = event.key === 'ArrowRight' ? currentIndex + 1 : currentIndex - 1;
+    const nextCard = cards[nextIndex];
+    if (!nextCard) return;
+    event.preventDefault();
+    const focusTarget =
+      nextCard.querySelector<HTMLElement>('.thumbnail-button, .mix-card') ?? nextCard;
+    focusTarget.focus({ preventScroll: true });
+    nextCard.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 
   async function initializeApp() {
     const initialRoute = readUrlRoute();

@@ -2648,6 +2648,7 @@ label {
 }
 
 .episode-shelf {
+  position: relative;
   margin-top: 22px;
 }
 
@@ -3960,4 +3961,95 @@ label {
   .theater-control {
     display: none !important;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Hoverless / TV input                                                */
+/* ------------------------------------------------------------------ */
+
+/* Episode nav buttons: show the target episode code as a persistent   */
+/* label wherever hover is impossible (TV remotes, touch). Mouse users */
+/* keep the compact icon-only buttons with hover tooltips.             */
+.episode-nav-label {
+  display: none;
+}
+
+@media (hover: none) {
+  .episode-nav-control {
+    width: auto;
+    padding: 0 12px;
+    gap: 6px;
+    grid-auto-flow: column;
+    border-radius: 999px;
+  }
+
+  .episode-nav-label {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* TV-browser adaptations. The html.tv-input class is set from JS only */
+/* when the device reports a coarse pointer, no hover, and no touch    */
+/* events (LG webOS, Samsung Tizen), so phones and tablets are         */
+/* unaffected.                                                         */
+.episode-strip-scroll {
+  display: none;
+}
+
+html.tv-input .player-controls-layer {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+html.tv-input .episode-strip-scroll {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  top: 45%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  z-index: 4;
+}
+
+html.tv-input .episode-strip-scroll:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+html.tv-input .episode-strip-prev {
+  left: 8px;
+}
+
+html.tv-input .episode-strip-next {
+  right: 8px;
+}
+
+/* 10-foot focus: outline + subtle image zoom so the focused card reads */
+/* from across the room. Transforms stay on the img inside overflow-    */
+/* hidden frames, so no layout or scrollbar changes.                    */
+html.tv-input .video-card .thumbnail-button:focus-visible,
+html.tv-input .episode-tile:focus-visible,
+html.tv-input .mix-card:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 3px;
+}
+
+html.tv-input .thumbnail-button:focus-visible img,
+html.tv-input .episode-tile:focus-visible .episode-thumb img {
+  transform: scale(1.06);
+  transition: transform 150ms ease;
+}
+
+html.tv-input .video-card:has(.thumbnail-button:focus-visible),
+html.tv-input .mix-card-wrap:has(.mix-card:focus-visible) {
+  z-index: 2;
 }
