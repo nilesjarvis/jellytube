@@ -22,6 +22,7 @@
     SkipBack,
     SkipForward,
     Sparkles,
+    Star,
     TriangleAlert,
     Volume2,
     VolumeX,
@@ -30,6 +31,7 @@
   import type { JellyfinClient, PlaybackEventPayload } from '../lib/jellyfin';
   import {
     channelName,
+    communityRating,
     compactMeta,
     displayTitle,
     formatDuration,
@@ -303,6 +305,7 @@
   let playingNextAdvanceKey = '';
 
   $: currentEpisodeCode = episodeCode(detailedItem);
+  $: rating = communityRating(detailedItem);
   $: progress = playbackProgress(detailedItem);
   $: durationSeconds = duration || ticksToSeconds(detailedItem.RunTimeTicks);
   $: progressPercent = durationSeconds > 0 ? Math.min(100, (currentTime / durationSeconds) * 100) : 0;
@@ -2540,6 +2543,12 @@
         <span>{currentEpisodeCode}</span>
       {/if}
       <span>{compactMeta(detailedItem)}</span>
+      {#if rating}
+        <span class="watch-rating" title={`${rating.toFixed(1)} / 10`}>
+          <Star size={14} fill="currentColor" aria-hidden="true" />
+          {rating.toFixed(1)}
+        </span>
+      {/if}
       {#if formatDuration(detailedItem.RunTimeTicks)}
         <span>{formatDuration(detailedItem.RunTimeTicks)}</span>
       {/if}

@@ -37,6 +37,7 @@ import {
 } from '../src/lib/mediaFormat';
 import {
   channelName,
+  communityRating,
   compactMeta,
   dailyRecommendationSeed,
   continueWatching,
@@ -378,6 +379,18 @@ test('compact metadata and channel grouping use release date instead of import d
   } finally {
     Date.now = originalNow;
   }
+});
+
+test('community rating returns the clamped 0-10 value when present', () => {
+  assert.equal(communityRating(item({ Id: 'a', Name: 'A', CommunityRating: 7.8 })), 7.8);
+  assert.equal(communityRating(item({ Id: 'b', Name: 'B', CommunityRating: 12 })), 10);
+  assert.equal(communityRating(item({ Id: 'c', Name: 'C', CommunityRating: -3 })), 0);
+});
+
+test('community rating is undefined when the item has no rating', () => {
+  assert.equal(communityRating(item({ Id: 'd', Name: 'D' })), undefined);
+  assert.equal(communityRating(item({ Id: 'e', Name: 'E', CommunityRating: undefined })), undefined);
+  assert.equal(communityRating(item({ Id: 'f', Name: 'F', CommunityRating: Number.NaN })), undefined);
 });
 
 test('episode collections sort full series episodes by season, episode, then premiere date', () => {

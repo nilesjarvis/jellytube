@@ -2625,9 +2625,18 @@ label {
 .watch-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px 14px;
   color: var(--muted);
   font-size: 0.95rem;
+}
+
+.watch-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--star, #f5c518);
 }
 
 .watch-channel,

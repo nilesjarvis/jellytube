@@ -314,6 +314,16 @@ export function compactMeta(item: JellyfinItem) {
   return parts.join(' • ');
 }
 
+/**
+ * Item's community rating on Jellyfin's 0-10 scale, clamped to a valid range,
+ * or undefined when the item has no rating (e.g. no metadata provider data).
+ */
+export function communityRating(item: JellyfinItem): number | undefined {
+  const rating = item.CommunityRating;
+  if (typeof rating !== 'number' || !Number.isFinite(rating)) return undefined;
+  return Math.min(Math.max(rating, 0), 10);
+}
+
 export function channelMatches(item: JellyfinItem, channel: string) {
   return channelName(item).toLowerCase() === channel.toLowerCase();
 }
