@@ -9,6 +9,8 @@
   export let playingNow = false;
   /** When set, shows a plain rank (e.g. a countdown list) instead of the album track number. */
   export let rank: number | null = null;
+  /** Already-played entry in a queue drawer; rendered dimmed and non-interactive-looking. */
+  export let past = false;
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem }>();
 
@@ -19,6 +21,7 @@
 
 <button
   class:active
+  class:past
   class="music-song-row"
   aria-pressed={active}
   on:click={() => dispatch('select', song)}
@@ -26,6 +29,8 @@
   <span class="music-song-track">
     {#if active && playingNow}
       <span class="music-eq" aria-hidden="true"><i></i><i></i><i></i></span>
+    {:else if active}
+      <span class="music-song-resume" aria-hidden="true"><Play size={14} fill="currentColor" /></span>
     {:else}
       {trackNumber}
     {/if}
@@ -55,6 +60,14 @@
   }
   .music-song-row.active {
     background: var(--soft-2);
+  }
+  .music-song-row.past {
+    opacity: 0.55;
+  }
+  .music-song-resume {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
   }
   .music-song-row.active :global(.music-song-title) {
     color: var(--focus);

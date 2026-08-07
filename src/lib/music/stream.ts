@@ -10,8 +10,19 @@ export type MusicStream = {
   playMethod: MusicStreamPlayMethod;
 };
 
-export function pickMusicSource(info: PlaybackInfo): JellyfinMediaSource | null {
+export function pickMusicSource(
+  info: PlaybackInfo,
+  options: { forceTranscode?: boolean } = {}
+): JellyfinMediaSource | null {
   const sources = info.MediaSources ?? [];
+  if (options.forceTranscode) {
+    return (
+      sources.find((source) => source.SupportsTranscoding) ??
+      sources.find((source) => !source.SupportsDirectPlay) ??
+      sources[0] ??
+      null
+    );
+  }
   return (
     sources.find((source) => source.SupportsDirectPlay) ??
     sources.find((source) => source.SupportsTranscoding) ??
@@ -23,16 +34,20 @@ export function pickMusicSource(info: PlaybackInfo): JellyfinMediaSource | null 
 /**
  * Resolve a playable audio URL for a song. Prefers a static direct stream; falls
  * back to Jellyfin's own transcoded URL when the container cannot be direct-played.
+ * When `options.forceTranscode` is set, a transcoded (non-direct) source is used
+ * even if the server reported direct play — used to recover when a direct stream
+ * fails to decode or cannot be fetched.
  */
 export function musicStreamFor(
   client: JellyfinClient,
   itemId: string,
-  info: PlaybackInfo
+  info: PlaybackInfo,
+  options: { forceTranscode?: boolean } = {}
 ): MusicStream | null {
-  const source = pickMusicSource(info);
+  const source = pickMusicSource(info, options);
   if (!source) return null;
 
-  if (source.SupportsDirectPlay) {
+  if (!options.forceTranscode && source.SupportsDirectPlay) {
     return {
       src: client.getAudioStreamUrl(itemId, source.Id, source.Container),
       mediaSource: source,

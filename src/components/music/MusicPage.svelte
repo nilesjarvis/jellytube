@@ -3,7 +3,7 @@
   import { ArrowLeft, Clock, Disc3, ListMusic, Music2, Play, Shuffle } from 'lucide-svelte';
   import type { JellyfinClient } from '../../lib/jellyfin';
   import type { SelectedLibrary, JellyfinItem } from '../../lib/types';
-  import { musicPlayerState, playTracks } from '../../lib/music/store';
+  import { musicPlayerState, playTracks, togglePlayPause } from '../../lib/music/store';
   import { formatDuration } from '../../lib/recommendations';
   import { normalizeSearch } from '../../lib/search';
   import MusicAlbumCard from './MusicAlbumCard.svelte';
@@ -297,6 +297,33 @@
 
   function playAlbumTracks(startIndex: number) {
     playTrackList(albumTracks, startIndex);
+  }
+
+  /**
+   * Clicking a song row: if it's already the current track, pause/resume it in
+   * place instead of restarting it at 0:00; otherwise start the list there.
+   */
+  function selectSongInList(list: JellyfinItem[], index: number, track: JellyfinItem) {
+    if (track.Id === musicCurrentId) togglePlayPause();
+    else playTrackList(list, index);
+  }
+
+  // The album/artist Play buttons are state-aware: when their track list is the
+  // one currently playing, the button becomes Pause and toggles in place rather
+  // than silently restarting the album from track 1.
+  function albumNowPlaying(): boolean {
+    return musicPlaying && musicCurrentId != null && albumTracks.some((item) => item.Id === musicCurrentId);
+  }
+  function toggleAlbumPlay() {
+    if (albumNowPlaying()) togglePlayPause();
+    else playAlbumTracks(0);
+  }
+  function artistNowPlaying(): boolean {
+    return musicPlaying && musicCurrentId != null && artistSongs.some((item) => item.Id === musicCurrentId);
+  }
+  function toggleArtistPlay() {
+    if (artistNowPlaying()) togglePlayPause();
+    else void playArtist(activeArtist);
   }
 
   async function fetchArtistAlbums(artist: JellyfinItem) {
@@ -600,8 +627,8 @@
         <p class="music-artist-bio">{albumInfo.Overview}</p>
       {/if}
       <div class="music-artist-actions">
-        <button class="primary-action" on:click={() => playAlbumTracks(0)}>
-          <Play size={18} fill="currentColor" /> Play
+        <button class="primary-action" on:click={toggleAlbumPlay}>
+          <Play size={18} fill="currentColor" /> {albumNowPlaying() ? 'Pause' : 'Play'}
         </button>
         <button class="secondary-action music-artist-shuffle" on:click={() => playTrackList(shuffled(albumTracks), 0)}>
           <Shuffle size={16} /> Shuffle
@@ -621,7 +648,7 @@
           {song}
           active={song.Id === musicCurrentId}
           playingNow={song.Id === musicCurrentId && musicPlaying}
-          on:select={() => playAlbumTracks(index)}
+          on:select={() => selectSongInList(albumTracks, index, song)}
         />
       {/each}
     </div>
@@ -667,8 +694,8 @@
         <p class="music-artist-bio">{artistInfo.Overview}</p>
       {/if}
       <div class="music-artist-actions">
-        <button class="primary-action" on:click={() => playArtist(activeArtist)}>
-          <Play size={18} fill="currentColor" /> Play
+        <button class="primary-action" on:click={toggleArtistPlay}>
+          <Play size={18} fill="currentColor" /> {artistNowPlaying() ? 'Pause' : 'Play'}
         </button>
         <button class="secondary-action music-artist-shuffle" on:click={() => playArtistShuffled(activeArtist)}>
           <Shuffle size={16} /> Shuffle
@@ -695,7 +722,7 @@
             rank={index + 1}
             active={song.Id === musicCurrentId}
             playingNow={song.Id === musicCurrentId && musicPlaying}
-            on:select={() => playTrackList(artistSongs, index)}
+            on:select={() => selectSongInList(artistSongs, index, song)}
           />
         {/each}
       </div>
@@ -757,6 +784,9 @@
       <div class="section-actions">
         <button class="text-action" on:click={() => playTrackList(songs, 0)} disabled={songsState !== 'ready' || songs.length === 0}>
           <Play size={15} fill="currentColor" /> Play new songs
+        </button>
+        <button class="text-action" on:click={() => playTrackList(shuffled(songs), 0)} disabled={songsState !== 'ready' || songs.length === 0}>
+          <Shuffle size={15} /> Shuffle
         </button>
       </div>
     </div>
@@ -909,7 +939,7 @@
               {song}
               active={song.Id === musicCurrentId}
               playingNow={song.Id === musicCurrentId && musicPlaying}
-              on:select={() => playTrackList(songs, index)}
+              on:select={() => selectSongInList(songs, index, song)}
             />
           {/each}
         </div>

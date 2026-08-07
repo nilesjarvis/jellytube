@@ -169,6 +169,35 @@ test('musicStreamFor prefers a direct audio stream when available', () => {
   }
 });
 
+test('musicStreamFor falls back to a transcoded stream even when direct play is reported (forceTranscode)', () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  try {
+    const client = new JellyfinClient('http://media.local', 'tok');
+    const info = {
+      MediaSources: [
+        { Id: 'src-direct', SupportsDirectPlay: true, Container: 'flac' },
+        { Id: 'src-trans', SupportsTranscoding: true, TranscodingUrl: '/Audio/song-1/stream.aac', TranscodingContainer: 'aac' }
+      ]
+    };
+    // Normal resolution prefers the direct source ...
+    const normal = musicStreamFor(client, 'song-1', info);
+    assert.equal(normal!.playMethod, 'DirectPlay');
+    // ... but a failed direct play recovers via a transcoded stream.
+    const recovered = musicStreamFor(client, 'song-1', info, { forceTranscode: true });
+    assert.equal(recovered!.playMethod, 'Transcode');
+    assert.equal(recovered!.src, 'http://media.local/Audio/song-1/stream.aac?api_key=tok');
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
 test('musicStreamFor falls back to Jellyfin transcoding URL without direct play', () => {
   const originalLocalStorage = globalThis.localStorage;
   Object.defineProperty(globalThis, 'localStorage', {

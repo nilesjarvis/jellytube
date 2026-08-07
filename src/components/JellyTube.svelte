@@ -3284,6 +3284,6 @@
   </main>
 
   {#if !activePlaybackItem}
-    <MusicPlayer {client} />
+    <MusicPlayer {client} on:openItem={(event) => navigateTo({ view: 'music', item: event.detail })} />
   {/if}
 </div>

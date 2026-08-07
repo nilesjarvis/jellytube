@@ -333,12 +333,17 @@ export class JellyfinClient {
     return result.Items ?? [];
   }
 
-  async getSimilarItems(itemId: string, limit = 48): Promise<ItemResponse> {
+  async getSimilarItems(
+    itemId: string,
+    limit = 48,
+    includeItemTypes?: string
+  ): Promise<ItemResponse> {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<ItemResponse>(`/Items/${itemId}/Similar`, {
       userId: this.userId,
       Fields: itemFields,
-      Limit: String(limit)
+      Limit: String(limit),
+      ...(includeItemTypes ? { IncludeItemTypes: includeItemTypes } : {})
     });
   }
 
@@ -383,7 +388,13 @@ export class JellyfinClient {
 
   async getMusicAlbums(
     sourceId: string,
-    options: { limit?: number; startIndex?: number; sortBy?: string; sortOrder?: 'Ascending' | 'Descending' } = {}
+    options: {
+      limit?: number;
+      startIndex?: number;
+      sortBy?: string;
+      sortOrder?: 'Ascending' | 'Descending';
+      filters?: string;
+    } = {}
   ) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
@@ -394,7 +405,47 @@ export class JellyfinClient {
       SortBy: options.sortBy ?? 'PremiereDate',
       SortOrder: options.sortOrder ?? 'Descending',
       Limit: String(options.limit ?? 80),
-      StartIndex: String(options.startIndex ?? 0)
+      StartIndex: String(options.startIndex ?? 0),
+      ...(options.filters ? { Filters: options.filters } : {})
+    });
+  }
+
+  /** Music genres with item counts, sorted most-populated first (genre browsing). */
+  async getMusicGenres(sourceId: string, limit = 40) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/MusicGenres`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      EnableImages: 'true',
+      SortBy: 'ItemCount',
+      SortOrder: 'Descending',
+      Fields: 'PrimaryImageAspectRatio,ChildCount',
+      Limit: String(limit)
+    });
+  }
+
+  /** Albums belonging to a genre within a library source. */
+  async getGenreAlbums(genre: string, sourceId: string, limit = 80) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'MusicAlbum',
+      Genres: genre,
+      Fields: itemFields,
+      SortBy: 'PremiereDate',
+      SortOrder: 'Descending',
+      Limit: String(limit)
+    });
+  }
+
+  /** InstantMix radio: a shuffled queue of tracks similar to a seed item. */
+  async getInstantMix(itemId: string, limit = 40) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Items/${itemId}/InstantMix`, {
+      userId: this.userId,
+      Fields: itemFields,
+      Limit: String(limit)
     });
   }
 
@@ -509,11 +560,16 @@ export class JellyfinClient {
   }
 
   /** Playback info tuned for audio music (uses an audio device profile). */
-  async getAudioPlaybackInfo(itemId: string, positionTicks = 0) {
+  async getAudioPlaybackInfo(itemId: string, positionTicks = 0, forceTranscode = false) {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const body: Record<string, unknown> = { DeviceProfile: musicDeviceProfile() };
+    if (forceTranscode) {
+      body.EnableDirectPlay = false;
+      body.EnableDirectStream = false;
+    }
     return this.post<PlaybackInfo>(
       `/Items/${itemId}/PlaybackInfo`,
-      { DeviceProfile: musicDeviceProfile() },
+      body,
       {
         userId: this.userId,
         StartTimeTicks: String(positionTicks),
@@ -541,6 +597,18 @@ export class JellyfinClient {
 
   async reportPlaybackStopped(payload: PlaybackEventPayload) {
     return this.post<void>('/Sessions/Playing/Stopped', payload);
+  }
+
+  /**
+   * Mark (or clear) an item as a favorite for the signed-in user. Jellyfin uses
+   * POST to add and DELETE to remove; the UI toggles optimistically.
+   */
+  async setFavorite(itemId: string, favorite: boolean): Promise<void> {
+    if (favorite) {
+      await this.post<void>(`/Items/${itemId}/Favorite`);
+    } else {
+      await this.request<void>('DELETE', `/Items/${itemId}/Favorite`, undefined, undefined, true, undefined);
+    }
   }
 
   getImageUrl(item: Pick<JellyfinItem, 'Id' | 'ImageTags'>, width = 640) {

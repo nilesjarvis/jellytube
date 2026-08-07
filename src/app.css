@@ -4077,3 +4077,11 @@ html.tv-input .mix-card-wrap:has(.mix-card:focus-visible) {
   z-index: 2;
 }
 
+/* The music now-playing bar stacks into ~3 rows on phones (~188px tall), so
+   reserve much more vertical space than the desktop single-row height so the
+   fixed bar never covers the bottom of the page content. */
+@media (max-width: 640px) {
+  .content.music-playing {
+    padding-bottom: 200px;
+  }
+}
