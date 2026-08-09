@@ -4,23 +4,31 @@ import { resolve } from 'node:path';
 import { build } from 'esbuild';
 
 const outdir = resolve('.tmp-tests');
-const outfile = resolve(outdir, 'lib.test.mjs');
 
 await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
 
 await build({
-  entryPoints: ['tests/lib.test.ts'],
-  outfile,
+  entryPoints: ['tests/lib.test.ts', 'tests/music.test.ts'],
+  outdir,
   bundle: true,
   format: 'esm',
   platform: 'node',
   target: 'node20',
-  sourcemap: 'inline'
+  sourcemap: 'inline',
+  outExtension: { '.js': '.mjs' }
 });
 
-const child = spawn(process.execPath, [outfile], { stdio: 'inherit' });
-child.on('exit', async (code) => {
-  await rm(outdir, { recursive: true, force: true });
-  process.exit(code ?? 1);
-});
+const { readdir } = await import('node:fs/promises');
+const files = (await readdir(outdir)).filter((file) => file.endsWith('.mjs'));
+for (const file of files) {
+  await new Promise((runResolve) => {
+    const child = spawn(process.execPath, [resolve(outdir, file)], { stdio: 'inherit' });
+    child.on('exit', (code) => {
+      if (code !== 0 && code !== null) process.exitCode = 1;
+      runResolve();
+    });
+  });
+}
+await rm(outdir, { recursive: true, force: true });
+process.exit(process.exitCode ?? 0);

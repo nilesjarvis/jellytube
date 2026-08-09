@@ -8,6 +8,7 @@
     LogOut,
     Menu,
     Moon,
+    Music,
     Music2,
     Play,
     Podcast,
@@ -90,17 +91,22 @@
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import WatchPage from './WatchPage.svelte';
+  import MusicPage from './music/MusicPage.svelte';
+  import MusicPlayer from './music/MusicPlayer.svelte';
+  import { musicPlayerState, playTracks } from '../lib/music/store';
 
   export let session: AppSession;
 
-  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
+  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
   type HomeSectionState = 'loading' | 'ready' | 'error';
+  type MusicItemSubview = { kind: 'album' | 'artist'; id: string };
   type UrlRoute =
     | { view: 'home' }
     | { view: 'movies' }
-    | { view: 'music' }
+    | { view: 'music'; item?: MusicItemSubview }
+    | { view: 'musicvideos' }
     | { view: 'shows' }
     | { view: 'subscriptions' }
     | { view: 'libraries' }
@@ -125,6 +131,7 @@
   let error = '';
   let menuOpen = false;
   let route: Route = 'home';
+  let musicItem: MusicItemSubview | null = null;
   let loadingRoute: Route = 'home';
   let loadingLabel = 'Loading content';
   let query = '';
@@ -209,6 +216,7 @@
   $: videoSources = session.selectedLibraries.filter((source) => source.contentKind === 'video');
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
+  $: audioSources = session.selectedLibraries.filter((source) => source.contentKind === 'audio');
   $: latestAddedCategorySections = latestAddedSections(latestAdded);
   $: latestShowRawItems = latestAdded.filter((item) => latestAddedSectionId(item) === 'shows');
   $: latestShowCounts = latestShowRawItems.reduce((counts, item) => {
@@ -349,6 +357,8 @@
       document.title = `${searchedFor} - JellyTube`;
     } else if (route === 'movies') {
       document.title = 'Movies - JellyTube';
+    } else if (route === 'musicvideos') {
+      document.title = 'Music Videos - JellyTube';
     } else if (route === 'music') {
       document.title = 'Music - JellyTube';
     } else if (route === 'shows') {
@@ -982,7 +992,14 @@
       return { view: 'home' };
     }
 
-    if (nextRoute.view === 'movies' || nextRoute.view === 'music' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
+    if (nextRoute.view === 'music') {
+      showSimpleRoute('music');
+      musicItem = nextRoute.item ?? null;
+      scrollToTop(options.scroll);
+      return nextRoute;
+    }
+
+    if (nextRoute.view === 'movies' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
       return nextRoute;
@@ -1160,6 +1177,20 @@
     } finally {
       loading = false;
     }
+  }
+
+  function openSearchResult(item: JellyfinItem) {
+    // Audio hits from a Music library belong in the persistent music player,
+    // not the video WatchPage (which cannot stream audio-only items).
+    if (item.contentKind === 'audio' || item.Type === 'Audio') {
+      const audioResults = searchResults.filter(
+        (candidate) => candidate.contentKind === 'audio' || candidate.Type === 'Audio'
+      );
+      const startIndex = audioResults.findIndex((candidate) => candidate.Id === item.Id);
+      playTracks(audioResults.length ? audioResults : [item], Math.max(0, startIndex));
+      return;
+    }
+    openItem(item);
   }
 
   function openActor(person: JellyfinPerson) {
@@ -1434,6 +1465,7 @@
     if (
       nextRoute === 'movies' ||
       nextRoute === 'music' ||
+      nextRoute === 'musicvideos' ||
       nextRoute === 'shows' ||
       nextRoute === 'subscriptions' ||
       nextRoute === 'libraries'
@@ -1446,12 +1478,19 @@
     }
   }
 
-  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'shows' | 'subscriptions') {
+  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions') {
     route = nextRoute;
     selectedChannelSeason = 0;
     selectedChannel = '';
     selectedActor = null;
     actorWork = [];
+  }
+
+  function onMusicNavigate(item: MusicItemSubview | null) {
+    musicItem = item;
+    // Push the music sub-view (album/artist) URL without re-applying the route,
+    // so browser back/forward can return to the music page correctly.
+    writeUrl({ view: 'music', item: item ?? undefined }, 'push');
   }
 
   async function openLibrarySettings() {
@@ -2111,7 +2150,14 @@
 
     if (section === 'search') return { view: 'search', query: url.searchParams.get('q') ?? '' };
     if (section === 'movies') return { view: 'movies' };
-    if (section === 'music') return { view: 'music' };
+    if (section === 'musicvideos') return { view: 'musicvideos' };
+    if (section === 'music') {
+      const sub = parts[1];
+      if ((sub === 'album' || sub === 'artist') && parts[2]) {
+        return { view: 'music', item: { kind: sub, id: parts[2] } };
+      }
+      return { view: 'music' };
+    }
     if (section === 'shows') return { view: 'shows' };
     if (section === 'subscriptions') return { view: 'subscriptions' };
     if (section === 'libraries') return { view: 'libraries' };
@@ -2136,7 +2182,11 @@
   function routeToUrl(nextRoute: UrlRoute) {
     if (nextRoute.view === 'home') return '/';
     if (nextRoute.view === 'movies') return '/movies';
-    if (nextRoute.view === 'music') return '/music';
+    if (nextRoute.view === 'musicvideos') return '/musicvideos';
+    if (nextRoute.view === 'music') {
+      const item = nextRoute.item;
+      return item ? `/music/${item.kind}/${encodeURIComponent(item.id)}` : '/music';
+    }
     if (nextRoute.view === 'shows') return '/shows';
     if (nextRoute.view === 'subscriptions') return '/subscriptions';
     if (nextRoute.view === 'libraries') return '/libraries';
@@ -2170,7 +2220,7 @@
 
   function loadingLabelForRoute(nextRoute: Route) {
     if (nextRoute === 'movies') return 'Loading movies';
-    if (nextRoute === 'music') return 'Loading music videos';
+    if (nextRoute === 'musicvideos') return 'Loading music videos';
     if (nextRoute === 'shows') return 'Loading shows';
     if (nextRoute === 'subscriptions') return 'Loading subscriptions';
     if (nextRoute === 'libraries') return 'Loading libraries';
@@ -2283,8 +2333,20 @@
       <Clapperboard size={21} />
       <span>Movies</span>
     </button>
-    <button class:active={route === 'music'} on:click={() => goRoute('music')} disabled={musicSources.length === 0}>
+    <button
+      class:active={route === 'musicvideos'}
+      on:click={() => goRoute('musicvideos')}
+      disabled={musicSources.length === 0}
+    >
       <Music2 size={21} />
+      <span>Music Videos</span>
+    </button>
+    <button
+      class:active={route === 'music'}
+      on:click={() => goRoute('music')}
+      disabled={audioSources.length === 0}
+    >
+      <Music size={21} />
       <span>Music</span>
     </button>
     <button class:active={route === 'shows'} on:click={() => goRoute('shows')} disabled={showDirectoryAll.length === 0}>
@@ -2317,7 +2379,7 @@
     </button>
   </aside>
 
-  <main class="content">
+  <main class="content" class:music-playing={!!$musicPlayerState.queue && !activePlaybackItem}>
     {#if activePlaybackItem}
       {#key activePlaybackItem.Id}
         <WatchPage
@@ -2439,7 +2501,7 @@
                 {item}
                 titleContext="recommendation"
                 titleChannel={channelName(item)}
-                on:select={(event) => openItem(event.detail)}
+                on:select={(event) => openSearchResult(event.detail)}
                 on:channel={(event) => openChannel(event.detail)}
               />
             {/each}
@@ -2502,6 +2564,14 @@
         </div>
       </section>
     {:else if route === 'music'}
+      {#if audioSources.length}
+        <MusicPage {client} sources={audioSources} item={musicItem} on:navigate={(event) => onMusicNavigate(event.detail)} />
+      {:else}
+        <div class="empty-state">
+          <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
+        </div>
+      {/if}
+    {:else if route === 'musicvideos'}
       {#if favoriteMusicMixes.length}
         <section class="feed-section favorite-mixes-section">
           <div class="section-heading">
@@ -3266,4 +3336,7 @@
     {/if}
   </main>
 
+  {#if !activePlaybackItem}
+    <MusicPlayer {client} on:openItem={(event) => navigateTo({ view: 'music', item: event.detail })} />
+  {/if}
 </div>

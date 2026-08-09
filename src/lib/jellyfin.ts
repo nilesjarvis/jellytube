@@ -72,6 +72,7 @@ export function libraryKindLabel(collectionType?: string) {
   if (collectionType === 'homevideos') return 'Home Videos & Photos';
   if (collectionType === 'movies') return 'Movies';
   if (collectionType === 'musicvideos') return 'Music Videos';
+  if (collectionType === 'music') return 'Music';
   return 'Library';
 }
 
@@ -92,12 +93,14 @@ export function contentKindForCollection(collectionType?: string): ContentKind |
   if (collectionType === 'tvshows' || collectionType === 'homevideos') return 'video';
   if (collectionType === 'movies') return 'movie';
   if (collectionType === 'musicvideos') return 'musicVideo';
+  if (collectionType === 'music') return 'audio';
   return null;
 }
 
 export function itemTypesForCollection(collectionType?: string) {
   if (collectionType === 'movies') return 'Movie';
   if (collectionType === 'musicvideos') return 'MusicVideo';
+  if (collectionType === 'music') return 'Audio';
   return 'Video,Episode';
 }
 
@@ -124,6 +127,10 @@ const itemFields = [
   'ProviderIds',
   'Artists',
   'ArtistItems',
+  'Album',
+  'AlbumId',
+  'AlbumArtist',
+  'AlbumArtists',
   'SeriesName',
   'SeriesId',
   'SeasonName',
@@ -152,6 +159,7 @@ export type ItemQuery = {
   searchTerm?: string;
   filters?: string;
   personIds?: string;
+  artistIds?: string;
 };
 
 export type SearchSuggestion = {
@@ -233,7 +241,8 @@ export class JellyfinClient {
       StartIndex: String(query.startIndex ?? 0),
       ...(query.searchTerm ? { SearchTerm: query.searchTerm } : {}),
       ...(query.filters ? { Filters: query.filters } : {}),
-      ...(query.personIds ? { PersonIds: query.personIds } : {})
+      ...(query.personIds ? { PersonIds: query.personIds } : {}),
+      ...(query.artistIds ? { ArtistIds: query.artistIds } : {})
     });
   }
 
@@ -324,12 +333,17 @@ export class JellyfinClient {
     return result.Items ?? [];
   }
 
-  async getSimilarItems(itemId: string, limit = 48): Promise<ItemResponse> {
+  async getSimilarItems(
+    itemId: string,
+    limit = 48,
+    includeItemTypes?: string
+  ): Promise<ItemResponse> {
     if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
     return this.get<ItemResponse>(`/Items/${itemId}/Similar`, {
       userId: this.userId,
       Fields: itemFields,
-      Limit: String(limit)
+      Limit: String(limit),
+      ...(includeItemTypes ? { IncludeItemTypes: includeItemTypes } : {})
     });
   }
 
@@ -355,6 +369,139 @@ export class JellyfinClient {
     return this.get<ItemResponse>(`/Shows/${seriesId}/Episodes`, {
       userId: this.userId,
       Fields: itemFields
+    });
+  }
+
+  async getMusicArtists(sourceId: string, limit = 80, startIndex = 0) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Artists`, {
+      userId: this.userId,
+      ParentId: sourceId,
+      SortBy: 'SortName',
+      SortOrder: 'Ascending',
+      Fields: 'PrimaryImageAspectRatio',
+      Limit: String(limit),
+      StartIndex: String(startIndex),
+      Recursive: 'true'
+    });
+  }
+
+  async getMusicAlbums(
+    sourceId: string,
+    options: {
+      limit?: number;
+      startIndex?: number;
+      sortBy?: string;
+      sortOrder?: 'Ascending' | 'Descending';
+      filters?: string;
+    } = {}
+  ) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'MusicAlbum',
+      Fields: itemFields,
+      SortBy: options.sortBy ?? 'PremiereDate',
+      SortOrder: options.sortOrder ?? 'Descending',
+      Limit: String(options.limit ?? 80),
+      StartIndex: String(options.startIndex ?? 0),
+      ...(options.filters ? { Filters: options.filters } : {})
+    });
+  }
+
+  /** Music genres with item counts, sorted most-populated first (genre browsing). */
+  async getMusicGenres(sourceId: string, limit = 40) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/MusicGenres`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      EnableImages: 'true',
+      SortBy: 'ItemCount',
+      SortOrder: 'Descending',
+      Fields: 'PrimaryImageAspectRatio,ChildCount',
+      Limit: String(limit)
+    });
+  }
+
+  /** Albums belonging to a genre within a library source. */
+  async getGenreAlbums(genre: string, sourceId: string, limit = 80) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'MusicAlbum',
+      Genres: genre,
+      Fields: itemFields,
+      SortBy: 'PremiereDate',
+      SortOrder: 'Descending',
+      Limit: String(limit)
+    });
+  }
+
+  /** InstantMix radio: a shuffled queue of tracks similar to a seed item. */
+  async getInstantMix(itemId: string, limit = 40) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Items/${itemId}/InstantMix`, {
+      userId: this.userId,
+      Fields: itemFields,
+      Limit: String(limit)
+    });
+  }
+
+  async getMusicSongs(
+    sourceId: string,
+    options: { limit?: number; startIndex?: number; sortBy?: string; sortOrder?: 'Ascending' | 'Descending' } = {}
+  ) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: sourceId,
+      Recursive: 'true',
+      IncludeItemTypes: 'Audio',
+      Fields: itemFields,
+      SortBy: options.sortBy ?? 'DateCreated',
+      SortOrder: options.sortOrder ?? 'Descending',
+      Limit: String(options.limit ?? 80),
+      StartIndex: String(options.startIndex ?? 0)
+    });
+  }
+
+  /** All tracks in a music album (ParentId = album). */
+  async getAlbumTracks(albumId: string) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.get<ItemResponse>(`/Users/${this.userId}/Items`, {
+      ParentId: albumId,
+      Recursive: 'true',
+      IncludeItemTypes: 'Audio',
+      Fields: itemFields,
+      SortBy: 'ParentIndexNumber,IndexNumber',
+      SortOrder: 'Ascending'
+    });
+  }
+
+  /** Albums by a music artist across a library source. */
+  async getArtistAlbums(artistId: string, sourceId: string, limit = 100) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.getItems({
+      parentId: sourceId,
+      itemTypes: 'MusicAlbum',
+      artistIds: artistId,
+      limit,
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending'
+    });
+  }
+
+  /** Songs by a music artist across a library source. */
+  async getArtistSongs(artistId: string, sourceId: string, limit = 200) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    return this.getItems({
+      parentId: sourceId,
+      itemTypes: 'Audio',
+      artistIds: artistId,
+      limit,
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending'
     });
   }
 
@@ -412,6 +559,26 @@ export class JellyfinClient {
     );
   }
 
+  /** Playback info tuned for audio music (uses an audio device profile). */
+  async getAudioPlaybackInfo(itemId: string, positionTicks = 0, forceTranscode = false) {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const body: Record<string, unknown> = { DeviceProfile: musicDeviceProfile() };
+    if (forceTranscode) {
+      body.EnableDirectPlay = false;
+      body.EnableDirectStream = false;
+    }
+    return this.post<PlaybackInfo>(
+      `/Items/${itemId}/PlaybackInfo`,
+      body,
+      {
+        userId: this.userId,
+        StartTimeTicks: String(positionTicks),
+        IsPlayback: 'true',
+        AutoOpenLiveStream: 'true'
+      }
+    );
+  }
+
   async getPlaybackActivity(days = 365) {
     const timezoneOffset = new Date().getTimezoneOffset();
     return this.get<PlaybackActivity[]>('/user_usage_stats/user_activity', {
@@ -430,6 +597,21 @@ export class JellyfinClient {
 
   async reportPlaybackStopped(payload: PlaybackEventPayload) {
     return this.post<void>('/Sessions/Playing/Stopped', payload);
+  }
+
+  /**
+   * Mark (or clear) an item as a favorite for the signed-in user. Favorites are
+   * user-scoped, so they live at /Users/{userId}/FavoriteItems/{itemId} and are
+   * toggled with POST (add) / DELETE (remove). The UI updates optimistically.
+   */
+  async setFavorite(itemId: string, favorite: boolean): Promise<void> {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const path = `/Users/${this.userId}/FavoriteItems/${itemId}`;
+    if (favorite) {
+      await this.post<void>(path);
+    } else {
+      await this.request<void>('DELETE', path, undefined, undefined, true, undefined);
+    }
   }
 
   getImageUrl(item: Pick<JellyfinItem, 'Id' | 'ImageTags'>, width = 640) {
@@ -462,6 +644,16 @@ export class JellyfinClient {
   getStreamUrl(itemId: string, mediaSourceId: string, container = 'mp4') {
     const extension = container.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'mp4';
     return this.url(`/Videos/${itemId}/stream.${extension}`, {
+      static: 'true',
+      mediaSourceId,
+      api_key: this.accessToken ?? ''
+    });
+  }
+
+  /** Direct audio stream URL for a song (used by the music player). */
+  getAudioStreamUrl(itemId: string, mediaSourceId: string, container = 'mp3') {
+    const extension = container.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'mp3';
+    return this.url(`/Audio/${itemId}/stream.${extension}`, {
       static: 'true',
       mediaSourceId,
       api_key: this.accessToken ?? ''
@@ -654,6 +846,36 @@ function directPlayProfilesFor(
   }
 
   return profiles;
+}
+
+/** Audio-only device profile so Jellyfin offers direct/transcoded audio streams
+ * for music playback. The video profile used by WatchPage advertises only video
+ * containers, so audio items would otherwise stream as unsupported. */
+export function musicDeviceProfile(maxStreamingBitrate = 400_000_000) {
+  return {
+    MaxStreamingBitrate: maxStreamingBitrate,
+    EnableDirectPlay: true,
+    EnableDirectStream: true,
+    EnableTranscoding: true,
+    DirectPlayProfiles: [
+      {
+        Container: 'mp3,aac,mp4,m4a,m4b,flac,ogg,opus,webm,wav',
+        Type: 'Audio'
+      }
+    ],
+    TranscodingProfiles: [
+      {
+        Container: 'aac',
+        Type: 'Audio',
+        AudioCodec: 'aac',
+        Context: 'Streaming',
+        MaxAudioChannels: '2'
+      }
+    ],
+    ContainerProfiles: [],
+    CodecProfiles: [],
+    SubtitleProfiles: []
+  };
 }
 
 export function browserDeviceProfile(
