@@ -474,7 +474,7 @@ export class JellyfinClient {
       Recursive: 'true',
       IncludeItemTypes: 'Audio',
       Fields: itemFields,
-      SortBy: 'SortName',
+      SortBy: 'ParentIndexNumber,IndexNumber',
       SortOrder: 'Ascending'
     });
   }
@@ -600,14 +600,17 @@ export class JellyfinClient {
   }
 
   /**
-   * Mark (or clear) an item as a favorite for the signed-in user. Jellyfin uses
-   * POST to add and DELETE to remove; the UI toggles optimistically.
+   * Mark (or clear) an item as a favorite for the signed-in user. Favorites are
+   * user-scoped, so they live at /Users/{userId}/FavoriteItems/{itemId} and are
+   * toggled with POST (add) / DELETE (remove). The UI updates optimistically.
    */
   async setFavorite(itemId: string, favorite: boolean): Promise<void> {
+    if (!this.userId) throw new JellyfinError('Missing Jellyfin user id');
+    const path = `/Users/${this.userId}/FavoriteItems/${itemId}`;
     if (favorite) {
-      await this.post<void>(`/Items/${itemId}/Favorite`);
+      await this.post<void>(path);
     } else {
-      await this.request<void>('DELETE', `/Items/${itemId}/Favorite`, undefined, undefined, true, undefined);
+      await this.request<void>('DELETE', path, undefined, undefined, true, undefined);
     }
   }
 

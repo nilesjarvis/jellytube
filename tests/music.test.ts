@@ -22,6 +22,7 @@ import {
   libraryKindLabel,
   JellyfinClient
 } from '../src/lib/jellyfin';
+import { clearPersistedMusic, persistMusicPosition } from '../src/lib/music/store';
 import type { JellyfinItem } from '../src/lib/types';
 
 function track(id: string): JellyfinItem {
@@ -242,4 +243,151 @@ test('displayTitle keeps audio song titles plain (no episode formatting)', () =>
   };
   assert.equal(displayTitle(song), 'Calypso / Agamemnon');
   assert.equal(displayTitle(song, { context: 'series' }), 'Calypso / Agamemnon');
+});
+
+test('setFavorite toggles the user-scoped favorite endpoint', async () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  const client = new JellyfinClient('http://media.local', 'tok123', 'user-1');
+  const calls: string[] = [];
+  (client as unknown as { post: (p: string) => Promise<void> }).post = async (path: string) => {
+    calls.push(`POST ${path}`);
+  };
+  (client as unknown as { request: (m: string, p: string) => Promise<void> }).request = async (
+    method: string,
+    path: string
+  ) => {
+    calls.push(`${method} ${path}`);
+  };
+  try {
+    await client.setFavorite('item-x', true);
+    await client.setFavorite('item-x', false);
+    assert.deepEqual(calls, [
+      'POST /Users/user-1/FavoriteItems/item-x',
+      'DELETE /Users/user-1/FavoriteItems/item-x'
+    ]);
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
+test('setFavorite requires a user id', async () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  try {
+    const client = new JellyfinClient('http://media.local', 'tok123');
+    await assert.rejects(() => client.setFavorite('item-x', true), /Missing Jellyfin user id/);
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
+test('getAlbumTracks sorts by disc and track number', async () => {
+  const originalLocalStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: () => 'test-device', setItem: () => undefined }
+  });
+  try {
+    const client = new JellyfinClient('http://media.local', 'tok123', 'user-1');
+    let captured: Record<string, string> = {};
+    (client as unknown as { get: (p: string, q?: Record<string, string>) => Promise<unknown> }).get = async (
+      _path: string,
+      params?: Record<string, string>
+    ) => {
+      captured = params ?? {};
+      return { Items: [], TotalRecordCount: 0 };
+    };
+    await client.getAlbumTracks('album-1');
+    assert.equal(captured['SortBy'], 'ParentIndexNumber,IndexNumber');
+    assert.equal(captured['SortOrder'], 'Ascending');
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
+});
+
+test('music queue persistence is namespaced by server and user', () => {
+  const originalLocalStorage = globalThis.localStorage;
+  const memory: Record<string, string> = {};
+
+  function installStorage() {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => (key in memory ? memory[key] : null),
+        setItem: (key: string, value: string) => {
+          memory[key] = String(value);
+        },
+        removeItem: (key: string) => {
+          delete memory[key];
+        }
+      }
+    });
+  }
+
+  function session(serverUrl: string, userId: string) {
+    memory['jellytube.session.v1'] = JSON.stringify({
+      serverUrl,
+      accessToken: 'tok',
+      userId,
+      selectedLibraries: [
+        {
+          id: 'lib1',
+          name: 'Music',
+          collectionType: 'music',
+          contentKind: 'audio',
+          itemTypes: 'Audio'
+        }
+      ]
+    });
+  }
+
+  try {
+    installStorage();
+    clearPersistedMusic();
+
+    session('http://server-a.local', 'user-a');
+    persistMusicPosition('track-1', 12345);
+
+    session('http://server-b.local', 'user-b');
+    persistMusicPosition('track-2', 67890);
+
+    const keys = Object.keys(memory);
+    const userAKeys = keys.filter(
+      (key) => key.includes('server-a.local') && key.includes('user-a') && key.includes('musicPosition')
+    );
+    const userBKeys = keys.filter(
+      (key) => key.includes('server-b.local') && key.includes('user-b') && key.includes('musicPosition')
+    );
+    const sharedKeys = keys.filter(
+      (key) => key.includes('musicPosition') && !key.includes('server-a.local') && !key.includes('server-b.local')
+    );
+
+    assert.equal(userAKeys.length, 1, 'user A writes to its own namespaced key');
+    assert.equal(userBKeys.length, 1, 'user B writes to its own namespaced key');
+    assert.notDeepEqual(userAKeys, userBKeys, 'keys differ between users/servers');
+    assert.equal(sharedKeys.length, 0, 'no un-namespaced position keys are left behind');
+    assert.ok(memory[userAKeys[0]].includes('track-1'));
+    assert.ok(memory[userBKeys[0]].includes('track-2'));
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage
+    });
+  }
 });

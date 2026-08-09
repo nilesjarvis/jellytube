@@ -116,7 +116,10 @@
       );
       const page = merge(groups.map((group) => group.Items ?? []));
       albums = append ? uniqueAlbums(albums.concat(page)) : page;
-      albumsStart = start + (page.length || ALBUM_PAGE_SIZE);
+      // `page.length` is the merged size across all sources; each source is
+      // fetched with the same per-source offset, so advance by the per-source
+      // page size to avoid skipping albums when multiple libraries are selected.
+      albumsStart = start + ALBUM_PAGE_SIZE;
       albumsHasMore = groups.some((group) => (group.Items ?? []).length >= ALBUM_PAGE_SIZE);
       albumsState = 'ready';
       // Recommendations seed from the library's albums, so load them next

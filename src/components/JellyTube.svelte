@@ -92,7 +92,7 @@
   import WatchPage from './WatchPage.svelte';
   import MusicPage from './music/MusicPage.svelte';
   import MusicPlayer from './music/MusicPlayer.svelte';
-  import { musicPlayerState } from '../lib/music/store';
+  import { musicPlayerState, playTracks } from '../lib/music/store';
 
   export let session: AppSession;
 
@@ -1152,6 +1152,20 @@
     } finally {
       loading = false;
     }
+  }
+
+  function openSearchResult(item: JellyfinItem) {
+    // Audio hits from a Music library belong in the persistent music player,
+    // not the video WatchPage (which cannot stream audio-only items).
+    if (item.contentKind === 'audio' || item.Type === 'Audio') {
+      const audioResults = searchResults.filter(
+        (candidate) => candidate.contentKind === 'audio' || candidate.Type === 'Audio'
+      );
+      const startIndex = audioResults.findIndex((candidate) => candidate.Id === item.Id);
+      playTracks(audioResults.length ? audioResults : [item], Math.max(0, startIndex));
+      return;
+    }
+    openItem(item);
   }
 
   function openActor(person: JellyfinPerson) {
@@ -2462,7 +2476,7 @@
                 {item}
                 titleContext="recommendation"
                 titleChannel={channelName(item)}
-                on:select={(event) => openItem(event.detail)}
+                on:select={(event) => openSearchResult(event.detail)}
                 on:channel={(event) => openChannel(event.detail)}
               />
             {/each}

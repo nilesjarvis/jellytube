@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { loadSession } from '../session';
 import type { JellyfinItem } from '../types';
 import {
   createQueue,
@@ -38,8 +39,29 @@ export type MusicPlayerState = {
  * queue itself (or transport mode) actually changes, so we never churn a large
  * blob on every playback tick.
  */
-const QUEUE_STORAGE_KEY = 'jellytube.musicQueue.v1';
-const POSITION_STORAGE_KEY = 'jellytube.musicPosition.v1';
+const QUEUE_STORAGE_BASE = 'jellytube.musicQueue.v1';
+const POSITION_STORAGE_BASE = 'jellytube.musicPosition.v1';
+
+/**
+ * Persisted queue/position keys are namespaced by server + user so one Jellyfin
+ * account signing out and another (or a different server) signing in without a
+ * reload never inherits the previous account's queue. Item IDs are meaningless
+ * across servers/users, so a shared global key would expose previous titles and
+ * try to play the previous user's tracks.
+ */
+function storageKeys(): { queue: string; position: string } {
+  if (hasStorage()) {
+    const session = loadSession();
+    if (session?.serverUrl && session.userId) {
+      const ns = `${session.serverUrl}|${session.userId}`;
+      return {
+        queue: `${QUEUE_STORAGE_BASE}.${ns}`,
+        position: `${POSITION_STORAGE_BASE}.${ns}`
+      };
+    }
+  }
+  return { queue: QUEUE_STORAGE_BASE, position: POSITION_STORAGE_BASE };
+}
 
 /**
  * Persist only the fields needed to render/play a track. Full JellyfinItem
@@ -87,7 +109,7 @@ function hasStorage(): boolean {
 function loadPersistedPosition(): { trackId: string; ticks: number } | null {
   if (!hasStorage()) return null;
   try {
-    const raw = localStorage.getItem(POSITION_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKeys().position);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { trackId: string; ticks: number };
     if (!parsed || typeof parsed.trackId !== 'string' || !Number.isFinite(parsed.ticks)) return null;
@@ -100,7 +122,7 @@ function loadPersistedPosition(): { trackId: string; ticks: number } | null {
 function loadPersisted(): MusicPlayerState | null {
   if (!hasStorage()) return null;
   try {
-    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKeys().queue);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Persisted;
     if (!parsed || !parsed.queue || !Array.isArray(parsed.queue.tracks) || parsed.queue.tracks.length === 0) {
@@ -121,7 +143,7 @@ function persistQueue(state: MusicPlayerState): void {
   if (!hasStorage()) return;
   try {
     if (!state.queue) {
-      localStorage.removeItem(QUEUE_STORAGE_KEY);
+      localStorage.removeItem(storageKeys().queue);
       return;
     }
     const saved: Persisted = {
@@ -129,7 +151,7 @@ function persistQueue(state: MusicPlayerState): void {
       currentId: state.currentId,
       resume: state.resume
     };
-    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(saved));
+    localStorage.setItem(storageKeys().queue, JSON.stringify(saved));
   } catch {
     // Best-effort persistence; never block playback on storage quirks.
   }
@@ -140,7 +162,7 @@ export function persistMusicPosition(trackId: string, ticks: number): void {
   if (!hasStorage()) return;
   try {
     localStorage.setItem(
-      POSITION_STORAGE_KEY,
+      storageKeys().position,
       JSON.stringify({ trackId, ticks: Math.max(0, Math.floor(ticks)) })
     );
   } catch {
@@ -183,8 +205,9 @@ export function musicCurrentTrack(): JellyfinItem | null {
 export function clearPersistedMusic(): void {
   if (!hasStorage()) return;
   try {
-    localStorage.removeItem(QUEUE_STORAGE_KEY);
-    localStorage.removeItem(POSITION_STORAGE_KEY);
+    const { queue, position } = storageKeys();
+    localStorage.removeItem(queue);
+    localStorage.removeItem(position);
   } catch {
     // ignore
   }
