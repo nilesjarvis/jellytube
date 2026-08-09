@@ -347,6 +347,56 @@ test('latest additions split into ordered category rails with independent limits
   assert.deepEqual(sections[3].items.map((entry) => entry.Id), ['video']);
 });
 
+test('latest show additions are compiled into one card per show', () => {
+  const episodes = [
+    item({
+      Id: 'snl-e1',
+      Name: 'Episode 1',
+      Type: 'Episode',
+      SeriesId: 'snl',
+      SeriesName: 'Saturday Night Live',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-20T00:00:00.000Z'
+    }),
+    item({
+      Id: 'snl-e2',
+      Name: 'Episode 2',
+      Type: 'Episode',
+      SeriesId: 'snl',
+      SeriesName: 'Saturday Night Live',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-21T00:00:00.000Z'
+    }),
+    item({
+      Id: 'news-e1',
+      Name: 'Broadcast 1',
+      Type: 'Episode',
+      SeriesId: 'news',
+      SeriesName: 'The Evening News',
+      sourceCollectionType: 'tvshows',
+      DateCreated: '2026-07-19T00:00:00.000Z'
+    }),
+    item({
+      Id: 'movie',
+      Name: 'Movie',
+      Type: 'Movie',
+      contentKind: 'movie',
+      DateCreated: '2026-07-22T00:00:00.000Z'
+    })
+  ];
+
+  const sections = latestAddedSections(episodes, 24);
+  const shows = sections.find((section) => section.id === 'shows');
+
+  assert.ok(shows, 'shows section is present');
+  // Two shows despite three episodes; the newest episode of each show is kept.
+  assert.deepEqual(shows.items.map((entry) => entry.Id), ['snl-e2', 'news-e1']);
+
+  // The whole-series add still leaves room for other categories at the same limit.
+  const movies = sections.find((section) => section.id === 'movies');
+  assert.deepEqual(movies?.items.map((entry) => entry.Id), ['movie']);
+});
+
 test('compact metadata and channel grouping use release date instead of import date', () => {
   const originalNow = Date.now;
   Date.now = () => Date.parse('2026-05-06T12:00:00.000Z');

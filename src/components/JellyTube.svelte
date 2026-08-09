@@ -74,7 +74,7 @@
   import { applyTvInputClass, onTvInputChange } from '../lib/inputMode';
   import { showProgressForEpisodes, type ShowProgress } from '../lib/showProgress';
   import { applyProgressiveResult } from '../lib/progressiveLoad';
-  import { latestAddedSections } from '../lib/homeLatest';
+  import { latestAddedSections, latestAddedSectionId, showSeriesKey } from '../lib/homeLatest';
   import type {
     AppSession,
     ContentKind,
@@ -86,6 +86,7 @@
   import SkeletonFeedSection from './SkeletonFeedSection.svelte';
   import SkeletonLibraryGrid from './SkeletonLibraryGrid.svelte';
   import SkeletonRoute from './SkeletonRoute.svelte';
+  import ShowCard from './ShowCard.svelte';
   import ShowRecommendationCard from './ShowRecommendationCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import WatchPage from './WatchPage.svelte';
@@ -209,6 +210,30 @@
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
   $: latestAddedCategorySections = latestAddedSections(latestAdded);
+  $: latestShowRawItems = latestAdded.filter((item) => latestAddedSectionId(item) === 'shows');
+  $: latestShowCounts = latestShowRawItems.reduce((counts, item) => {
+    const key = showSeriesKey(item);
+    if (!key) return counts;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  $: latestShows = (latestAddedCategorySections.find((section) => section.id === 'shows')
+      ?.items ?? []
+    ).map((item) => {
+      const key = showSeriesKey(item);
+      const seriesId = item.SeriesId?.trim() || (item.Type === 'Series' ? item.Id : '');
+      const seriesItem = seriesId
+        ? (seriesPool.find((series) => series.Id === seriesId) ?? null)
+        : item.SeriesName
+          ? (seriesPool.find((series) => series.Name === item.SeriesName) ?? null)
+          : null;
+      return {
+        key,
+        item,
+        seriesItem,
+        newEpisodeCount: key ? latestShowCounts.get(key) ?? 1 : 1
+      };
+    });
   $: channelItems = selectedChannel ? searchPool.filter((item) => channelMatches(item, selectedChannel)) : [];
   $: channelLatest = [...channelItems].sort(
     (a, b) => contentDateValue(b) - contentDateValue(a)
@@ -3132,18 +3157,32 @@
               <h2>{latestSection.title}</h2>
               <span>{latestSection.detail}</span>
             </div>
-            <div class="video-grid horizontal-video-rail">
-              {#each latestSection.items as item (item.Id)}
-                <VideoCard
-                  {client}
-                  {item}
-                  titleContext="recommendation"
-                  titleChannel={channelName(item)}
-                  on:select={(event) => openItem(event.detail)}
-                  on:channel={(event) => openChannel(event.detail)}
-                />
-              {/each}
-            </div>
+            {#if latestSection.id === 'shows'}
+              <div class="video-grid horizontal-video-rail">
+                {#each latestShows as show (show.key || show.item.Id)}
+                  <ShowCard
+                    {client}
+                    item={show.item}
+                    seriesItem={show.seriesItem}
+                    newEpisodeCount={show.newEpisodeCount}
+                    on:show={(event) => openChannel(event.detail)}
+                  />
+                {/each}
+              </div>
+            {:else}
+              <div class="video-grid horizontal-video-rail">
+                {#each latestSection.items as item (item.Id)}
+                  <VideoCard
+                    {client}
+                    {item}
+                    titleContext="recommendation"
+                    titleChannel={channelName(item)}
+                    on:select={(event) => openItem(event.detail)}
+                    on:channel={(event) => openChannel(event.detail)}
+                  />
+                {/each}
+              </div>
+            {/if}
           </section>
         {/each}
       {/if}
