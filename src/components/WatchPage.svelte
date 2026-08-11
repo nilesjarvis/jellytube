@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+  import { afterUpdate, beforeUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
   import type Hls from 'hls.js';
   import {
     ArrowLeft,
@@ -219,7 +219,15 @@
 
   let video: WebKitVideoElement;
   let playerShell: WebKitFullscreenElement;
+  let playerFrame: HTMLElement;
   let watchLayout: HTMLElement;
+
+  // FLIP bookkeeping for the minimize/restore animation. The snapshot is
+  // captured in beforeUpdate (the DOM still shows the pre-toggle layout) and
+  // consumed in afterUpdate once the minimized layout has been applied.
+  let prevMinimized = minimized;
+  let flipSnapshot: { rect: DOMRect | null } | null = null;
+  let reduceMotion: MediaQueryList | null = null;
   let miniPlayerWidth = savedMiniPlayerWidth();
   let miniResizeState: MiniPlayerResizeState | null = null;
   let loading = true;
@@ -449,11 +457,66 @@
     void stopPlayback();
   });
 
+  beforeUpdate(() => {
+    if (minimized === prevMinimized) return;
+    flipSnapshot = { rect: playerFrame ? playerFrame.getBoundingClientRect() : null };
+    prevMinimized = minimized;
+  });
+
   afterUpdate(() => {
+    runMiniPlayerFlip();
+
     const episodeKey = `${item.Id}:${selectedEpisodeSeason}:${selectedEpisodeItems.length}`;
     if (!hasEpisodeShelf || scrolledEpisodeKey === episodeKey) return;
     void scrollActiveEpisodeIntoView(episodeKey);
   });
+
+  function prefersReducedMotion(): boolean {
+    if (reduceMotion === null) {
+      reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    }
+    return reduceMotion.matches;
+  }
+
+  function runMiniPlayerFlip(): void {
+    if (!flipSnapshot) return;
+    const { rect } = flipSnapshot;
+    flipSnapshot = null;
+    if (!rect || !playerFrame || prefersReducedMotion()) return;
+
+    const last = playerFrame.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1 || last.width < 1 || last.height < 1) return;
+
+    const dx = rect.left - last.left;
+    const dy = rect.top - last.top;
+    const sx = rect.width / last.width;
+    const sy = rect.height / last.height;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) return;
+
+    // Snap the player to its pre-toggle (full/mini) position, then transition to
+    // identity so it flies into the post-toggle (mini/full) position.
+    const frame = playerFrame;
+    frame.style.transition = 'none';
+    frame.style.transformOrigin = 'top left';
+    frame.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    frame.style.willChange = 'transform';
+    void frame.offsetWidth; // force reflow so the "from" frame is painted first
+    requestAnimationFrame(() => {
+      frame.style.transition = 'transform 0.36s cubic-bezier(0.2, 0, 0.2, 1)';
+      frame.style.transform = 'translate(0, 0) scale(1, 1)';
+      const cleanup = () => {
+        frame.style.transition = '';
+        frame.style.transform = '';
+        frame.style.transformOrigin = '';
+        frame.style.willChange = '';
+        frame.removeEventListener('transitionend', cleanup);
+        frame.removeEventListener('transitioncancel', cleanup);
+      };
+      frame.addEventListener('transitionend', cleanup);
+      frame.addEventListener('transitioncancel', cleanup);
+      window.setTimeout(cleanup, 600);
+    });
+  }
 
   async function scrollActiveEpisodeIntoView(episodeKey: string) {
     await tick();
@@ -2056,6 +2119,7 @@
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
       class="player-frame"
+      bind:this={playerFrame}
       class:cinematic={cinematicMode && !minimized}
       class:cinematic-ready={cinematicReady && !minimized}
       class:cinematic-unavailable={cinematicAvailability === 'unavailable' && !minimized}
