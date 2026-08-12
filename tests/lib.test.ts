@@ -58,8 +58,10 @@ import {
   cinematicColorsFromImageData,
   cinematicColorsFromPalette,
   cinematicGlowStyle,
+  cinematicModeEnabled,
   cinematicPaletteFromImageData,
   cinematicPalettesAreClose,
+  initialCinematicModePreference,
   type CinematicGlowPalette,
   shouldSampleCinematicGlow
 } from '../src/lib/cinematicGlow';
@@ -1588,6 +1590,15 @@ test('cinematic glow sampling only runs for active visible playback', () => {
   assert.equal(shouldSampleCinematicGlow({ ...active, blocked: true }), false);
   assert.equal(shouldSampleCinematicGlow({ ...active, buffering: true }), false);
   assert.equal(shouldSampleCinematicGlow({ ...active, loading: true }), false);
+});
+
+test('ambient mode defaults on only when the dark theme is active', () => {
+  assert.equal(initialCinematicModePreference(null), true);
+  assert.equal(initialCinematicModePreference('true'), true);
+  assert.equal(initialCinematicModePreference('false'), false);
+  assert.equal(cinematicModeEnabled(true, true), true);
+  assert.equal(cinematicModeEnabled(true, false), false);
+  assert.equal(cinematicModeEnabled(false, true), false);
 });
 
 test('cinematic glow derives edge-biased colors from a frame', () => {

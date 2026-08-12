@@ -50,16 +50,11 @@
   import { introWindowForPlayback, shouldShowSkipIntro } from '../lib/intros';
   import {
     CINEMATIC_FAILURE_LIMIT,
-    CINEMATIC_FALLBACK_STYLE,
     CINEMATIC_SAMPLE_HEIGHT,
     CINEMATIC_SAMPLE_INTERVAL_MS,
     CINEMATIC_SAMPLE_WIDTH,
-    blendCinematicGlowPalette,
-    cinematicColorsFromPalette,
-    cinematicGlowStyle,
-    cinematicPaletteFromImageData,
-    cinematicPalettesAreClose,
-    type CinematicGlowPalette,
+    cinematicModeEnabled,
+    initialCinematicModePreference,
     shouldSampleCinematicGlow
   } from '../lib/cinematicGlow';
   import { episodeCode, episodeInfo, type EpisodeSeason } from '../lib/episodes';
@@ -125,6 +120,7 @@
   export let recommendations: ProjectedRecommendation[] = [];
   export let nextUpItem: JellyfinItem | null = null;
   export let minimized = false;
+  export let darkTheme = true;
 
   const dispatch = createEventDispatcher<{
     recommendationSelect: ProjectedRecommendation;
@@ -279,7 +275,8 @@
   );
   let sourceAspectRatio = DEFAULT_PLAYER_SOURCE_ASPECT_RATIO;
   let aspectMenuOpen = false;
-  let cinematicMode = localStorage.getItem('jellytube.cinematicMode') === 'true';
+  let cinematicPreference = initialCinematicModePreference(localStorage.getItem('jellytube.cinematicMode'));
+  let cinematicMode = cinematicModeEnabled(cinematicPreference, darkTheme);
   let theaterMode = localStorage.getItem('jellytube.theaterMode') === 'true';
   let loopMusicVideo = localStorage.getItem('jellytube.loopMusicVideo') === 'true';
 
@@ -288,16 +285,13 @@
     localStorage.setItem('jellytube.theaterMode', String(theaterMode));
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
-  let cinematicStyle = CINEMATIC_FALLBACK_STYLE;
   let cinematicTimer = 0;
   let cinematicFailures = 0;
   let cinematicBlocked = false;
   let cinematicAvailability: CinematicAvailability = 'idle';
-  let cinematicCanvas: HTMLCanvasElement | null = null;
+  let cinematicCanvas: HTMLCanvasElement;
   let cinematicContext: CanvasRenderingContext2D | null = null;
   let cinematicAnimationFrame = 0;
-  let cinematicPalette: CinematicGlowPalette | null = null;
-  let cinematicRenderedPalette: CinematicGlowPalette | null = null;
   let lastCinematicSampleTime = -1;
   let isPlaying = false;
   let isMuted = localStorage.getItem('jellytube.playerMuted') === 'true';
@@ -407,21 +401,15 @@
     ? `Next episode: ${episodeCode(episodePlayingNext)} · ${displayTitle(episodePlayingNext, { context: 'series' })}`
     : '';
   $: playingNextThumbnailUrl = episodePlayingNext ? client.getImageUrl(episodePlayingNext, 320) : '';
+  $: cinematicMode = cinematicModeEnabled(cinematicPreference, darkTheme);
   $: cinematicReady = cinematicMode && cinematicAvailability === 'dynamic';
-  $: cinematicControlLabel =
-    cinematicMode && cinematicAvailability === 'unavailable'
-      ? 'Cinematic glow unavailable for this stream'
-      : cinematicMode
-        ? 'Disable cinematic glow'
-        : 'Enable cinematic glow';
-  $: cinematicControlTitle =
-    cinematicMode && cinematicAvailability === 'unavailable'
-      ? 'Cinematic glow unavailable for this stream'
-      : cinematicMode && cinematicAvailability === 'dynamic'
-        ? 'Cinematic glow on'
-        : cinematicMode
-          ? 'Cinematic glow warming up'
-          : 'Cinematic glow off';
+  $: cinematicSettingDetail = !darkTheme
+    ? 'Available in dark theme'
+    : cinematicAvailability === 'unavailable' && cinematicPreference
+      ? 'Unavailable for this stream'
+      : cinematicPreference
+        ? 'On'
+        : 'Off';
 
   $: if (minimized) {
     qualityMenuOpen = false;
@@ -429,8 +417,15 @@
     subtitleMenuOpen = false;
     aspectMenuOpen = false;
     clearCinematicTimer();
-  } else if (cinematicMode && isPlaying) {
-    scheduleCinematicSample(0);
+  } else if (!cinematicMode) {
+    clearCinematicTimer();
+    cinematicFailures = 0;
+    cinematicBlocked = false;
+    cinematicAvailability = 'idle';
+    lastCinematicSampleTime = -1;
+    clearCinematicCanvas();
+  } else if (cinematicMode) {
+    scheduleCinematicSample(0, !isPlaying);
   }
 
   onMount(() => {
@@ -1185,7 +1180,7 @@
     void syncTextTrackMode();
     loading = false;
     clearBuffering();
-    if (cinematicMode) scheduleCinematicSample(180);
+    if (cinematicMode) scheduleCinematicSample(180, true);
   }
 
   function clearBuffering() {
@@ -1219,6 +1214,7 @@
     clearBuffering();
     controlsVisible = true;
     clearCinematicTimer();
+    if (cinematicMode) scheduleCinematicSample(100, true);
     if (!suppressMediaErrors) {
       playRequested = false;
       void safeReport('progress');
@@ -1655,12 +1651,14 @@
     scheduleControls();
   }
 
-  function toggleCinematicMode() {
-    cinematicMode = !cinematicMode;
-    localStorage.setItem('jellytube.cinematicMode', String(cinematicMode));
+  function toggleCinematicMode(event: MouseEvent) {
+    event.stopPropagation();
+    if (!darkTheme) return;
+    cinematicPreference = !cinematicPreference;
+    localStorage.setItem('jellytube.cinematicMode', String(cinematicPreference));
     resetCinematicGlow();
-    if (cinematicMode) {
-      scheduleCinematicSample(0);
+    if (cinematicPreference) {
+      void tick().then(() => scheduleCinematicSample(0, true));
     } else {
       clearCinematicTimer();
     }
@@ -1802,8 +1800,8 @@
   }
 
   function handleVisibilityChange() {
-    if (document.visibilityState === 'visible' && isPlaying) {
-      scheduleCinematicSample(250);
+    if (document.visibilityState === 'visible' && cinematicMode) {
+      scheduleCinematicSample(250, !isPlaying);
     } else {
       clearCinematicTimer();
     }
@@ -1874,13 +1872,11 @@
 
   function resetCinematicGlow() {
     clearCinematicTimer();
-    cinematicStyle = CINEMATIC_FALLBACK_STYLE;
     cinematicFailures = 0;
     cinematicBlocked = false;
     cinematicAvailability = 'idle';
-    cinematicPalette = null;
-    cinematicRenderedPalette = null;
     lastCinematicSampleTime = -1;
+    clearCinematicCanvas();
   }
 
   function clearCinematicTimer() {
@@ -1892,21 +1888,21 @@
     }
   }
 
-  function scheduleCinematicSample(delay = CINEMATIC_SAMPLE_INTERVAL_MS) {
+  function scheduleCinematicSample(delay = CINEMATIC_SAMPLE_INTERVAL_MS, allowPaused = false) {
     clearCinematicTimer();
     if (minimized || !cinematicMode || cinematicBlocked || cinematicAvailability === 'unavailable' || error || loading || buffering) {
       return;
     }
-    cinematicTimer = window.setTimeout(sampleCinematicGlow, delay);
+    cinematicTimer = window.setTimeout(() => sampleCinematicGlow(allowPaused), delay);
   }
 
-  function sampleCinematicGlow() {
+  function sampleCinematicGlow(allowPaused = false) {
     cinematicTimer = 0;
     if (!video) return;
 
     const state = {
       enabled: cinematicMode,
-      playing: isPlaying,
+      playing: isPlaying || allowPaused,
       visible: document.visibilityState === 'visible',
       readyState: video.readyState,
       width: video.videoWidth,
@@ -1921,7 +1917,7 @@
       return;
     }
 
-    if (Math.abs(video.currentTime - lastCinematicSampleTime) < 0.75) {
+    if (!allowPaused && Math.abs(video.currentTime - lastCinematicSampleTime) < 0.35) {
       scheduleCinematicSample();
       return;
     }
@@ -1933,39 +1929,38 @@
     cinematicAnimationFrame = 0;
     if (!video || cinematicBlocked || cinematicAvailability === 'unavailable') return;
 
+    let context: CanvasRenderingContext2D | null = null;
     try {
-      const context = getCinematicContext();
+      context = getCinematicContext();
       if (!context) throw new Error('Canvas sampling is unavailable.');
-      context.clearRect(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
-      context.drawImage(video, 0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
-      const frame = context.getImageData(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
-      const nextPalette = blendCinematicGlowPalette(
-        cinematicPalette,
-        cinematicPaletteFromImageData(frame.data, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT)
-      );
-      cinematicPalette = nextPalette;
-      if (!cinematicPalettesAreClose(cinematicRenderedPalette, nextPalette)) {
-        cinematicStyle = cinematicGlowStyle(cinematicColorsFromPalette(nextPalette));
-        cinematicRenderedPalette = nextPalette;
+      if (cinematicAvailability !== 'dynamic') {
+        context.clearRect(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
       }
+      context.globalAlpha = cinematicAvailability === 'dynamic' ? 0.36 : 1;
+      context.drawImage(video, 0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
+      context.globalAlpha = 1;
       cinematicAvailability = 'dynamic';
       lastCinematicSampleTime = video.currentTime;
       cinematicFailures = 0;
     } catch {
       handleCinematicSampleFailure();
+    } finally {
+      if (context) context.globalAlpha = 1;
     }
 
     if (cinematicMode && isPlaying && !cinematicBlocked && !buffering && !loading) scheduleCinematicSample();
   }
 
   function getCinematicContext() {
-    if (!cinematicCanvas) {
-      cinematicCanvas = document.createElement('canvas');
-      cinematicCanvas.width = CINEMATIC_SAMPLE_WIDTH;
-      cinematicCanvas.height = CINEMATIC_SAMPLE_HEIGHT;
-    }
-    cinematicContext ??= cinematicCanvas.getContext('2d', { willReadFrequently: true });
+    if (!cinematicCanvas) return null;
+    cinematicContext ??= cinematicCanvas.getContext('2d');
     return cinematicContext;
+  }
+
+  function clearCinematicCanvas() {
+    if (!cinematicCanvas) return;
+    const context = cinematicContext ?? cinematicCanvas.getContext('2d');
+    context?.clearRect(0, 0, CINEMATIC_SAMPLE_WIDTH, CINEMATIC_SAMPLE_HEIGHT);
   }
 
   function handleCinematicSampleFailure() {
@@ -1973,9 +1968,7 @@
     if (cinematicFailures < CINEMATIC_FAILURE_LIMIT) return;
     cinematicBlocked = true;
     cinematicAvailability = 'unavailable';
-    cinematicPalette = null;
-    cinematicRenderedPalette = null;
-    cinematicStyle = CINEMATIC_FALLBACK_STYLE;
+    clearCinematicCanvas();
   }
 
   function ticksToSeconds(ticks?: number) {
@@ -2081,7 +2074,6 @@
   class:minimized={minimized}
   class:resizing={Boolean(miniResizeState)}
   class:theater-mode={theaterMode && !minimized}
-  class:cinematic-watch={cinematicMode && !minimized}
   style={minimized ? `--mini-player-width: ${miniPlayerWidth}px` : undefined}
   aria-label={minimized ? `Minimized video player for ${title}` : undefined}
 >
@@ -2128,9 +2120,15 @@
       class:aspect-stretch-16-9={aspectMode === 'stretch-16-9'}
       class:aspect-stretch-21-9={aspectMode === 'stretch-21-9'}
       class:ultrawide-crop={aspectMode === 'crop-21-9'}
-      style={`${cinematicStyle}; --player-source-aspect: ${sourceAspectRatio}`}
+      style={`--player-source-aspect: ${sourceAspectRatio}`}
     >
-      <div class="cinematic-glow" aria-hidden="true"></div>
+      <canvas
+        bind:this={cinematicCanvas}
+        class="cinematic-glow"
+        width={CINEMATIC_SAMPLE_WIDTH}
+        height={CINEMATIC_SAMPLE_HEIGHT}
+        aria-hidden="true"
+      ></canvas>
 
       <div
         class="player-shell youtube-player"
@@ -2163,7 +2161,7 @@
               pendingAudioRollback = null;
               loading = false;
               clearBuffering();
-              if (cinematicMode) scheduleCinematicSample(120);
+              if (cinematicMode) scheduleCinematicSample(120, true);
             }}
             on:playing={() => {
               loading = false;
@@ -2468,17 +2466,6 @@
               </div>
 
               <button
-                class="player-control cinematic-control"
-                class:active={cinematicMode}
-                class:unavailable={cinematicAvailability === 'unavailable'}
-                aria-label={cinematicControlLabel}
-                title={cinematicControlTitle}
-                on:click={toggleCinematicMode}
-              >
-                <Sparkles size={21} />
-              </button>
-              
-              <button
                 class="player-control theater-control"
                 class:active={theaterMode}
                 aria-label={theaterMode ? 'Default view' : 'Theater mode'}
@@ -2570,17 +2557,35 @@
                 <button
                   class="player-control quality-button"
                   class:active={qualityMenuOpen}
-                  aria-label={`Quality: ${qualityButtonLabel}`}
+                  aria-label="Settings"
                   aria-expanded={qualityMenuOpen}
                   aria-haspopup="menu"
-                  title={`Quality: ${qualityButtonLabel}`}
+                  title="Settings"
                   on:click={toggleQualityMenu}
                 >
                   <Settings size={21} />
                 </button>
 
                 {#if qualityMenuOpen}
-                  <div class="quality-menu" role="menu" aria-label="Playback quality">
+                  <div class="quality-menu settings-menu" role="menu" aria-label="Settings">
+                    <div class="quality-menu-heading">Settings</div>
+                    <button
+                      class="settings-option ambient-mode-option"
+                      class:active={cinematicMode}
+                      class:unavailable={cinematicAvailability === 'unavailable' && cinematicPreference}
+                      role="menuitemcheckbox"
+                      aria-checked={cinematicMode}
+                      disabled={!darkTheme}
+                      on:click={toggleCinematicMode}
+                    >
+                      <span class="settings-option-icon"><Sparkles size={19} /></span>
+                      <span class="settings-option-copy">
+                        <strong>Ambient mode</strong>
+                        <small>{cinematicSettingDetail}</small>
+                      </span>
+                      <span class:active={cinematicMode} class="settings-toggle" aria-hidden="true"><i></i></span>
+                    </button>
+                    <div class="settings-menu-divider"></div>
                     <div class="quality-menu-heading">Quality</div>
                     {#each qualityOptions as option (option.id)}
                       <button

@@ -58,14 +58,22 @@ const REGIONS: Record<keyof CinematicGlowPalette, Region> = {
   floor: { x0: 0.12, y0: 0.68, x1: 0.88, y1: 1 }
 };
 
-export const CINEMATIC_SAMPLE_WIDTH = 32;
-export const CINEMATIC_SAMPLE_HEIGHT = 18;
-export const CINEMATIC_SAMPLE_INTERVAL_MS = 900;
+export const CINEMATIC_SAMPLE_WIDTH = 96;
+export const CINEMATIC_SAMPLE_HEIGHT = 54;
+export const CINEMATIC_SAMPLE_INTERVAL_MS = 500;
 export const CINEMATIC_FAILURE_LIMIT = 3;
 export const CINEMATIC_BLEND_AMOUNT = 0.55;
 export const CINEMATIC_STYLE_EPSILON = 1.2;
 export const CINEMATIC_FALLBACK_COLORS = cinematicColorsFromPalette(FALLBACK_PALETTE);
 export const CINEMATIC_FALLBACK_STYLE = cinematicGlowStyle(CINEMATIC_FALLBACK_COLORS);
+
+export function initialCinematicModePreference(value: string | null) {
+  return value !== 'false';
+}
+
+export function cinematicModeEnabled(preferenceEnabled: boolean, darkTheme: boolean) {
+  return preferenceEnabled && darkTheme;
+}
 
 export function shouldSampleCinematicGlow(state: CinematicSampleState) {
   return (

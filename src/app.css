@@ -1689,6 +1689,10 @@ label {
   padding-top: 20px;
 }
 
+.watch-layout:not(.minimized) {
+  overflow-x: clip;
+}
+
 .watch-layout.minimized {
   position: fixed;
   right: max(18px, env(safe-area-inset-right, 0px));
@@ -1778,28 +1782,6 @@ label {
   cursor: nwse-resize;
 }
 
-.watch-layout.cinematic-watch {
-  position: relative;
-  isolation: isolate;
-}
-
-.watch-layout.cinematic-watch::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse at 43% 25%, rgba(255, 255, 255, 0.03) 0 10%, transparent 34%),
-    rgba(0, 0, 0, 0.58);
-  transition: opacity 0.28s ease;
-}
-
-.watch-layout.cinematic-watch > * {
-  position: relative;
-  z-index: 1;
-}
-
 .back-button {
   display: none;
   align-items: center;
@@ -1815,10 +1797,6 @@ label {
   isolation: isolate;
   --player-shell-aspect: var(--player-source-aspect, 16 / 9);
   --player-video-fit: contain;
-  --cinematic-left: rgba(20, 22, 30, 0.42);
-  --cinematic-right: rgba(20, 22, 30, 0.42);
-  --cinematic-center: rgba(34, 36, 44, 0.26);
-  --cinematic-floor: rgba(4, 5, 8, 0.54);
 }
 
 .player-frame.ultrawide-crop {
@@ -1849,34 +1827,25 @@ label {
 }
 
 .cinematic-glow {
-  position: fixed;
-  inset: -18vmax;
+  position: absolute;
+  inset: 0;
   z-index: -1;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   opacity: 0;
-  border-radius: 0;
-  background:
-    radial-gradient(ellipse at 18% 42%, var(--cinematic-left) 0 12%, transparent 42%),
-    radial-gradient(ellipse at 82% 42%, var(--cinematic-right) 0 12%, transparent 42%),
-    radial-gradient(ellipse at 50% 30%, var(--cinematic-center) 0 16%, transparent 48%),
-    radial-gradient(ellipse at 50% 80%, var(--cinematic-floor) 0 20%, transparent 56%);
-  filter: blur(70px) saturate(1.75) brightness(1.12);
-  transform: translate3d(0, 0, 0) scale(1.02);
-  transition:
-    opacity 0.22s ease,
-    background 0.55s ease;
+  border-radius: 14px;
+  filter: blur(34px) saturate(1.12) brightness(0.78);
+  transform: translate3d(0, 0, 0) scale(1.055, 1.11);
+  transition: opacity 0.28s ease;
 }
 
 .player-frame.cinematic.cinematic-ready {
-  filter: drop-shadow(0 32px 90px rgba(0, 0, 0, 0.72));
+  filter: drop-shadow(0 22px 52px rgba(0, 0, 0, 0.42));
 }
 
 .player-frame.cinematic.cinematic-ready .cinematic-glow {
-  opacity: 0.96;
-}
-
-:root[data-theme='light'] .player-frame.cinematic.cinematic-ready .cinematic-glow {
-  opacity: 0.82;
+  opacity: 0.48;
 }
 
 .player-shell {
@@ -2505,14 +2474,6 @@ label {
   line-height: 1;
 }
 
-.cinematic-control.active {
-  color: #fff;
-}
-
-.cinematic-control.unavailable {
-  color: rgba(255, 255, 255, 0.62);
-}
-
 .volume-control {
   display: flex;
   align-items: center;
@@ -2570,6 +2531,106 @@ label {
   font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.settings-menu {
+  width: 270px;
+}
+
+.settings-option {
+  width: 100%;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: #fff;
+  text-align: left;
+  background: transparent;
+}
+
+.settings-option:hover,
+.settings-option:focus-visible,
+.settings-option.active {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.settings-option:disabled {
+  color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+}
+
+.settings-option-icon {
+  display: grid;
+  place-items: center;
+}
+
+.settings-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-option-copy strong,
+.settings-option-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-option-copy strong {
+  font-size: 0.9rem;
+}
+
+.settings-option-copy small {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.settings-option.unavailable .settings-option-copy small {
+  color: #f7c56b;
+}
+
+.settings-toggle {
+  width: 32px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 0.16s ease;
+}
+
+.settings-toggle i {
+  width: 14px;
+  height: 14px;
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transition: transform 0.16s ease;
+}
+
+.settings-toggle.active {
+  background: var(--brand);
+}
+
+.settings-toggle.active i {
+  transform: translateX(14px);
+}
+
+.settings-option:disabled .settings-toggle {
+  opacity: 0.5;
+}
+
+.settings-menu-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .subtitle-menu {
@@ -3742,13 +3803,14 @@ label {
   }
 
   .cinematic-glow {
-    inset: -24px -22px -34px;
-    border-radius: 34px;
-    filter: blur(18px) saturate(1.08);
+    inset: 0;
+    border-radius: 14px;
+    filter: blur(20px) saturate(1.06) brightness(0.78);
+    transform: translate3d(0, 0, 0) scale(1.035, 1.08);
   }
 
   .player-frame.cinematic.cinematic-ready .cinematic-glow {
-    opacity: 0.4;
+    opacity: 0.34;
   }
 
   .player-control-row {
@@ -3763,6 +3825,10 @@ label {
   .quality-menu {
     bottom: 42px;
     width: min(232px, calc(100vw - 22px));
+  }
+
+  .settings-menu {
+    max-height: min(62vh, calc(56.25vw - 48px));
   }
 
   .volume-slider,
@@ -3981,6 +4047,10 @@ label {
     right: -42px;
   }
 
+  .settings-menu {
+    right: -50px;
+  }
+
   .player-time {
     display: none;
   }
@@ -3991,8 +4061,8 @@ label {
 }
 
 @media (max-width: 360px) {
-  .cinematic-control {
-    display: none;
+  .settings-menu {
+    right: -64px;
   }
 
   .player-control-row {
@@ -4045,8 +4115,8 @@ label {
   }
 
   .player-frame.cinematic.cinematic-ready .cinematic-glow {
-    opacity: 0.32;
-    filter: blur(22px) saturate(1.04);
+    opacity: 0.28;
+    filter: blur(26px) saturate(1.02) brightness(0.76);
   }
 
   .skeleton-box::after,
@@ -4106,7 +4176,7 @@ label {
 }
 
 .watch-layout.theater-mode .player-frame.cinematic .cinematic-glow {
-  inset: -38px -34px -56px;
+  transform: translate3d(0, 0, 0) scale(1.035, 1.08);
 }
 
 @media (max-width: 1016px) {

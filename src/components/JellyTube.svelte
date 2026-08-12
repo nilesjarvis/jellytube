@@ -2387,6 +2387,7 @@
           item={activePlaybackItem}
           autoplay={activePlaybackAutoplay}
           minimized={route !== 'watch'}
+          darkTheme={effectiveTheme === 'dark'}
           queue={watchQueue}
           queueTitle={watchQueueTitle}
           episodeSeasons={episodeCollection?.seasons ?? []}
