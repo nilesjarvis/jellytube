@@ -2621,21 +2621,24 @@
     <h1>{title}</h1>
     <div class="watch-meta">
       <button class="watch-channel" on:click={() => (isMovie ? dispatch('movies') : dispatch('channel', contextLabel))}>
-        {contextLabel}
+        <span class="watch-channel-avatar" aria-hidden="true">{contextLabel.trim().slice(0, 1).toUpperCase()}</span>
+        <span class="watch-channel-name">{contextLabel}</span>
       </button>
-      {#if currentEpisodeCode}
-        <span>{currentEpisodeCode}</span>
-      {/if}
-      <span>{compactMeta(detailedItem)}</span>
-      {#if rating}
-        <span class="watch-rating" title={`${rating.toFixed(1)} / 10`}>
-          <Star size={14} fill="currentColor" aria-hidden="true" />
-          {rating.toFixed(1)}
-        </span>
-      {/if}
-      {#if formatDuration(detailedItem.RunTimeTicks)}
-        <span>{formatDuration(detailedItem.RunTimeTicks)}</span>
-      {/if}
+      <div class="watch-facts">
+        {#if currentEpisodeCode}
+          <span>{currentEpisodeCode}</span>
+        {/if}
+        <span>{compactMeta(detailedItem)}</span>
+        {#if rating}
+          <span class="watch-rating" title={`${rating.toFixed(1)} / 10`}>
+            <Star size={14} fill="currentColor" aria-hidden="true" />
+            {rating.toFixed(1)}
+          </span>
+        {/if}
+        {#if formatDuration(detailedItem.RunTimeTicks)}
+          <span>{formatDuration(detailedItem.RunTimeTicks)}</span>
+        {/if}
+      </div>
     </div>
     {#if detailedItem.Overview}
       <p class="overview">{detailedItem.Overview}</p>

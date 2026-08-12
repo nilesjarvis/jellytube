@@ -2249,7 +2249,7 @@
   }
 </script>
 
-<div class:menu-open={menuOpen} class="app-shell">
+<div class:menu-open={menuOpen} class:watching={route === 'watch'} class="app-shell">
   <header class="topbar">
     <div class="topbar-left">
       <button class="icon-button" aria-label="Toggle navigation" on:click={() => (menuOpen = !menuOpen)}>
