@@ -2626,7 +2626,6 @@
     <h1>{title}</h1>
     <div class="watch-meta">
       <button class="watch-channel" on:click={() => (isMovie ? dispatch('movies') : dispatch('channel', contextLabel))}>
-        <span class="watch-channel-avatar" aria-hidden="true">{contextLabel.trim().slice(0, 1).toUpperCase()}</span>
         <span class="watch-channel-name">{contextLabel}</span>
       </button>
       <div class="watch-facts">

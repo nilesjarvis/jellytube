@@ -2739,22 +2739,8 @@ label {
 .watch-channel {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   color: var(--text);
   text-align: left;
-}
-
-.watch-channel-avatar {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: #fff;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--focus) 72%, #6a5acd), color-mix(in srgb, var(--brand) 58%, #ff8b65));
-  font-size: 1rem;
-  font-weight: 800;
 }
 
 .watch-channel-name {
