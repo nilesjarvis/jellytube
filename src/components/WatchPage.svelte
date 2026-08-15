@@ -48,6 +48,7 @@
     shouldShowPlayingNext
   } from '../lib/playingNext';
   import { introWindowForPlayback, shouldShowSkipIntro } from '../lib/intros';
+  import { chapterIndexAt, useWatchChapters, type WatchChapter } from '../lib/chapters';
   import {
     CINEMATIC_FAILURE_LIMIT,
     CINEMATIC_SAMPLE_HEIGHT,
@@ -297,6 +298,7 @@
   let isMuted = localStorage.getItem('jellytube.playerMuted') === 'true';
   let volume = savedVolume();
   let currentTime = 0;
+  let hoveredSectionIndex = -1;
   let introDismissed = false;
   let introSegments: JellyfinMediaSegment[] | null = null;
   let duration = 0;
@@ -315,7 +317,12 @@
   $: intro = introWindowForPlayback(introSegments, detailedItem);
   $: showSkipIntro = shouldShowSkipIntro(currentTime, intro, introDismissed);
   $: seekMax = durationSeconds || 0;
-  $: seekStyle = `--progress: ${progressPercent}%; --buffered: ${Math.max(bufferedPercent, progressPercent)}%;`;
+  $: chapters = useWatchChapters(detailedItem, durationSeconds);
+  $: activeChapterIndex = chapterIndexAt(chapters, currentTime);
+  $: hoveredSectionCenterPct = (() => {
+    const c = hoveredSectionIndex >= 0 ? chapters[hoveredSectionIndex] : undefined;
+    return c && durationSeconds > 0 ? ((c.start + c.end) / 2 / durationSeconds) * 100 : 0;
+  })();
   $: sourceLabel = activeAttempt?.label ?? 'Preparing';
   $: playbackFormatLogo = activePlaybackFormatLogo(
     mediaSource,
@@ -1693,6 +1700,62 @@
     syncBuffered();
   }
 
+  function seekToChapter(seconds: number) {
+    if (!video || !Number.isFinite(seconds)) return;
+    const target = Math.min(durationSeconds || seconds, Math.max(0, seconds));
+    video.currentTime = target;
+    currentTime = target;
+    syncBuffered();
+    showControls();
+  }
+
+  // Per-section gradient showing played (brand) / buffered (lighter) / unplayed
+  // (translucent) fill across this chapter. Sections ARE the bar, so there is
+  // no separate overlay — the hovered one can smoothly grow in height instead.
+  // `now`/`bufPct`/`dur` are passed explicitly so the reactive derivations below
+  // track them (Svelte cannot see values read only inside a plain function).
+  function chapterBackground(ch: WatchChapter, now: number, bufPct: number, dur: number): string {
+    if (!dur || dur <= 0 || ch.end <= ch.start) return 'rgba(255, 255, 255, 0.32)';
+    const frac = (s: number) => Math.min(1, Math.max(0, (s - ch.start) / (ch.end - ch.start)));
+    const p = frac(now);
+    const b = Math.max(p, frac((bufPct / 100) * dur));
+    const R = p * 100;
+    const B = b * 100;
+    if (B <= R) {
+      return `linear-gradient(90deg, var(--brand) 0%, var(--brand) ${R}%, rgba(255,255,255,0.32) ${R}%, rgba(255,255,255,0.32) 100%)`;
+    }
+    return `linear-gradient(90deg, var(--brand) 0%, var(--brand) ${R}%, rgba(255,255,255,0.72) ${R}%, rgba(255,255,255,0.72) ${B}%, rgba(255,255,255,0.32) ${B}%, rgba(255,255,255,0.32) 100%)`;
+  }
+
+  function trackBackground(pct: number, bufPct: number, dur: number): string {
+    if (!dur) return 'rgba(255, 255, 255, 0.32)';
+    const p = Math.min(100, Math.max(0, pct));
+    const b = Math.max(bufPct, p);
+    return `linear-gradient(90deg, var(--brand) 0%, var(--brand) ${p}%, rgba(255,255,255,0.72) ${p}%, rgba(255,255,255,0.72) ${b}%, rgba(255,255,255,0.32) ${b}%, rgba(255,255,255,0.32) 100%)`;
+  }
+
+  // Reactive fills: explicitly depend on the live playhead/buffer/duration so
+  // the bar repaints as it plays.
+  $: chapterFills = chapters.map((ch) =>
+    chapterBackground(ch, currentTime, bufferedPercent, durationSeconds)
+  );
+  $: trackFill = trackBackground(progressPercent, bufferedPercent, durationSeconds);
+
+  function onSeekPointerMove(event: PointerEvent) {
+    if (!durationSeconds) {
+      hoveredSectionIndex = -1;
+      return;
+    }
+    const wrap = event.currentTarget as HTMLElement;
+    const rect = wrap.getBoundingClientRect();
+    const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
+    hoveredSectionIndex = chapterIndexAt(chapters, ratio * durationSeconds);
+  }
+
+  function resetSeekHover() {
+    hoveredSectionIndex = -1;
+  }
+
   function toggleMute() {
     if (!video) return;
     video.muted = !video.muted;
@@ -2326,18 +2389,49 @@
           {/if}
 
           <div class="player-controls-layer" aria-label="Playback controls">
-            <input
-              class="player-seek"
-              style={seekStyle}
-              type="range"
-              min="0"
-              max={seekMax}
-              step="0.1"
-              value={currentTime}
-              aria-label="Seek"
-              on:input={handleSeekInput}
-              on:pointerdown={showControls}
-            />
+            <div
+              class="player-seek-wrap"
+              role="group"
+              aria-label="Timeline with chapters"
+              on:pointermove={onSeekPointerMove}
+              on:pointerleave={resetSeekHover}
+              on:pointercancel={resetSeekHover}
+            >
+              <div class="seek-bar" aria-hidden="true">
+                {#if chapters.length > 1}
+                  {#each chapters as chapter, i (chapter.index)}
+                    <div
+                      class="seek-section"
+                      class:hovered={i === hoveredSectionIndex}
+                      style={`left: ${(chapter.start / durationSeconds) * 100}%; width: ${((chapter.end - chapter.start) / durationSeconds) * 100}%; background: ${chapterFills[i]}`}
+                    ></div>
+                  {/each}
+                {:else}
+                  <div class="seek-section" style="left: 0%; width: 100%; background: {trackFill}"></div>
+                {/if}
+              </div>
+              <input
+                class="player-seek"
+                type="range"
+                min="0"
+                max={seekMax}
+                step="0.1"
+                value={currentTime}
+                aria-label="Seek"
+                on:input={handleSeekInput}
+                on:pointerdown={showControls}
+              />
+              {#if chapters.length > 1}
+                <div
+                  class:visible={hoveredSectionIndex >= 0}
+                  class="seek-section-tip"
+                  role="tooltip"
+                  style={`left: ${hoveredSectionCenterPct}%`}
+                >
+                  {hoveredSectionIndex >= 0 ? chapters[hoveredSectionIndex].name : ''}
+                </div>
+              {/if}
+            </div>
 
             <div class="player-control-row">
               <button class="player-control" aria-label={isPlaying ? 'Pause' : 'Play'} on:click={togglePlay}>
@@ -2646,6 +2740,29 @@
     </div>
     {#if detailedItem.Overview}
       <p class="overview">{detailedItem.Overview}</p>
+    {/if}
+
+    {#if chapters.length > 1}
+      <section class="chapters" aria-label="Chapters">
+        <div class="chapters-heading">
+          <h2>Chapters</h2>
+          <span>{activeChapterIndex >= 0 ? chapters[activeChapterIndex].name : ''}</span>
+        </div>
+        <ul class="chapters-list">
+          {#each chapters as chapter (chapter.index)}
+            <li class:active={chapter.index === activeChapterIndex}>
+              <button
+                class="chapter-row"
+                aria-label={`${chapter.name}, ${formatClock(chapter.start)}`}
+                on:click={() => seekToChapter(chapter.start)}
+              >
+                <span class="chapter-time">{formatClock(chapter.start)}</span>
+                <span class="chapter-name">{chapter.name}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/if}
 
     {#if hasEpisodeShelf}

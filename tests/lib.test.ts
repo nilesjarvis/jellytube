@@ -30,6 +30,7 @@ import {
   shouldPreferDirectPlayForAuto
 } from '../src/lib/codecSupport';
 import { actorsForItem } from '../src/lib/people';
+import { chapterIndexAt, useWatchChapters } from '../src/lib/chapters';
 import { activePlaybackFormatLogo } from '../src/lib/playbackFormat';
 import {
   getCachedSourceMediaFormat,
@@ -2754,4 +2755,137 @@ test('introWindowForPlayback prefers media segments over embedded chapters', () 
     introWindowForPlayback(null, { Id: 'ep-2', Name: 'S01E02', Type: 'Episode' }),
     null
   );
+});
+
+const ticks = (seconds: number) => seconds * 10_000_000;
+
+test('useWatchChapters returns no chapters for absent, single, or unknown-runtime input', () => {
+  assert.deepEqual(useWatchChapters({ Id: 'm1', Name: 'M', Type: 'Movie' }, 600), []);
+  assert.deepEqual(
+    useWatchChapters(
+      { Id: 'm2', Name: 'M', Type: 'Movie', Chapters: [{ StartPositionTicks: 0, Name: 'Chapter 1' }] },
+      600
+    ),
+    []
+  );
+  // Single chapter is the whole video: suppress, like no chapters at all.
+  const single = { Id: 'm3', Name: 'M', Type: 'Movie', Chapters: [{ StartPositionTicks: 0, Name: 'Only' }] };
+  assert.deepEqual(useWatchChapters(single, 0), []);
+  assert.deepEqual(useWatchChapters(single, Number.NaN), []);
+});
+
+test('useWatchChapters builds contiguous sections, inferring missing ends', () => {
+  const item = {
+    Id: 'v1',
+    Name: 'V',
+    Type: 'Video',
+    Chapters: [
+      { StartPositionTicks: ticks(0), Name: 'Intro' },
+      { StartPositionTicks: ticks(65), Name: 'Main' },
+      { StartPositionTicks: ticks(480), Name: 'Credits' },
+      { StartPositionTicks: ticks(580), Name: 'Outro' }
+    ]
+  };
+  const chapters = useWatchChapters(item, 600);
+  assert.deepEqual(
+    chapters.map((c) => [c.name, c.start, c.end]),
+    [
+      ['Intro', 0, 65],
+      ['Main', 65, 480],
+      ['Credits', 480, 580],
+      ['Outro', 580, 600]
+    ]
+  );
+});
+
+test('useWatchChapters sorts input and clamps over-long or zero-length ends', () => {
+  const item = {
+    Id: 'v2',
+    Name: 'V',
+    Type: 'Video',
+    Chapters: [
+      { StartPositionTicks: ticks(200), Name: 'B' },
+      // Invalid: end beyond the next chapter boundary must clamp to it.
+      { StartPositionTicks: ticks(50), EndPositionTicks: ticks(99999), Name: 'A' },
+      { StartPositionTicks: ticks(400), Name: 'C' }
+    ]
+  };
+  const chapters = useWatchChapters(item, 500);
+  assert.deepEqual(
+    chapters.map((c) => [c.name, c.start, c.end]),
+    [
+      ['A', 50, 200],
+      ['B', 200, 400],
+      ['C', 400, 500]
+    ]
+  );
+});
+
+test('useWatchChapters drops out-of-range chapters and names unnamed ones', () => {
+  const item = {
+    Id: 'v3',
+    Name: 'V',
+    Type: 'Video',
+    Chapters: [
+      { StartPositionTicks: ticks(0) },
+      { StartPositionTicks: ticks(30) },
+      // Past the runtime: must be dropped without clamping the prior section.
+      { StartPositionTicks: ticks(610), Name: 'beyond' }
+    ]
+  };
+  const chapters = useWatchChapters(item, 600);
+  assert.deepEqual(
+    chapters.map((c) => [c.name, c.start, c.end]),
+    [
+      ['Chapter 1', 0, 30],
+      ['Chapter 2', 30, 600]
+    ]
+  );
+});
+
+test('useWatchChapters collapses duplicate-timestamp chapters to one section', () => {
+  const item = {
+    Id: 'v4',
+    Name: 'V',
+    Type: 'Video',
+    Chapters: [
+      { StartPositionTicks: ticks(0), Name: 'A' },
+      { StartPositionTicks: ticks(60), Name: 'one' },
+      { StartPositionTicks: ticks(60), Name: 'two' }
+    ]
+  };
+  const chapters = useWatchChapters(item, 100);
+  // The first chapter at a repeated timestamp collapses to zero length and is
+  // dropped; the later one forms the section against the runtime.
+  assert.deepEqual(
+    chapters.map((c) => c.name),
+    ['A', 'two']
+  );
+  assert.deepEqual(
+    chapters.map((c) => c.end),
+    [60, 100]
+  );
+});
+
+test('chapterIndexAt returns the active chapter boundary index', () => {
+  const chapters = useWatchChapters(
+    {
+      Id: 'v4',
+      Name: 'V',
+      Type: 'Video',
+      Chapters: [
+        { StartPositionTicks: ticks(0), Name: 'A' },
+        { StartPositionTicks: ticks(65), Name: 'B' },
+        { StartPositionTicks: ticks(480), Name: 'C' }
+      ]
+    },
+    600
+  );
+  assert.equal(chapterIndexAt(chapters, 0), 0);
+  assert.equal(chapterIndexAt(chapters, 64), 0);
+  assert.equal(chapterIndexAt(chapters, 65), 1);
+  assert.equal(chapterIndexAt(chapters, 479), 1);
+  assert.equal(chapterIndexAt(chapters, 480), 2);
+  assert.equal(chapterIndexAt(chapters, 599), 2);
+  assert.equal(chapterIndexAt([], 10), -1);
 });
