@@ -128,6 +128,7 @@
   const client = new JellyfinClient(session.serverUrl, session.accessToken, session.userId);
 
   let loading = true;
+  let catalogReady = false;
   let error = '';
   let menuOpen = false;
   let route: Route = 'home';
@@ -442,6 +443,7 @@
     loadingLabel = label;
     const progressivelyRenderHome = route === 'home' && skeletonRoute === 'home';
     loading = !progressivelyRenderHome;
+    catalogReady = false;
     error = '';
     const loadGeneration = ++catalogLoadGeneration;
     const similarityGeneration = ++catalogSimilarityGeneration;
@@ -670,7 +672,10 @@
         error = caught instanceof Error ? caught.message : 'Could not load Jellyfin libraries.';
       }
     } finally {
-      if (loadGeneration === catalogLoadGeneration) loading = false;
+      if (loadGeneration === catalogLoadGeneration) {
+        loading = false;
+        catalogReady = true;
+      }
     }
   }
 
@@ -1002,6 +1007,15 @@
     if (nextRoute.view === 'movies' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
+      // These routes render straight from loadAll() data (fast-tier list + slow-tier
+      // musicPool/libraryPool). If the catalog is still loading, keep the skeleton up
+      // for this route instead of flashing a half-populated page — loadAll's finally
+      // flips loading=false + catalogReady=true when everything is ready.
+      if (!catalogReady) {
+        loadingRoute = nextRoute.view;
+        loadingLabel = loadingLabelForRoute(nextRoute.view);
+        loading = true;
+      }
       return nextRoute;
     }
 

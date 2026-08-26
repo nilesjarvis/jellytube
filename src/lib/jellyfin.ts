@@ -149,6 +149,44 @@ const itemFields = [
   'Container'
 ].join(',');
 
+/**
+ * Minimal field set for music browse grids (album/artist/genre cards). Cards
+ * render thumbnail + title + artist link only, so we request the small subset
+ * the music views actually read instead of the full `itemFields`. Album detail
+ * (Overview, year, genres, …) arrives separately via `getItem`, so it isn't
+ * needed here. `UserData` is kept because "Recommended" / "Most played" /
+ * "Favorites" seed from per-album play counts and favorite flags.
+ */
+const musicBrowseFields = [
+  'PrimaryImageAspectRatio',
+  'ImageTags',
+  'Artists',
+  'AlbumArtist',
+  'ArtistItems',
+  'UserData',
+  'ChildCount'
+].join(',');
+
+/**
+ * Minimal field set for music track/song queries. Tracks feed the playback
+ * queue, which persists a fixed trim in store.ts, plus MusicSongRow and
+ * MusicPlayer — this set matches exactly what those consumers read.
+ */
+const musicTrackFields = [
+  'PrimaryImageAspectRatio',
+  'ImageTags',
+  'Artists',
+  'AlbumArtist',
+  'AlbumArtists',
+  'ArtistItems',
+  'Album',
+  'AlbumId',
+  'IndexNumber',
+  'ParentIndexNumber',
+  'RunTimeTicks',
+  'Overview'
+].join(',');
+
 export type ItemQuery = {
   parentId: string;
   itemTypes?: string;
@@ -160,6 +198,10 @@ export type ItemQuery = {
   filters?: string;
   personIds?: string;
   artistIds?: string;
+  /** Fields to request; defaults to the full `itemFields`. */
+  fields?: string;
+  /** Ask the server to compute TotalRecordCount; defaults to true (kept for callers that paginate on it). */
+  enableTotalRecordCount?: boolean;
 };
 
 export type SearchSuggestion = {
@@ -234,7 +276,7 @@ export class JellyfinClient {
       ParentId: query.parentId,
       Recursive: 'true',
       IncludeItemTypes: query.itemTypes ?? 'Video,Episode',
-      Fields: itemFields,
+      Fields: query.fields ?? itemFields,
       SortBy: query.sortBy ?? 'DateCreated',
       SortOrder: query.sortOrder ?? 'Descending',
       Limit: String(query.limit ?? 60),
@@ -242,7 +284,8 @@ export class JellyfinClient {
       ...(query.searchTerm ? { SearchTerm: query.searchTerm } : {}),
       ...(query.filters ? { Filters: query.filters } : {}),
       ...(query.personIds ? { PersonIds: query.personIds } : {}),
-      ...(query.artistIds ? { ArtistIds: query.artistIds } : {})
+      ...(query.artistIds ? { ArtistIds: query.artistIds } : {}),
+      ...(query.enableTotalRecordCount === false ? { EnableTotalRecordCount: 'false' } : {})
     });
   }
 
@@ -401,11 +444,12 @@ export class JellyfinClient {
       ParentId: sourceId,
       Recursive: 'true',
       IncludeItemTypes: 'MusicAlbum',
-      Fields: itemFields,
+      Fields: musicBrowseFields,
       SortBy: options.sortBy ?? 'PremiereDate',
       SortOrder: options.sortOrder ?? 'Descending',
       Limit: String(options.limit ?? 80),
       StartIndex: String(options.startIndex ?? 0),
+      EnableTotalRecordCount: 'false',
       ...(options.filters ? { Filters: options.filters } : {})
     });
   }
@@ -432,10 +476,11 @@ export class JellyfinClient {
       Recursive: 'true',
       IncludeItemTypes: 'MusicAlbum',
       Genres: genre,
-      Fields: itemFields,
+      Fields: musicBrowseFields,
       SortBy: 'PremiereDate',
       SortOrder: 'Descending',
-      Limit: String(limit)
+      Limit: String(limit),
+      EnableTotalRecordCount: 'false'
     });
   }
 
@@ -458,11 +503,12 @@ export class JellyfinClient {
       ParentId: sourceId,
       Recursive: 'true',
       IncludeItemTypes: 'Audio',
-      Fields: itemFields,
+      Fields: musicTrackFields,
       SortBy: options.sortBy ?? 'DateCreated',
       SortOrder: options.sortOrder ?? 'Descending',
       Limit: String(options.limit ?? 80),
-      StartIndex: String(options.startIndex ?? 0)
+      StartIndex: String(options.startIndex ?? 0),
+      EnableTotalRecordCount: 'false'
     });
   }
 
@@ -473,9 +519,10 @@ export class JellyfinClient {
       ParentId: albumId,
       Recursive: 'true',
       IncludeItemTypes: 'Audio',
-      Fields: itemFields,
+      Fields: musicTrackFields,
       SortBy: 'ParentIndexNumber,IndexNumber',
-      SortOrder: 'Ascending'
+      SortOrder: 'Ascending',
+      EnableTotalRecordCount: 'false'
     });
   }
 
@@ -486,6 +533,8 @@ export class JellyfinClient {
       parentId: sourceId,
       itemTypes: 'MusicAlbum',
       artistIds: artistId,
+      fields: musicBrowseFields,
+      enableTotalRecordCount: false,
       limit,
       sortBy: 'PremiereDate',
       sortOrder: 'Descending'
@@ -499,6 +548,8 @@ export class JellyfinClient {
       parentId: sourceId,
       itemTypes: 'Audio',
       artistIds: artistId,
+      fields: musicTrackFields,
+      enableTotalRecordCount: false,
       limit,
       sortBy: 'PremiereDate',
       sortOrder: 'Descending'
