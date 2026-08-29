@@ -13,7 +13,7 @@ import {
   setRepeat,
   toggleShuffle
 } from '../src/lib/music/queue';
-import { musicStreamFor } from '../src/lib/music/stream';
+import { audioFormatLabel, musicStreamFor } from '../src/lib/music/stream';
 import { displayTitle } from '../src/lib/recommendations';
 import { musicDeviceProfile } from '../src/lib/jellyfin';
 import {
@@ -221,6 +221,47 @@ test('musicStreamFor falls back to Jellyfin transcoding URL without direct play'
       value: originalLocalStorage
     });
   }
+});
+
+test('audioFormatLabel reports the codec actually being heard', () => {
+  // Direct-played FLAC reports its source codec.
+  assert.equal(
+    audioFormatLabel({
+      playMethod: 'DirectPlay',
+      container: 'flac',
+      mediaSource: { Id: 'src', MediaStreams: [{ Type: 'Audio', Codec: 'flac' }] }
+    }),
+    'FLAC'
+  );
+  // ALAC inside an m4a container is named by codec, not container.
+  assert.equal(
+    audioFormatLabel({
+      playMethod: 'DirectPlay',
+      container: 'm4a',
+      mediaSource: { Id: 'src', MediaStreams: [{ Type: 'Audio', Codec: 'alac' }] }
+    }),
+    'ALAC'
+  );
+  // PCM codecs read as WAV.
+  assert.equal(
+    audioFormatLabel({
+      playMethod: 'DirectPlay',
+      container: 'wav',
+      mediaSource: { Id: 'src', MediaStreams: [{ Type: 'Audio', Codec: 'pcm_s16le' }] }
+    }),
+    'WAV'
+  );
+  // A transcoded stream always delivers AAC even when the source is lossless.
+  assert.equal(
+    audioFormatLabel({
+      playMethod: 'Transcode',
+      container: 'aac',
+      mediaSource: { Id: 'src', MediaStreams: [{ Type: 'Audio', Codec: 'flac' }] }
+    }),
+    'AAC'
+  );
+  // Without stream metadata, fall back to the container name.
+  assert.equal(audioFormatLabel({ playMethod: 'DirectPlay', container: 'mp3', mediaSource: { Id: 'src' } }), 'MP3');
 });
 
 test('musicDeviceProfile advertises audio direct play and an aac transcode fallback', () => {

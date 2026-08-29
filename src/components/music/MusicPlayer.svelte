@@ -38,7 +38,7 @@
     queuePosition,
     type RepeatMode
   } from '../../lib/music/queue';
-  import { musicStreamFor } from '../../lib/music/stream';
+  import { audioFormatLabel, musicStreamFor } from '../../lib/music/stream';
   import { displayTitle } from '../../lib/recommendations';
   import type { JellyfinItem, PlaybackInfo } from '../../lib/types';
   import MusicSongRow from './MusicSongRow.svelte';
@@ -93,6 +93,9 @@
   // Optimistic favorite state; Jellyfin sends no per-item push, so we mirror it
   // locally and mutate the loaded track's UserData in place.
   let favorite = false;
+  // Audio format actually being heard (e.g. "FLAC"), set once the track's
+  // playback info resolves; shown next to the artist in the bar.
+  let audioFormat = '';
   // Throttle the persisted-position write (localStorage is synchronous).
   let lastPositionWrite = 0;
 
@@ -115,11 +118,13 @@
   $: nowTrack = playbackCursor >= 0 ? playbackTracks[playbackCursor] : null;
   $: upNext = playbackCursor >= 0 ? playbackTracks.slice(playbackCursor + 1) : playbackTracks;
   $: played = playbackCursor > 0 ? playbackTracks.slice(0, playbackCursor) : [];
-
   $: shuffleTitle = shuffle ? 'Turn off shuffle' : 'Turn on shuffle';
   $: repeatTitle =
     repeatMode === 'off' ? 'Repeat off' : repeatMode === 'all' ? 'Repeat all' : 'Repeat one';
 
+  // Second line of the now-playing cluster: artist (or album) plus a chip
+  // naming the audio format actually being played (e.g. FLAC).
+  $: nowArtist = current?.AlbumArtist || current?.Artists?.join(', ') || current?.Album || '';
   // Where the now-playing art/title should navigate: the track's album, or its
   // first artist as a fallback. Returns null when there's nothing to open.
   function currentContext(): { kind: 'album' | 'artist'; id: string } | null {
@@ -140,7 +145,9 @@
 
   $: if (audioEl) audioEl.volume = effectiveVolume;
 
-  $: if (current) void loadIfNeeded(current);
+  // Keyed on audioEl too: on a cold mount this effect can run before the
+  // <audio> element is bound, and `current` won't change again on its own.
+  $: if (current && audioEl) void loadIfNeeded(current);
   $: updateMediaSession(current, $state.playing);
 
   function showError(message: string) {
@@ -179,6 +186,7 @@
         started = false;
         currentSeconds = 0;
         durationSeconds = 0;
+        audioFormat = audioFormatLabel(stream);
         audioEl.src = stream.src;
         readyToPlay = true;
         // Resume where we left off if the player was torn down mid-track (e.g.
@@ -523,10 +531,12 @@
           </span>
           <span class="music-now-meta">
             <strong>{displayTitle(current)}</strong>
-            <small>{current.AlbumArtist || current.Artists?.join(', ') || current.Album}</small>
+            <small>
+              <span class="music-now-artist">{nowArtist}</span>
+              {#if audioFormat}<span class="music-now-format">{audioFormat}</span>{/if}
+            </small>
           </span>
         </button>
-      {:else}
         <span class="music-now-main">
           <span class="music-now-art">
             {#if client.getImageUrl(current, 220)}
@@ -537,7 +547,10 @@
           </span>
           <span class="music-now-meta">
             <strong>{displayTitle(current)}</strong>
-            <small>{current.AlbumArtist || current.Artists?.join(', ') || current.Album}</small>
+            <small>
+              <span class="music-now-artist">{nowArtist}</span>
+              {#if audioFormat}<span class="music-now-format">{audioFormat}</span>{/if}
+            </small>
           </span>
         </span>
       {/if}
@@ -745,8 +758,29 @@
     font-size: 0.95rem;
   }
   .music-now-meta small {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
     color: var(--muted);
     font-size: 0.82rem;
+  }
+  .music-now-artist {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* Audio format actually being played, e.g. "FLAC". */
+  .music-now-format {
+    flex: none;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
   }
   .music-fav.active {
     color: var(--brand);
@@ -955,7 +989,8 @@
       row-gap: 8px;
       padding: 8px 12px 10px;
     }
-    .music-now-meta small {
+    /* The artist line is dropped for space; the format chip stays visible. */
+    .music-now-artist {
       display: none;
     }
     .music-transport {

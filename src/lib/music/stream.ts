@@ -67,3 +67,23 @@ export function musicStreamFor(
 
   return null;
 }
+
+/**
+ * Human label for the audio format actually being heard, e.g. "FLAC" — shown
+ * next to the track in the now-playing bar. A transcoded stream always
+ * delivers AAC (the profile's only audio transcode codec), so report that
+ * instead of the source codec.
+ */
+export function audioFormatLabel(
+  stream: Pick<MusicStream, 'container' | 'playMethod' | 'mediaSource'>
+): string {
+  if (stream.playMethod === 'Transcode') return 'AAC';
+  const codec = (stream.mediaSource?.MediaStreams ?? [])
+    .find((mediaStream) => mediaStream.Type === 'Audio')
+    ?.Codec?.toLowerCase();
+  if (!codec) return (stream.container || '').toUpperCase();
+  if (codec.startsWith('pcm')) return 'WAV';
+  if (codec.startsWith('mp4a')) return 'AAC';
+  if (codec === 'vorbis') return 'Vorbis';
+  return codec.toUpperCase();
+}
