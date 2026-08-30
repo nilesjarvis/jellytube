@@ -177,6 +177,8 @@
   let recentState: HomeSectionState = 'loading';
   let recommendedState: HomeSectionState = 'loading';
   let popularState: HomeSectionState = 'loading';
+  let homeFeedLoaded = false;
+  let homeFeedRefreshInFlight = false;
   let movies: JellyfinItem[] = [];
   let movieResume: JellyfinItem[] = [];
   let moviePopular: RankedItem[] = [];
@@ -533,7 +535,10 @@
         loadHomeSection(
           videoResumeRequest,
           loadGeneration,
-          (items) => (resume = continueWatching(items).slice(0, 24)),
+          (items) => {
+            resume = continueWatching(items).slice(0, 24);
+            homeFeedLoaded = true;
+          },
           (state) => (resumeState = state)
         ),
         loadHomeSection(
@@ -709,6 +714,40 @@
       apply
     );
     if (outcome !== 'stale') setState(outcome);
+  }
+
+  // Refetches only the Continue Watching and Next Up rows when the user navigates
+  // back to home, so playback progress made since the last loadAll() shows up
+  // without a full catalog reload. Skipped when a loadAll() has superseded the
+  // catalog generation or a refresh is already running.
+  async function refreshHomeFeed() {
+    if (homeFeedRefreshInFlight) return;
+    homeFeedRefreshInFlight = true;
+    resumeState = 'loading';
+    nextUpState = 'loading';
+    const generation = catalogLoadGeneration;
+    const resumeRequest = fetchSources(videoSources, {
+      limit: 48,
+      sortBy: 'DatePlayed',
+      sortOrder: 'Descending',
+      filters: 'IsResumable'
+    });
+    const nextUpRequest = fetchNextUpSources(videoSources);
+    await Promise.allSettled([
+      loadHomeSection(
+        resumeRequest,
+        generation,
+        (items) => (resume = continueWatching(items).slice(0, 24)),
+        (state) => (resumeState = state)
+      ),
+      loadHomeSection(
+        nextUpRequest,
+        generation,
+        (items) => (nextUp = items.slice(0, 24)),
+        (state) => (nextUpState = state)
+      )
+    ]);
+    homeFeedRefreshInFlight = false;
   }
 
   async function fetchSources(
@@ -992,6 +1031,7 @@
     menuOpen = false;
 
     if (nextRoute.view === 'home') {
+      if (homeFeedLoaded && route !== 'home') void refreshHomeFeed();
       showHome();
       scrollToTop(options.scroll);
       return { view: 'home' };
