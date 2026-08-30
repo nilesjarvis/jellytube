@@ -120,6 +120,10 @@ test('music collection types map to the audio content kind', () => {
   assert.equal(contentKindForCollection('musicvideos'), 'musicVideo');
   assert.equal(contentKindForCollection('movies'), 'movie');
   assert.equal(contentKindForCollection('tvshows'), 'video');
+  // Photo libraries are first-class and browse as Photo items.
+  assert.equal(contentKindForCollection('photos'), 'photo');
+  assert.equal(itemTypesForCollection('photos'), 'Photo');
+  assert.equal(libraryKindLabel('photos'), 'Photos');
   assert.equal(contentKindForCollection('boxsets'), null);
 });
 
