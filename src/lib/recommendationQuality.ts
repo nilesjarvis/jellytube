@@ -160,7 +160,6 @@ export function recommendationQualityReport({
         movie: catalogKindMetrics(catalog, legacyIds, 'movie'),
         musicVideo: catalogKindMetrics(catalog, legacyIds, 'musicVideo'),
         audio: catalogKindMetrics(catalog, legacyIds, 'audio'),
-        photo: catalogKindMetrics(catalog, legacyIds, 'photo'),
         other: catalogKindMetrics(catalog, legacyIds, 'other')
       },
       metadataCoverage: allCoverage.metadata,
@@ -369,7 +368,6 @@ function temporalBacktest(
     movie: { full: [], legacy: [] },
     musicVideo: { full: [], legacy: [] },
     audio: { full: [], legacy: [] },
-    photo: { full: [], legacy: [] },
     other: { full: [], legacy: [] }
   };
 
@@ -402,7 +400,6 @@ function temporalBacktest(
       movie: summarizeBacktest(resultsByKind.movie.full, resultsByKind.movie.legacy),
       musicVideo: summarizeBacktest(resultsByKind.musicVideo.full, resultsByKind.musicVideo.legacy),
       audio: summarizeBacktest(resultsByKind.audio.full, resultsByKind.audio.legacy),
-      photo: summarizeBacktest(resultsByKind.photo.full, resultsByKind.photo.legacy),
       other: summarizeBacktest(resultsByKind.other.full, resultsByKind.other.legacy)
     }
   };

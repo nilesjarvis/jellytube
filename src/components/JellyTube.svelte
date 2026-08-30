@@ -3,7 +3,6 @@
   import {
     Clapperboard,
     Home,
-    Image,
     Library,
     ListVideo,
     LogOut,
@@ -94,12 +93,11 @@
   import WatchPage from './WatchPage.svelte';
   import MusicPage from './music/MusicPage.svelte';
   import MusicPlayer from './music/MusicPlayer.svelte';
-  import PhotoBrowser from './PhotoBrowser.svelte';
   import { musicPlayerState, playTracks } from '../lib/music/store';
 
   export let session: AppSession;
 
-  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions' | 'photos' | 'channel' | 'actor' | 'libraries';
+  type Route = 'home' | 'watch' | 'search' | 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions' | 'channel' | 'actor' | 'libraries';
   type ThemeMode = 'system' | 'light' | 'dark';
   type EffectiveTheme = 'light' | 'dark';
   type HomeSectionState = 'loading' | 'ready' | 'error';
@@ -111,7 +109,6 @@
     | { view: 'musicvideos' }
     | { view: 'shows' }
     | { view: 'subscriptions' }
-    | { view: 'photos' }
     | { view: 'libraries' }
     | { view: 'search'; query: string }
     | { view: 'channel'; channel: string }
@@ -221,7 +218,6 @@
   $: movieSources = session.selectedLibraries.filter((source) => source.contentKind === 'movie');
   $: musicSources = session.selectedLibraries.filter((source) => source.contentKind === 'musicVideo');
   $: audioSources = session.selectedLibraries.filter((source) => source.contentKind === 'audio');
-  $: photoSources = session.selectedLibraries.filter((source) => source.contentKind === 'photo');
   $: latestAddedCategorySections = latestAddedSections(latestAdded);
   $: latestShowRawItems = latestAdded.filter((item) => latestAddedSectionId(item) === 'shows');
   $: latestShowCounts = latestShowRawItems.reduce((counts, item) => {
@@ -1008,7 +1004,7 @@
       return nextRoute;
     }
 
-    if (nextRoute.view === 'movies' || nextRoute.view === 'musicvideos' || nextRoute.view === 'photos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
+    if (nextRoute.view === 'movies' || nextRoute.view === 'musicvideos' || nextRoute.view === 'shows' || nextRoute.view === 'subscriptions') {
       showSimpleRoute(nextRoute.view);
       scrollToTop(options.scroll);
       // These routes render straight from loadAll() data (fast-tier list + slow-tier
@@ -1484,7 +1480,6 @@
       nextRoute === 'movies' ||
       nextRoute === 'music' ||
       nextRoute === 'musicvideos' ||
-      nextRoute === 'photos' ||
       nextRoute === 'shows' ||
       nextRoute === 'subscriptions' ||
       nextRoute === 'libraries'
@@ -1497,7 +1492,7 @@
     }
   }
 
-  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'musicvideos' | 'photos' | 'shows' | 'subscriptions') {
+  function showSimpleRoute(nextRoute: 'movies' | 'music' | 'musicvideos' | 'shows' | 'subscriptions') {
     route = nextRoute;
     selectedChannelSeason = 0;
     selectedChannel = '';
@@ -2178,7 +2173,6 @@
       return { view: 'music' };
     }
     if (section === 'shows') return { view: 'shows' };
-    if (section === 'photos') return { view: 'photos' };
     if (section === 'subscriptions') return { view: 'subscriptions' };
     if (section === 'libraries') return { view: 'libraries' };
     if (section === 'channel') return { view: 'channel', channel: parts.slice(1).join('/') || url.searchParams.get('name') || '' };
@@ -2209,7 +2203,6 @@
     }
     if (nextRoute.view === 'shows') return '/shows';
     if (nextRoute.view === 'subscriptions') return '/subscriptions';
-    if (nextRoute.view === 'photos') return '/photos';
     if (nextRoute.view === 'libraries') return '/libraries';
     if (nextRoute.view === 'search') {
       const params = new URLSearchParams({ q: nextRoute.query });
@@ -2242,7 +2235,6 @@
   function loadingLabelForRoute(nextRoute: Route) {
     if (nextRoute === 'movies') return 'Loading movies';
     if (nextRoute === 'musicvideos') return 'Loading music videos';
-    if (nextRoute === 'photos') return 'Loading photos';
     if (nextRoute === 'shows') return 'Loading shows';
     if (nextRoute === 'subscriptions') return 'Loading subscriptions';
     if (nextRoute === 'libraries') return 'Loading libraries';
@@ -2370,14 +2362,6 @@
     >
       <Music size={21} />
       <span>Music</span>
-    </button>
-    <button
-      class:active={route === 'photos'}
-      on:click={() => goRoute('photos')}
-      disabled={photoSources.length === 0}
-    >
-      <Image size={21} />
-      <span>Photos</span>
     </button>
     <button class:active={route === 'shows'} on:click={() => goRoute('shows')} disabled={showDirectoryAll.length === 0}>
       <Podcast size={21} />
@@ -2600,14 +2584,6 @@
       {:else}
         <div class="empty-state">
           <p>Add a Jellyfin <strong>Music</strong> library to use the audio player.</p>
-        </div>
-      {/if}
-    {:else if route === 'photos'}
-      {#if photoSources.length}
-        <PhotoBrowser {client} sources={photoSources} />
-      {:else}
-        <div class="empty-state">
-          <p>Add a Jellyfin <strong>Photos</strong> library to browse your pictures.</p>
         </div>
       {/if}
     {:else if route === 'musicvideos'}

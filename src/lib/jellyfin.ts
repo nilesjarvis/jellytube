@@ -70,7 +70,6 @@ export function isEligibleLibrary(library: JellyfinLibrary) {
 export function libraryKindLabel(collectionType?: string) {
   if (collectionType === 'tvshows') return 'Shows';
   if (collectionType === 'homevideos') return 'Home Videos & Photos';
-  if (collectionType === 'photos') return 'Photos';
   if (collectionType === 'movies') return 'Movies';
   if (collectionType === 'musicvideos') return 'Music Videos';
   if (collectionType === 'music') return 'Music';
@@ -92,7 +91,6 @@ export function libraryToSelectedSource(library: JellyfinLibrary): SelectedLibra
 
 export function contentKindForCollection(collectionType?: string): ContentKind | null {
   if (collectionType === 'tvshows' || collectionType === 'homevideos') return 'video';
-  if (collectionType === 'photos') return 'photo';
   if (collectionType === 'movies') return 'movie';
   if (collectionType === 'musicvideos') return 'musicVideo';
   if (collectionType === 'music') return 'audio';
@@ -103,7 +101,6 @@ export function itemTypesForCollection(collectionType?: string) {
   if (collectionType === 'movies') return 'Movie';
   if (collectionType === 'musicvideos') return 'MusicVideo';
   if (collectionType === 'music') return 'Audio';
-  if (collectionType === 'photos') return 'Photo';
   return 'Video,Episode';
 }
 
