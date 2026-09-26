@@ -814,7 +814,9 @@ export class JellyfinClient {
       'X-Emby-Authorization': auth
     };
     if (authenticated && this.accessToken) {
-      headers['X-Emby-Token'] = this.accessToken;
+      // Jellyfin 12.1 dropped the legacy X-Emby-Token header; it only accepts
+      // the token in the Authorization header (MediaBrowser Token="...").
+      headers['Authorization'] = `MediaBrowser Token="${this.accessToken}"`;
     }
     return headers;
   }
