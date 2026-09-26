@@ -11,6 +11,9 @@
   export let rank: number | null = null;
   /** Already-played entry in a queue drawer; rendered dimmed and non-interactive-looking. */
   export let past = false;
+  /** Narrow containers (the queue drawer) drop the album column via a class, not a
+      viewport media query — the drawer is 420px on every screen size. */
+  export let compact = false;
 
   const dispatch = createEventDispatcher<{ select: JellyfinItem }>();
 
@@ -22,8 +25,9 @@
 <button
   class:active
   class:past
+  class:compact
   class="music-song-row"
-  aria-pressed={active}
+  aria-current={active ? 'true' : null}
   on:click={() => dispatch('select', song)}
 >
   <span class="music-song-track">
@@ -37,7 +41,7 @@
   </span>
   <span class="music-song-title">{song.Name}</span>
   <span class="music-song-artist">{artist}</span>
-  <span class="music-song-album">{song.Album}</span>
+  {#if !compact}<span class="music-song-album">{song.Album}</span>{/if}
   <span class="music-song-duration">{formatDuration(song.RunTimeTicks)}</span>
   <span class="music-song-play"><Play size={16} fill="currentColor" /></span>
 </button>
@@ -70,7 +74,14 @@
     color: var(--muted);
   }
   .music-song-row.active :global(.music-song-title) {
-    color: var(--focus);
+    color: var(--brand);
+    font-weight: 700;
+  }
+  /* Played rows stay clickable; restore most of their weight on hover/focus
+     so they do not read as disabled. */
+  .music-song-row.past:hover,
+  .music-song-row.past:focus-visible {
+    opacity: 0.85;
   }
   .music-song-row:focus-visible {
     outline: 2px solid var(--focus);
@@ -96,6 +107,11 @@
     color: var(--muted);
     font-size: 0.9rem;
   }
+  /* Queue-drawer variant: without the album column the title and artist get
+     readable widths inside the 420px drawer at any viewport width. */
+  .music-song-row.compact {
+    grid-template-columns: 2.6rem minmax(0, 2fr) minmax(0, 1fr) auto auto;
+  }
   .music-song-play {
     display: inline-flex;
     color: var(--muted);
@@ -114,7 +130,7 @@
   .music-eq i {
     width: 3px;
     border-radius: 2px;
-    background: var(--focus);
+    background: var(--brand);
     animation: musicEq 1s ease-in-out infinite;
   }
   .music-eq i:nth-child(2) {

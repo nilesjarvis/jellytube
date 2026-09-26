@@ -38,7 +38,7 @@
     queuePosition,
     type RepeatMode
   } from '../../lib/music/queue';
-  import { musicStreamFor } from '../../lib/music/stream';
+  import { audioFormatLabel, musicStreamFor } from '../../lib/music/stream';
   import { displayTitle } from '../../lib/recommendations';
   import type { JellyfinItem, PlaybackInfo } from '../../lib/types';
   import MusicSongRow from './MusicSongRow.svelte';
@@ -74,6 +74,10 @@
   let volume = clampVolume(Number(localStorage.getItem('jellytube.musicVolume') ?? 0.8) || 0.8);
   let muted = localStorage.getItem('jellytube.musicMuted') === 'true';
   let started = false;
+  // While the user is dragging the seek slider the audio's timeupdate must not
+  // yank the thumb back; park the pending value and commit it on release.
+  let scrubbing = false;
+  let scrubValue = 0;
   let reportTimer: number | undefined;
   let destroyed = false;
   // True only once the <audio> src actually points at the current track, so the
@@ -89,6 +93,9 @@
   // Optimistic favorite state; Jellyfin sends no per-item push, so we mirror it
   // locally and mutate the loaded track's UserData in place.
   let favorite = false;
+  // Audio format actually being heard (e.g. "FLAC"), set once the track's
+  // playback info resolves; shown next to the artist in the bar.
+  let audioFormat = '';
   // Throttle the persisted-position write (localStorage is synchronous).
   let lastPositionWrite = 0;
 
@@ -101,7 +108,7 @@
   $: shuffle = queue?.shuffle ?? false;
   $: currentIndex = queue ? currentPlaylistIndex(queue) : -1;
   $: effectiveVolume = muted ? 0 : volume;
-  // Reset the heart whenever a different track becomes current.
+  $: displaySeconds = scrubbing ? scrubValue : currentSeconds;
   $: favorite = !!current?.UserData?.IsFavorite;
 
   // The queue in playback order (shuffle only rewrites the index permutation),
@@ -111,11 +118,13 @@
   $: nowTrack = playbackCursor >= 0 ? playbackTracks[playbackCursor] : null;
   $: upNext = playbackCursor >= 0 ? playbackTracks.slice(playbackCursor + 1) : playbackTracks;
   $: played = playbackCursor > 0 ? playbackTracks.slice(0, playbackCursor) : [];
-
   $: shuffleTitle = shuffle ? 'Turn off shuffle' : 'Turn on shuffle';
   $: repeatTitle =
     repeatMode === 'off' ? 'Repeat off' : repeatMode === 'all' ? 'Repeat all' : 'Repeat one';
 
+  // Second line of the now-playing cluster: artist (or album) plus a chip
+  // naming the audio format actually being played (e.g. FLAC).
+  $: nowArtist = current?.AlbumArtist || current?.Artists?.join(', ') || current?.Album || '';
   // Where the now-playing art/title should navigate: the track's album, or its
   // first artist as a fallback. Returns null when there's nothing to open.
   function currentContext(): { kind: 'album' | 'artist'; id: string } | null {
@@ -136,7 +145,9 @@
 
   $: if (audioEl) audioEl.volume = effectiveVolume;
 
-  $: if (current) void loadIfNeeded(current);
+  // Keyed on audioEl too: on a cold mount this effect can run before the
+  // <audio> element is bound, and `current` won't change again on its own.
+  $: if (current && audioEl) void loadIfNeeded(current);
   $: updateMediaSession(current, $state.playing);
 
   function showError(message: string) {
@@ -175,6 +186,7 @@
         started = false;
         currentSeconds = 0;
         durationSeconds = 0;
+        audioFormat = audioFormatLabel(stream);
         audioEl.src = stream.src;
         readyToPlay = true;
         // Resume where we left off if the player was torn down mid-track (e.g.
@@ -299,6 +311,28 @@
     currentSeconds = seconds;
     if (current) persistMusicPosition(current.Id, seconds * 10_000_000);
   }
+  function onScrubInput(event: Event) {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (!Number.isFinite(value)) return;
+    scrubbing = true;
+    scrubValue = value;
+  }
+
+  function onScrubChange(event: Event) {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    scrubbing = false;
+    if (Number.isFinite(value)) seekTo(value);
+  }
+
+  // Standard transport behavior: Previous restarts the current song when it is
+  // already a few seconds in, and only steps back otherwise.
+  function onPrevious() {
+    if (currentSeconds > 3) {
+      seekTo(0);
+    } else {
+      stepMusicBack();
+    }
+  }
 
   function toggleMute() {
     muted = !muted;
@@ -406,7 +440,7 @@
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
       navigator.mediaSession.setActionHandler('play', play);
       navigator.mediaSession.setActionHandler('pause', pause);
-      navigator.mediaSession.setActionHandler('previoustrack', () => stepMusicBack());
+      navigator.mediaSession.setActionHandler('previoustrack', onPrevious);
       navigator.mediaSession.setActionHandler('nexttrack', () => {
         if (queue?.repeat === 'one') setMusicRepeat('off');
         advanceMusic();
@@ -497,10 +531,12 @@
           </span>
           <span class="music-now-meta">
             <strong>{displayTitle(current)}</strong>
-            <small>{current.AlbumArtist || current.Artists?.join(', ') || current.Album}</small>
+            <small>
+              <span class="music-now-artist">{nowArtist}</span>
+              {#if audioFormat}<span class="music-now-format">{audioFormat}</span>{/if}
+            </small>
           </span>
         </button>
-      {:else}
         <span class="music-now-main">
           <span class="music-now-art">
             {#if client.getImageUrl(current, 220)}
@@ -511,7 +547,10 @@
           </span>
           <span class="music-now-meta">
             <strong>{displayTitle(current)}</strong>
-            <small>{current.AlbumArtist || current.Artists?.join(', ') || current.Album}</small>
+            <small>
+              <span class="music-now-artist">{nowArtist}</span>
+              {#if audioFormat}<span class="music-now-format">{audioFormat}</span>{/if}
+            </small>
           </span>
         </span>
       {/if}
@@ -527,7 +566,7 @@
         <button class:active={shuffle} class="music-tbtn" title={shuffleTitle} aria-label={shuffleTitle} aria-pressed={shuffle} on:click={cycleShuffle}>
           <Shuffle size={18} />
         </button>
-        <button class="music-tbtn" title="Previous" aria-label="Previous track" on:click={() => stepMusicBack()}>
+        <button class="music-tbtn" title="Previous" aria-label="Previous track" on:click={onPrevious}>
           <SkipBack size={20} fill="currentColor" />
         </button>
         <button class="music-play-toggle" title={playing ? 'Pause' : 'Play'} aria-label={playing ? (buffering ? 'Buffering' : 'Pause') : 'Play'} on:click={() => togglePlayPause()}>
@@ -551,19 +590,21 @@
         </button>
       </div>
       <div class="music-scrubber">
-        <span class="music-time">{formatTime(currentSeconds)}</span>
+        <span class="music-time">{formatTime(displaySeconds)}</span>
         <input
           class="music-range"
           type="range"
           min="0"
           max={durationSeconds || 0}
           step="1"
-          value={currentSeconds}
+          value={displaySeconds}
+          disabled={!durationSeconds}
           aria-label="Seek"
-          on:input={(event) => seekTo(Number((event.currentTarget as HTMLInputElement).value))}
-          style="--pct: {durationSeconds ? (currentSeconds / durationSeconds) * 100 : 0}%"
+          on:input={onScrubInput}
+          on:change={onScrubChange}
+          style="--pct: {durationSeconds ? (displaySeconds / durationSeconds) * 100 : 0}%"
         />
-        <span class="music-time">{formatTime(durationSeconds)}</span>
+        <span class="music-time">{durationSeconds ? formatTime(durationSeconds) : '–:––'}</span>
       </div>
     </div>
 
@@ -596,11 +637,11 @@
           <ListMusic size={18} />
         {/if}
       </button>
+      <button class="music-tbtn music-close" title="Close player" aria-label="Stop and close player" on:click={close}>
+        <X size={16} />
+      </button>
     </div>
 
-    <button class="music-tbtn music-close" title="Close player" aria-label="Stop and close player" on:click={close}>
-      <X size={16} />
-    </button>
 
     {#if showQueue && queue}
       <div class="music-queue">
@@ -612,18 +653,18 @@
         <div class="music-queue-list">
           {#if nowTrack}
             <div class="music-queue-group-label">Now playing</div>
-            <MusicSongRow song={nowTrack} active={nowTrack.Id === current.Id} playingNow={nowTrack.Id === current.Id && playing} on:select={(event) => selectTrack(event.detail)} />
+            <MusicSongRow song={nowTrack} compact active={nowTrack.Id === current.Id} playingNow={nowTrack.Id === current.Id && playing} on:select={(event) => selectTrack(event.detail)} />
           {/if}
           {#if upNext.length}
             <div class="music-queue-group-label">Up next</div>
             {#each upNext as track (track.Id)}
-              <MusicSongRow song={track} active={false} playingNow={false} on:select={(event) => selectTrack(event.detail)} />
+              <MusicSongRow song={track} compact active={false} playingNow={false} on:select={(event) => selectTrack(event.detail)} />
             {/each}
           {/if}
           {#if played.length}
             <div class="music-queue-group-label">Played</div>
             {#each played as track (track.Id)}
-              <MusicSongRow song={track} past active={false} playingNow={false} on:select={(event) => selectTrack(event.detail)} />
+              <MusicSongRow song={track} compact past active={false} playingNow={false} on:select={(event) => selectTrack(event.detail)} />
             {/each}
           {/if}
         </div>
@@ -717,8 +758,29 @@
     font-size: 0.95rem;
   }
   .music-now-meta small {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
     color: var(--muted);
     font-size: 0.82rem;
+  }
+  .music-now-artist {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* Audio format actually being played, e.g. "FLAC". */
+  .music-now-format {
+    flex: none;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
   }
   .music-fav.active {
     color: var(--brand);
@@ -747,7 +809,12 @@
     background: var(--soft);
   }
   .music-tbtn.active {
-    color: var(--focus);
+    color: var(--brand);
+  }
+  .music-tbtn:focus-visible,
+  .music-play-toggle:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
   }
   .music-play-toggle {
     position: relative;
@@ -785,14 +852,22 @@
     -webkit-appearance: none;
     appearance: none;
     flex: 1;
-    height: 4px;
-    border-radius: 4px;
+    /* The input is a generous hit area; the 4px visual track is painted
+       centered inside it so dragging and clicking stay easy. */
+    height: 16px;
     background: linear-gradient(
       to right,
       var(--brand) 0 var(--pct),
       var(--border) var(--pct) 100%
     );
-    outline: none;
+    background-repeat: no-repeat;
+    background-size: 100% 4px;
+    background-position: center;
+    cursor: pointer;
+  }
+  .music-range:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
   }
   .music-range::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -827,10 +902,13 @@
   .music-volume {
     max-width: 88px;
   }
+  /* Quieter than the transport controls: it stops playback and clears the
+     queue, so it should not invite stray clicks next to the queue toggle. */
   .music-close {
-    position: absolute;
-    top: 8px;
-    right: 8px;
+    color: var(--muted);
+  }
+  .music-close:hover {
+    color: var(--text);
   }
   .music-error {
     position: absolute;
@@ -872,7 +950,7 @@
     font-size: 0.8rem;
   }
   .music-queue-head .text-action.active {
-    color: var(--focus);
+    color: var(--brand);
   }
   .music-queue-list {
     overflow-y: auto;
@@ -900,23 +978,19 @@
     }
   }
   /* On phones, stack the player into rows so every control stays reachable:
-     now-playing + close on top, transport below, then volume/queue. */
+     now-playing on top, transport below, then volume/queue/close. */
   @media (max-width: 640px) {
     .music-player {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-areas:
-        "now close"
-        "transport transport"
-        "side side";
+        "now"
+        "transport"
+        "side";
       row-gap: 8px;
       padding: 8px 12px 10px;
     }
-    .music-close {
-      position: static; /* keep the stop button visible on every screen */
-      width: 34px;
-      height: 34px;
-    }
-    .music-now-meta small {
+    /* The artist line is dropped for space; the format chip stays visible. */
+    .music-now-artist {
       display: none;
     }
     .music-transport {
