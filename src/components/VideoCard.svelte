@@ -166,6 +166,20 @@
             lowLatencyMode: false,
             autoStartLoad: true,
             backBufferLength: 0,
+            // Jellyfin 12.x drops ?api_key= on HLS endpoints; every manifest and
+            // segment request must carry the token in the Authorization header.
+            xhrSetup: (xhr) => {
+              const auth = client.authHeader;
+              if (auth) xhr.setRequestHeader('Authorization', auth);
+            },
+            fetchSetup: (context, init) => {
+              const auth = client.authHeader;
+              if (!auth) return new Request(context.url, init);
+              return new Request(context.url, {
+                ...(init ?? {}),
+                headers: { ...(init?.headers ?? {}), Authorization: auth }
+              });
+            },
             maxBufferLength: HOVER_PREVIEW_HLS_BUFFER_SECONDS,
             maxMaxBufferLength: HOVER_PREVIEW_HLS_MAX_BUFFER_SECONDS,
             maxBufferSize: HOVER_PREVIEW_HLS_MAX_BUFFER_SIZE,

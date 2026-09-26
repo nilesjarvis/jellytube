@@ -861,6 +861,20 @@
         backBufferLength: 120,
         capLevelToPlayerSize: attempt.playMethod !== 'DirectStream',
         maxBufferLength: 45,
+        // Jellyfin 12.x drops ?api_key= on HLS endpoints; every manifest and
+        // segment request must carry the token in the Authorization header.
+        xhrSetup: (xhr) => {
+          const auth = client.authHeader;
+          if (auth) xhr.setRequestHeader('Authorization', auth);
+        },
+        fetchSetup: (context, init) => {
+          const auth = client.authHeader;
+          if (!auth) return new Request(context.url, init);
+          return new Request(context.url, {
+            ...(init ?? {}),
+            headers: { ...(init?.headers ?? {}), Authorization: auth }
+          });
+        },
         videoPreference: attempt.playMethod === 'DirectStream'
           ? hlsRemuxVideoPreference(remuxCapabilities)
           : undefined

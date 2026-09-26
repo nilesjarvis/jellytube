@@ -240,6 +240,13 @@ export class JellyfinClient {
   userId?: string;
   deviceId = getDeviceId();
 
+  /** Auth header value for Jellyfin 12+: HLS endpoints require the token in the
+   *  Authorization header (the legacy ?api_key= query param is 401 on 12.x). */
+  get authHeader() {
+    return this.accessToken ? `MediaBrowser Token="${this.accessToken}"` : '';
+  }
+
+
   constructor(serverUrl: string, accessToken?: string, userId?: string) {
     this.serverUrl = normalizeServerUrl(serverUrl);
     this.accessToken = accessToken;
