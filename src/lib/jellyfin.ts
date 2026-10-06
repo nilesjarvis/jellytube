@@ -818,7 +818,11 @@ export class JellyfinClient {
     const auth = `MediaBrowser Client="${CLIENT_NAME}", Device="Browser", DeviceId="${this.deviceId}", Version="${CLIENT_VERSION}"`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Emby-Authorization': auth
+      // Jellyfin 12.1 no longer parses the legacy X-Emby-Authorization header;
+      // the client identity must ride in Authorization or login 400s with
+      // ArgumentNullException (request.App null).
+      'X-Emby-Authorization': auth,
+      'Authorization': auth
     };
     if (authenticated && this.accessToken) {
       // Jellyfin 12.1 dropped the legacy X-Emby-Token header; it only accepts
